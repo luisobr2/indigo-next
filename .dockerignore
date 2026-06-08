@@ -1,0 +1,23 @@
+# Skip everything that would bloat the build context.
+node_modules
+.next
+.git
+.gitignore
+.github
+
+# Local dev env — Coolify injects real env vars at runtime.
+.env*
+!.env.example
+
+# IDE / OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Build artifacts + screenshots that aren't part of the prod bundle
+.playwright-mcp
+*.tsbuildinfo
+README.md
+AGENTS.md
+CLAUDE.md

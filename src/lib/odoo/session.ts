@@ -1,0 +1,49 @@
+/**
+ * Server-only session helpers. Reads + writes the Indigo session cookie
+ * via the next/headers `cookies()` API.
+ *
+ * Pure types + helpers (deriveRole, SessionPayload) live in ./types so
+ * client components can import them safely.
+ */
+import "server-only";
+import { cookies } from "next/headers";
+import type { SessionPayload } from "./types";
+export type { SessionPayload, SessionUser } from "./types";
+export { deriveRole } from "./types";
+
+const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "indigo_session";
+
+export async function getSession(): Promise<SessionPayload | null> {
+  const store = await cookies();
+  const raw = store.get(COOKIE_NAME)?.value;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as SessionPayload;
+  } catch {
+    return null;
+  }
+}
+
+export async function requireSession(): Promise<SessionPayload> {
+  const s = await getSession();
+  if (!s) throw new Response("Unauthorized", { status: 401 });
+  return s;
+}
+
+export async function writeSession(payload: SessionPayload): Promise<void> {
+  const store = await cookies();
+  store.set(COOKIE_NAME, JSON.stringify(payload), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 8,
+  });
+}
+
+export async function clearSession(): Promise<void> {
+  const store = await cookies();
+  store.delete(COOKIE_NAME);
+}
+
+export const SESSION_COOKIE = COOKIE_NAME;
