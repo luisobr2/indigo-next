@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { fmtMoney, fmtNum, m2o } from "@/lib/utils";
 import { ActivityFeed } from "@/components/activity-feed";
+import { DesignCarousel } from "@/components/design-carousel";
+import { FilesDocumentsPanel } from "@/components/files-documents-panel";
 import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal";
 import { OrderDetailSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
@@ -188,32 +190,15 @@ export default function OrderDetailPage({
         {/* LEFT col */}
         <div className="space-y-5 lg:col-span-9">
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            {/* Door image */}
-            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-              <div className="flex h-64 items-center justify-center overflow-hidden rounded-xl bg-slate-50">
-                {data.designImage ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={data.designImage}
-                    alt="Door design"
-                    className="h-full w-auto object-contain"
-                    onError={(e) => {
-                      // The design has no image yet — hide gracefully.
-                      const el = e.currentTarget;
-                      el.style.display = "none";
-                      const sibling = el.nextElementSibling as HTMLElement | null;
-                      if (sibling) sibling.style.display = "block";
-                    }}
-                  />
-                ) : null}
-                <span
-                  className="text-sm text-slate-300"
-                  style={{ display: data.designImage ? "none" : "block" }}
-                >
-                  No design image
-                </span>
-              </div>
-            </div>
+            {/* Door image — carousel */}
+            <DesignCarousel
+              designId={
+                lines[0]?.design_id
+                  ? (lines[0].design_id as [number, string])[0]
+                  : null
+              }
+              fallbackUrl={data.designImage}
+            />
 
             {/* Order info */}
             <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -429,6 +414,16 @@ export default function OrderDetailPage({
             </table>
             </div>
           </div>
+
+          {/* Files & Documents */}
+          <FilesDocumentsPanel
+            orderId={parseInt(id, 10)}
+            reports={[
+              { label: "Order Card", icon: "card", url: data.orderCardPdfUrl },
+              { label: "Designer Label", icon: "ticket", url: data.labelPdfUrl },
+              { label: "Painter Sheet", icon: "paint", url: data.paintSheetPdfUrl },
+            ]}
+          />
 
           {/* Activity feed (mail.message chatter) */}
           <ActivityFeed orderId={parseInt(id, 10)} />

@@ -30,10 +30,31 @@ interface DesignPayload {
     description: string | false;
     door_type: string | false;
     active: boolean;
+    allowed_colors?: string | false;
+    allowed_glass_types?: string | false;
+    allowed_brand_ids?: number[];
+    min_width?: number;
+    max_width?: number;
+    min_height?: number;
+    max_height?: number;
   };
   usedIn: number;
   imageUrl: string | null;
+  supportsVariations: boolean;
 }
+
+interface Brand {
+  id: number;
+  name: string;
+  code?: string | false;
+}
+
+const COLOR_OPTIONS = [
+  { value: "white", label: "White" },
+  { value: "bronze", label: "Bronze" },
+  { value: "black", label: "Black" },
+  { value: "custom", label: "Custom" },
+] as const;
 
 const DOOR_TYPES = [
   { value: "SD", label: "Single Door" },
@@ -57,10 +78,23 @@ export default function DesignEditorPage({
   const [doorType, setDoorType] = useState<string>("");
   const [description, setDescription] = useState("");
   const [active, setActive] = useState(true);
+  const [allowedColors, setAllowedColors] = useState<string[]>([]);
+  const [allowedGlassTypes, setAllowedGlassTypes] = useState<string>("");
+  const [allowedBrandIds, setAllowedBrandIds] = useState<number[]>([]);
+  const [minWidth, setMinWidth] = useState<string>("");
+  const [maxWidth, setMaxWidth] = useState<string>("");
+  const [minHeight, setMinHeight] = useState<string>("");
+  const [maxHeight, setMaxHeight] = useState<string>("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const brandsQ = useQuery<{ records: Brand[] }>({
+    queryKey: ["catalog-brands"],
+    queryFn: () => fetch("/api/catalog/brands").then((r) => r.json()),
+    staleTime: 5 * 60_000,
+  });
 
   const { data, isLoading, error, refetch } = useQuery<DesignPayload>({
     queryKey: ["design", idStr],
@@ -71,19 +105,43 @@ export default function DesignEditorPage({
 
   useEffect(() => {
     if (!data?.design) return;
-    setCode(data.design.code || "");
-    setName(typeof data.design.name === "string" ? data.design.name : "");
-    setDoorType(
-      typeof data.design.door_type === "string" ? data.design.door_type : "",
+    const d = data.design;
+    setCode(d.code || "");
+    setName(typeof d.name === "string" ? d.name : "");
+    setDoorType(typeof d.door_type === "string" ? d.door_type : "");
+    setDescription(typeof d.description === "string" ? d.description : "");
+    setActive(!!d.active);
+    setAllowedColors(
+      typeof d.allowed_colors === "string"
+        ? d.allowed_colors.split(",").map((x) => x.trim()).filter(Boolean)
+        : [],
     );
-    setDescription(
-      typeof data.design.description === "string"
-        ? data.design.description
-        : "",
+    setAllowedGlassTypes(
+      typeof d.allowed_glass_types === "string" ? d.allowed_glass_types : "",
     );
-    setActive(!!data.design.active);
+    setAllowedBrandIds(Array.isArray(d.allowed_brand_ids) ? d.allowed_brand_ids : []);
+    setMinWidth(d.min_width ? String(d.min_width) : "");
+    setMaxWidth(d.max_width ? String(d.max_width) : "");
+    setMinHeight(d.min_height ? String(d.min_height) : "");
+    setMaxHeight(d.max_height ? String(d.max_height) : "");
     setDirty(false);
   }, [data]);
+
+  function toggleColor(value: string) {
+    setAllowedColors((prev) =>
+      prev.includes(value) ? prev.filter((c) => c !== value) : [...prev, value],
+    );
+    setDirty(true);
+  }
+
+  function toggleBrand(brandId: number) {
+    setAllowedBrandIds((prev) =>
+      prev.includes(brandId)
+        ? prev.filter((b) => b !== brandId)
+        : [...prev, brandId],
+    );
+    setDirty(true);
+  }
 
   function markDirty<T>(setter: (v: T) => void) {
     return (v: T) => {
@@ -104,6 +162,13 @@ export default function DesignEditorPage({
       door_type: doorType,
       description,
       active,
+      allowed_colors: allowedColors.join(","),
+      allowed_glass_types: allowedGlassTypes,
+      allowed_brand_ids: allowedBrandIds,
+      min_width: parseFloat(minWidth) || 0,
+      max_width: parseFloat(maxWidth) || 0,
+      min_height: parseFloat(minHeight) || 0,
+      max_height: parseFloat(maxHeight) || 0,
     };
     try {
       if (isNew) {
@@ -138,6 +203,14 @@ export default function DesignEditorPage({
   }
 
   async function uploadImage(file: File) {
+    // eslint-disable-next-line no-console
+    console.log("[design-image] uploadImage called", {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+      designId: id,
+      isNew,
+    });
     if (isNew) {
       toast.warning("Save the design first, then add the image");
       return;
@@ -150,10 +223,19 @@ export default function DesignEditorPage({
       body: fd,
     })
       .then(async (r) => {
+        // eslint-disable-next-line no-console
+        console.log("[design-image] upload response", { status: r.status });
         const j = await r.json();
+        // eslint-disable-next-line no-console
+        console.log("[design-image] upload body", j);
         if (!r.ok || !j.ok) throw new Error(j.error || "Upload failed");
         qc.invalidateQueries({ queryKey: ["design", idStr] });
         return j;
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[design-image] upload failed", err);
+        throw err;
       })
       .finally(() => setUploadingImage(false));
     toast.promise(promise, {
@@ -336,6 +418,128 @@ export default function DesignEditorPage({
             </div>
           </div>
 
+          {/* ---------- Variations ---------- */}
+          <div className="border-t border-slate-100 pt-5">
+            <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-slate-500">
+              Variations
+            </h2>
+            <p className="mb-4 text-xs text-slate-500">
+              Restrict what an order line can pick when this design is chosen.
+              Leave blank to allow anything.
+            </p>
+
+            <div className="space-y-5">
+              {/* Colors */}
+              <div>
+                <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Colors available
+                </Label>
+                <div className="flex flex-wrap gap-2">
+                  {COLOR_OPTIONS.map((c) => {
+                    const checked = allowedColors.includes(c.value);
+                    return (
+                      <button
+                        key={c.value}
+                        type="button"
+                        onClick={() => toggleColor(c.value)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                          checked
+                            ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Glass types */}
+              <div>
+                <Label htmlFor="glass-types" className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Glass types available
+                </Label>
+                <Input
+                  id="glass-types"
+                  value={allowedGlassTypes}
+                  onChange={(e) => markDirty(setAllowedGlassTypes)(e.target.value)}
+                  placeholder="e.g. ESW, CGI, Tempered"
+                  className="h-10"
+                />
+                <p className="mt-1 text-[10px] text-slate-400">
+                  Comma-separated tokens. Empty = free-form glass type field.
+                </p>
+              </div>
+
+              {/* Compatible brands */}
+              <div>
+                <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Compatible brands
+                </Label>
+                {(brandsQ.data?.records ?? []).length === 0 ? (
+                  <p className="text-xs italic text-slate-400">Loading brands…</p>
+                ) : (
+                  <div className="grid max-h-40 grid-cols-2 gap-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/40 p-2 scrollbar-thin md:grid-cols-3">
+                    {(brandsQ.data?.records ?? []).map((b) => {
+                      const checked = allowedBrandIds.includes(b.id);
+                      return (
+                        <label
+                          key={b.id}
+                          className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-xs text-slate-700 hover:bg-white"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleBrand(b.id)}
+                          />
+                          <span className="truncate">{b.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="mt-1 text-[10px] text-slate-400">
+                  {allowedBrandIds.length === 0
+                    ? "None selected = any brand is allowed."
+                    : `${allowedBrandIds.length} selected.`}
+                </p>
+              </div>
+
+              {/* Dimensions */}
+              <div>
+                <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Dimension range (inches)
+                </Label>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <DimInput
+                    label="Min width"
+                    value={minWidth}
+                    onChange={markDirty(setMinWidth)}
+                  />
+                  <DimInput
+                    label="Max width"
+                    value={maxWidth}
+                    onChange={markDirty(setMaxWidth)}
+                  />
+                  <DimInput
+                    label="Min height"
+                    value={minHeight}
+                    onChange={markDirty(setMinHeight)}
+                  />
+                  <DimInput
+                    label="Max height"
+                    value={maxHeight}
+                    onChange={markDirty(setMaxHeight)}
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  0 = no constraint.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {!isNew && (
             <div className="border-t border-slate-100 pt-5">
               <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
@@ -393,39 +597,86 @@ export default function DesignEditorPage({
             )}
           </div>
 
+          {/*
+            File picker pattern that works EVERYWHERE:
+            - Native <input type="file"> positioned absolutely and styled
+              visually invisible (sr-only-like). NOT display:none because
+              Safari / Firefox sometimes refuse to programmatically click
+              inputs that aren't in the layout tree.
+            - <label htmlFor> linked to it — clicking the label fires the
+              file picker via the browser's native semantic association.
+            - Extra onClick on the label as belt-and-suspenders: some
+              browsers also need an explicit click handler when the input
+              is inside a parent with pointer-events tweaks.
+          */}
           <input
             ref={fileInputRef}
+            id="design-image-input"
             type="file"
             accept="image/*"
             onChange={(e) => {
+              // eslint-disable-next-line no-console
+              console.log("[design-image] input onChange fired", {
+                files: e.target.files?.length ?? 0,
+              });
               const f = e.target.files?.[0];
               if (f) uploadImage(f);
               e.target.value = "";
             }}
-            className="hidden"
+            style={{
+              position: "absolute",
+              width: 1,
+              height: 1,
+              padding: 0,
+              margin: -1,
+              overflow: "hidden",
+              clip: "rect(0,0,0,0)",
+              whiteSpace: "nowrap",
+              border: 0,
+            }}
           />
           <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={uploadingImage || isNew}
-              onClick={() => fileInputRef.current?.click()}
-              className="flex-1"
+            <label
+              htmlFor="design-image-input"
+              onClick={(e) => {
+                // eslint-disable-next-line no-console
+                console.log("[design-image] label clicked", {
+                  isNew,
+                  uploadingImage,
+                });
+                // Block when disabled; otherwise let the native label →
+                // input association open the picker. Don't call .click()
+                // here — that would fire a SECOND file picker.
+                if (isNew) {
+                  e.preventDefault();
+                  toast.warning("Save the design first, then add the image");
+                  return;
+                }
+                if (uploadingImage) {
+                  e.preventDefault();
+                }
+              }}
+              className={`inline-flex h-10 flex-1 cursor-pointer select-none items-center justify-center gap-1.5 rounded-lg border text-sm font-medium transition ${
+                isNew || uploadingImage
+                  ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700"
+              }`}
             >
               <Camera size={14} />
-              {imageUrl ? "Replace image" : "Add image"}
-            </Button>
+              {uploadingImage
+                ? "Uploading…"
+                : imageUrl
+                  ? "Replace image"
+                  : "Add image"}
+            </label>
             {imageUrl && (
-              <Button
+              <button
                 type="button"
-                variant="outline"
-                size="sm"
                 onClick={deleteImage}
-                className="text-rose-600 hover:bg-rose-50"
+                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-rose-600 transition hover:bg-rose-50"
               >
                 <Trash2 size={14} />
-              </Button>
+              </button>
             )}
           </div>
           {isNew && (
@@ -435,6 +686,32 @@ export default function DesignEditorPage({
           )}
         </section>
       </div>
+    </div>
+  );
+}
+
+function DimInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-[10px] uppercase tracking-wide text-slate-500">
+        {label}
+      </label>
+      <Input
+        type="number"
+        step="0.1"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="0"
+        className="h-9 text-sm"
+      />
     </div>
   );
 }

@@ -4,7 +4,13 @@ import { requireSession } from "@/lib/odoo/session";
 
 export const runtime = "nodejs";
 
-const FIELDS = [
+/**
+ * Field sets to request from Odoo. The "v2" lists include the new fields
+ * Majela's 2026-06-08 mockup review added. We request the full set first
+ * and fall back to the base set when the Odoo upgrade hasn't landed yet,
+ * so the order detail still works against an old Odoo backend.
+ */
+const ORDER_FIELDS_BASE = [
   "id",
   "name",
   "dealer_id",
@@ -38,7 +44,18 @@ const FIELDS = [
   "notes",
 ];
 
-const LINE_FIELDS = [
+const ORDER_FIELDS_V2_EXTRA = [
+  "digi_started_at",
+  "digi_done_at",
+  "cnc_started_at",
+  "cnc_done_at",
+  "paint_started_at",
+  "paint_done_at",
+  "cancelled_at",
+  "cancellation_reason",
+];
+
+const LINE_FIELDS_BASE = [
   "id",
   "design_id",
   "door_type",
@@ -59,6 +76,14 @@ const LINE_FIELDS = [
   "sequence",
 ];
 
+const LINE_FIELDS_V2_EXTRA = [
+  "material",
+  "thickness",
+  "paint_sides",
+  "sidelite_margin_left",
+  "sidelite_margin_right",
+];
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -71,28 +96,53 @@ export async function GET(
       return NextResponse.json({ error: "Bad id" }, { status: 400 });
     }
 
-    const records = await call<Array<Record<string, unknown>>>({
-      session: s.session,
-      model: "indigo.order",
-      method: "read",
-      args: [[id], FIELDS],
-      kwargs: {},
-    });
+    // Try the v2 field set first (with cancellation + sub-status
+    // timestamps) and fall back to base if the Odoo addon hasn't been
+    // upgraded yet. Same trick on the lines below.
+    let records: Array<Record<string, unknown>>;
+    try {
+      records = await call<Array<Record<string, unknown>>>({
+        session: s.session,
+        model: "indigo.order",
+        method: "read",
+        args: [[id], [...ORDER_FIELDS_BASE, ...ORDER_FIELDS_V2_EXTRA]],
+        kwargs: {},
+      });
+    } catch {
+      records = await call<Array<Record<string, unknown>>>({
+        session: s.session,
+        model: "indigo.order",
+        method: "read",
+        args: [[id], ORDER_FIELDS_BASE],
+        kwargs: {},
+      });
+    }
     if (!records.length) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     const order = records[0];
 
     const lineIds = (order.line_ids ?? []) as number[];
-    const lines = lineIds.length
-      ? await call<Array<Record<string, unknown>>>({
+    let lines: Array<Record<string, unknown>> = [];
+    if (lineIds.length) {
+      try {
+        lines = await call<Array<Record<string, unknown>>>({
           session: s.session,
           model: "indigo.order.line",
           method: "read",
-          args: [lineIds, LINE_FIELDS],
+          args: [lineIds, [...LINE_FIELDS_BASE, ...LINE_FIELDS_V2_EXTRA]],
           kwargs: {},
-        })
-      : [];
+        });
+      } catch {
+        lines = await call<Array<Record<string, unknown>>>({
+          session: s.session,
+          model: "indigo.order.line",
+          method: "read",
+          args: [lineIds, LINE_FIELDS_BASE],
+          kwargs: {},
+        });
+      }
+    }
 
     // Stage history for the progress timeline
     type StageRow = { id: number; name: string; sequence: number; code: string };

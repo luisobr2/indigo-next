@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ShoppingBag,
@@ -10,12 +11,15 @@ import {
   Activity,
   Building2,
   ChevronRight,
+  Calendar,
+  MessageSquare,
 } from "lucide-react";
 import Link from "next/link";
 import { KpiCard } from "@/components/kpi-card";
 import { DashboardSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
-import { fmtMoney, fmtNum } from "@/lib/utils";
+import { fmtMoney, fmtNum, fmtDateTime } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   BarChart,
   Bar,
@@ -90,10 +94,44 @@ interface RevenueSeriesPayload {
   series: Array<{ month: string; label: string; value: number }>;
 }
 
+type DateRange = "today" | "7d" | "30d" | "90d";
+
+const RANGE_LABEL: Record<DateRange, string> = {
+  today: "Today",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  "90d": "Last 90 days",
+};
+
+const RANGE_MONTHS: Record<DateRange, number> = {
+  today: 1,
+  "7d": 1,
+  "30d": 3,
+  "90d": 6,
+};
+
+interface ActivityRecord {
+  id: number;
+  date: string;
+  author: string;
+  body: string;
+  subject: string | false;
+  order_id: number;
+  order_name: string;
+  stage: string;
+}
+
 export default function DashboardPage() {
+  const [range, setRange] = useState<DateRange>("30d");
+
   const { data, isLoading, error, refetch } = useQuery<DashboardData>({
     queryKey: ["dashboard"],
     queryFn: () => fetch("/api/dashboard").then((r) => r.json()),
+  });
+  const { data: activity } = useQuery<{ records: ActivityRecord[] }>({
+    queryKey: ["dashboard-activity"],
+    queryFn: () => fetch("/api/activity?limit=15").then((r) => r.json()),
+    staleTime: 30_000,
   });
   const { data: settings } = useQuery<CapacitiesPayload>({
     queryKey: ["settings"],
@@ -134,15 +172,39 @@ export default function DashboardPage() {
   }));
 
 
+  // Trim the revenue series to the selected window.
+  const monthsToShow = RANGE_MONTHS[range];
+  const revenueSeries = (revenue?.series ?? []).slice(-monthsToShow);
+
   return (
     <div className="mx-auto max-w-[1500px] space-y-6">
-      <header>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-          Good morning, Production
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Here&apos;s what&apos;s happening in Indigo Decors today.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+            Good morning, Production
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Here&apos;s what&apos;s happening in Indigo Decors today.
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-1 text-xs shadow-sm">
+          <Calendar size={14} className="ml-2 text-slate-400" />
+          {(Object.keys(RANGE_LABEL) as DateRange[]).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setRange(k)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 font-medium transition",
+                range === k
+                  ? "bg-indigo-700 text-white shadow"
+                  : "text-slate-600 hover:bg-slate-50",
+              )}
+            >
+              {RANGE_LABEL[k]}
+            </button>
+          ))}
+        </div>
       </header>
 
       {/* ---------- KPI cards ---------- */}
@@ -202,7 +264,7 @@ export default function DashboardPage() {
           </div>
           <div className="h-64">
             <ResponsiveContainer>
-              <BarChart data={revenue?.series ?? []}>
+              <BarChart data={revenueSeries}>
                 <CartesianGrid stroke="#eef2fa" strokeDasharray="3 3" />
                 <XAxis dataKey="label" stroke="#94a3b8" fontSize={11} />
                 <YAxis
@@ -437,7 +499,9 @@ export default function DashboardPage() {
         </div>
 
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <h3 className="mb-4 font-semibold text-slate-800">Health</h3>
+          <h3 className="mb-4 flex items-center gap-2 font-semibold text-slate-800">
+            Health
+          </h3>
           <div className="space-y-3">
             <HealthCard
               icon={Activity}
@@ -463,6 +527,65 @@ export default function DashboardPage() {
             />
           </div>
         </div>
+      </section>
+
+      {/* ---------- Recent Activity ---------- */}
+      <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 font-semibold text-slate-800">
+            <MessageSquare size={16} className="text-indigo-700" />
+            Recent Activity
+          </h3>
+          <span className="text-xs text-slate-400">
+            {activity?.records?.length ?? 0} events
+          </span>
+        </div>
+        {!activity?.records?.length ? (
+          <div className="rounded-xl bg-slate-50 p-6 text-center text-sm text-slate-400">
+            No recent activity yet.
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {activity.records.slice(0, 10).map((a) => (
+              <li
+                key={a.id}
+                className="flex items-start gap-3 rounded-xl border border-slate-100 p-3 text-sm"
+              >
+                <div className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-indigo-50 text-xs font-bold text-indigo-700">
+                  {a.author
+                    .split(" ")
+                    .map((w) => w[0])
+                    .slice(0, 2)
+                    .join("")}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <Link
+                      href={`/orders/${a.order_id}`}
+                      className="font-semibold text-indigo-700 hover:underline"
+                    >
+                      {a.order_name}
+                    </Link>
+                    <span className="text-xs text-slate-500">
+                      {a.author} · {a.stage}
+                    </span>
+                    <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-400">
+                      {fmtDateTime(a.date)}
+                    </span>
+                  </div>
+                  <div
+                    className="prose prose-sm mt-0.5 max-w-none text-slate-600 line-clamp-2"
+                    dangerouslySetInnerHTML={{
+                      __html: a.subject
+                        ? `<strong>${a.subject}</strong> · ${a.body}`
+                        : a.body,
+                    }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </div>
   );

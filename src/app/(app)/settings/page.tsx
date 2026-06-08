@@ -302,15 +302,15 @@ export default function SettingsPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <ShortcutCard
             icon={Building2}
-            title="Dealers"
-            description="Manage dealers, branding, default price per SQF, contacts."
-            href="/dealers"
+            title="Dealers & Catalog"
+            description="Dealers, brands, door designs and codes."
+            href="/catalog"
           />
           <ShortcutCard
             icon={Layers}
-            title="Catalog"
-            description="Door designs and codes available to dealers."
-            href="/designs"
+            title="Orders"
+            description="Filter, search and inspect every active order."
+            href="/orders"
           />
         </div>
       </section>

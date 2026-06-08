@@ -230,14 +230,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : "gap-3 px-3 py-2.5",
                   active
                     ? "bg-indigo-50 text-indigo-700"
-                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+                    : "text-slate-800 hover:bg-slate-50 hover:text-slate-900",
                 )}
               >
                 <Icon
                   size={18}
                   className={cn(
                     "shrink-0",
-                    active ? "text-indigo-700" : "text-slate-400",
+                    active ? "text-indigo-700" : "text-slate-600",
                   )}
                 />
                 {!isCollapsed && <span>{item.label}</span>}

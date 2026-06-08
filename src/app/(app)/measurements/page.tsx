@@ -1,59 +1,74 @@
 "use client";
-import Link from "next/link";
-import { StageScreen } from "@/components/stage-screen";
+import { Ruler, CheckCircle2, PauseCircle, AlertCircle } from "lucide-react";
+import { StageScreenV2 } from "@/components/stage-screen-v2";
 import { m2o, fmtDate, fmtNum } from "@/lib/utils";
 
 export default function MeasurementsPage() {
   return (
-    <StageScreen
+    <StageScreenV2
       title="Measurements"
       subtitle="Orders awaiting measurement or with confirmed dimensions."
       stageCode={["measure_pending", "measured"]}
-      advanceWizard="indigo.measurement.entry.wizard"
-      advanceLabel="Start Measurements"
-      kpis={[
-        { label: "Pending", code: "measure_pending", color: "#f59e0b" },
-        { label: "Measured", code: "measured", color: "#10b981" },
-        { label: "On Hold", code: "on_hold", color: "#ef4444" },
-        { label: "All", code: "all", color: "#1f4486" },
+      startActionLabel="Start Measurements"
+      tabs={[
+        {
+          key: "ready",
+          label: "Pending",
+          icon: Ruler,
+          iconBg: "bg-amber-50",
+          iconColor: "text-amber-600",
+          pillBg: "bg-amber-50",
+          pillText: "text-amber-700",
+          stageCodes: ["measure_pending"],
+        },
+        {
+          key: "completed",
+          label: "Measured",
+          icon: CheckCircle2,
+          iconBg: "bg-emerald-50",
+          iconColor: "text-emerald-600",
+          pillBg: "bg-emerald-50",
+          pillText: "text-emerald-700",
+          stageCodes: ["measured"],
+        },
+        {
+          key: "on_hold",
+          label: "On Hold",
+          icon: PauseCircle,
+          iconBg: "bg-slate-100",
+          iconColor: "text-slate-600",
+          pillBg: "bg-slate-100",
+          pillText: "text-slate-600",
+        },
+        {
+          key: "cancelled",
+          label: "Cancelled",
+          icon: AlertCircle,
+          iconBg: "bg-rose-50",
+          iconColor: "text-rose-600",
+          pillBg: "bg-rose-50",
+          pillText: "text-rose-700",
+        },
       ]}
       columns={[
         {
-          key: "name",
-          label: "Order #",
-          render: (r) => (
-            <Link
-              href={`/orders/${r.id}`}
-              className="font-semibold text-indigo-700 hover:underline"
-            >
-              {r.name}
-            </Link>
-          ),
+          key: "phone",
+          label: "Phone",
+          render: (r) => r.client_phone || "—",
         },
         {
-          key: "client_name",
-          label: "Client / Address",
-          render: (r) => (
-            <div>
-              <div className="font-medium">{r.client_name}</div>
-              <div className="text-xs text-slate-500">{r.client_address}</div>
-            </div>
-          ),
-        },
-        { key: "client_phone", label: "Phone" },
-        {
-          key: "dealer_id",
+          key: "dealer",
           label: "Dealer",
           render: (r) => m2o(r.dealer_id)?.name ?? "—",
         },
         {
-          key: "door_count",
+          key: "doors",
           label: "Doors",
           align: "right",
           render: (r) => fmtNum(r.door_count),
         },
         {
-          key: "expected_completion_date",
+          key: "due",
           label: "Due",
           render: (r) => fmtDate(r.expected_completion_date as string),
         },

@@ -13,7 +13,7 @@ export const runtime = "nodejs";
  * <img src=odoo:8069/...> calls.
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -21,20 +21,43 @@ export async function GET(
     const { id: idStr } = await context.params;
     const id = Number(idStr);
 
-    const attachments = await call<Array<{ id: number; mimetype: string }>>({
-      session: s.session,
-      model: "ir.attachment",
-      method: "search_read",
-      args: [
-        [
-          ["res_model", "=", "indigo.design"],
-          ["res_id", "=", id],
+    const sp = req.nextUrl.searchParams;
+    // ?att=N pins a specific attachment id, else returns the most recent.
+    const attParam = sp.get("att");
+
+    let att: { id: number; mimetype: string } | undefined;
+    if (attParam) {
+      const ids = await call<Array<{ id: number; mimetype: string }>>({
+        session: s.session,
+        model: "ir.attachment",
+        method: "search_read",
+        args: [
+          [
+            ["id", "=", Number(attParam)],
+            ["res_model", "=", "indigo.design"],
+            ["res_id", "=", id],
+          ],
+          ["id", "mimetype"],
         ],
-        ["id", "mimetype"],
-      ],
-      kwargs: { order: "create_date desc", limit: 1 },
-    });
-    const att = attachments[0];
+        kwargs: { limit: 1 },
+      });
+      att = ids[0];
+    } else {
+      const attachments = await call<Array<{ id: number; mimetype: string }>>({
+        session: s.session,
+        model: "ir.attachment",
+        method: "search_read",
+        args: [
+          [
+            ["res_model", "=", "indigo.design"],
+            ["res_id", "=", id],
+          ],
+          ["id", "mimetype"],
+        ],
+        kwargs: { order: "create_date desc", limit: 1 },
+      });
+      att = attachments[0];
+    }
     if (!att) {
       return new NextResponse("No image", { status: 404 });
     }

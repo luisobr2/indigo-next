@@ -57,6 +57,34 @@ export async function GET(
   }
 }
 
+export async function DELETE(
+  req: NextRequest,
+  _ctx: { params: Promise<{ id: string }> },
+) {
+  try {
+    const s = await requireSession();
+    const sp = req.nextUrl.searchParams;
+    const attId = Number(sp.get("att"));
+    if (!Number.isFinite(attId)) {
+      return NextResponse.json({ error: "att=N required" }, { status: 400 });
+    }
+    await call({
+      session: s.session,
+      model: "ir.attachment",
+      method: "unlink",
+      args: [[attId]],
+      kwargs: {},
+    });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    if (e instanceof Response) return e;
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Error" },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },

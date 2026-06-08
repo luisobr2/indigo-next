@@ -5,7 +5,16 @@ import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
 
-const FIELDS = ["id", "code", "name", "description", "door_type", "active"];
+const BASE_FIELDS = ["id", "code", "name", "description", "door_type", "active"];
+const VARIATION_FIELDS = [
+  "allowed_colors",
+  "allowed_glass_types",
+  "allowed_brand_ids",
+  "min_width",
+  "max_width",
+  "min_height",
+  "max_height",
+];
 
 interface Design {
   id: number;
@@ -14,6 +23,13 @@ interface Design {
   description: string | false;
   door_type: string | false;
   active: boolean;
+  allowed_colors?: string | false;
+  allowed_glass_types?: string | false;
+  allowed_brand_ids?: number[];
+  min_width?: number;
+  max_width?: number;
+  min_height?: number;
+  max_height?: number;
 }
 
 export async function GET(
@@ -24,13 +40,30 @@ export async function GET(
     const s = await requireSession();
     const { id: idStr } = await context.params;
     const id = Number(idStr);
-    const records = await call<Design[]>({
-      session: s.session,
-      model: "indigo.design",
-      method: "read",
-      args: [[id], FIELDS],
-      kwargs: { context: { active_test: false } },
-    });
+
+    // First try with the full field set (including variation specs). If the
+    // Odoo addon hasn't been deployed with those fields yet, fall back to
+    // the base fields so the editor still works.
+    let records: Design[];
+    let supportsVariations = true;
+    try {
+      records = await call<Design[]>({
+        session: s.session,
+        model: "indigo.design",
+        method: "read",
+        args: [[id], [...BASE_FIELDS, ...VARIATION_FIELDS]],
+        kwargs: { context: { active_test: false } },
+      });
+    } catch {
+      supportsVariations = false;
+      records = await call<Design[]>({
+        session: s.session,
+        model: "indigo.design",
+        method: "read",
+        args: [[id], BASE_FIELDS],
+        kwargs: { context: { active_test: false } },
+      });
+    }
     if (!records.length) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
@@ -63,7 +96,7 @@ export async function GET(
     const attId = attachments[0]?.id ?? null;
     const imageUrl = attId ? `/api/catalog/designs/${id}/image?v=${attId}` : null;
 
-    return NextResponse.json({ design, usedIn, imageUrl });
+    return NextResponse.json({ design, usedIn, imageUrl, supportsVariations });
   } catch (e) {
     if (e instanceof Response) return e;
     return NextResponse.json(
@@ -91,26 +124,64 @@ export async function PUT(
       door_type: string;
       description: string;
       active: boolean;
+      allowed_colors: string;
+      allowed_glass_types: string;
+      allowed_brand_ids: number[];
+      min_width: number;
+      max_width: number;
+      min_height: number;
+      max_height: number;
     }>;
 
-    const vals: Record<string, unknown> = {};
-    if (body.code !== undefined) vals.code = body.code;
-    if (body.name !== undefined) vals.name = body.name;
-    if (body.door_type !== undefined) vals.door_type = body.door_type || false;
-    if (body.description !== undefined) vals.description = body.description;
-    if (body.active !== undefined) vals.active = body.active;
+    const baseVals: Record<string, unknown> = {};
+    if (body.code !== undefined) baseVals.code = body.code;
+    if (body.name !== undefined) baseVals.name = body.name;
+    if (body.door_type !== undefined) baseVals.door_type = body.door_type || false;
+    if (body.description !== undefined) baseVals.description = body.description;
+    if (body.active !== undefined) baseVals.active = body.active;
 
-    if (!Object.keys(vals).length) {
+    const variationVals: Record<string, unknown> = {};
+    if (body.allowed_colors !== undefined)
+      variationVals.allowed_colors = body.allowed_colors || false;
+    if (body.allowed_glass_types !== undefined)
+      variationVals.allowed_glass_types = body.allowed_glass_types || false;
+    if (body.allowed_brand_ids !== undefined)
+      variationVals.allowed_brand_ids = [[6, 0, body.allowed_brand_ids]];
+    if (body.min_width !== undefined) variationVals.min_width = body.min_width;
+    if (body.max_width !== undefined) variationVals.max_width = body.max_width;
+    if (body.min_height !== undefined) variationVals.min_height = body.min_height;
+    if (body.max_height !== undefined) variationVals.max_height = body.max_height;
+
+    if (!Object.keys(baseVals).length && !Object.keys(variationVals).length) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
-    await call({
-      session: s.session,
-      model: "indigo.design",
-      method: "write",
-      args: [[id], vals],
-      kwargs: {},
-    });
+    // Two passes so the base save still succeeds if the Odoo addon
+    // doesn't have the variation fields yet (legacy DBs).
+    if (Object.keys(baseVals).length) {
+      await call({
+        session: s.session,
+        model: "indigo.design",
+        method: "write",
+        args: [[id], baseVals],
+        kwargs: {},
+      });
+    }
+    if (Object.keys(variationVals).length) {
+      try {
+        await call({
+          session: s.session,
+          model: "indigo.design",
+          method: "write",
+          args: [[id], variationVals],
+          kwargs: {},
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        if (!/Invalid field|does not exist/i.test(msg)) throw err;
+        // else: legacy DB, silently drop the variation save.
+      }
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof Response) return e;
