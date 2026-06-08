@@ -21,13 +21,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/pagination";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 interface Dealer {
   id: number;
@@ -276,56 +269,47 @@ function OrdersInner() {
             Filters
           </span>
 
-          <Select value={stage || "all"} onValueChange={(v) => setStage(v === "all" || !v ? "" : v)}>
-            <SelectTrigger className="h-8 w-[180px] text-xs">
-              <SelectValue placeholder="Stage" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All stages</SelectItem>
-              {STAGE_OPTIONS.map((s) => (
-                <SelectItem key={s.code} value={s.code}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <FilterSelect
+            placeholder="Stage"
+            value={stage}
+            options={STAGE_OPTIONS.map((s) => ({ value: s.code, label: s.label }))}
+            onChange={setStage}
+            width="180px"
+          />
 
-          <Select value={dealer || "all"} onValueChange={(v) => setDealer(v === "all" || !v ? "" : v)}>
-            <SelectTrigger className="h-8 w-[160px] text-xs">
-              <SelectValue placeholder="Dealer" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All dealers</SelectItem>
-              {(dealersQ.data?.records ?? []).map((d) => (
-                <SelectItem key={d.id} value={String(d.id)}>
-                  {d.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <FilterSelect
+            placeholder="Dealer"
+            value={dealer}
+            options={(dealersQ.data?.records ?? []).map((d) => ({
+              value: String(d.id),
+              label: d.name,
+            }))}
+            onChange={setDealer}
+            width="160px"
+          />
 
-          <Select value={payment || "all"} onValueChange={(v) => setPayment(v === "all" || !v ? "" : v)}>
-            <SelectTrigger className="h-8 w-[140px] text-xs">
-              <SelectValue placeholder="Payment" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Any payment</SelectItem>
-              <SelectItem value="unpaid">Unpaid</SelectItem>
-              <SelectItem value="partial">Partial</SelectItem>
-              <SelectItem value="paid">Paid</SelectItem>
-            </SelectContent>
-          </Select>
+          <FilterSelect
+            placeholder="Payment"
+            value={payment}
+            options={[
+              { value: "unpaid", label: "Unpaid" },
+              { value: "partial", label: "Partial" },
+              { value: "paid", label: "Paid" },
+            ]}
+            onChange={setPayment}
+            width="140px"
+          />
 
-          <Select value={flag || "all"} onValueChange={(v) => setFlag(v === "all" || !v ? "" : v)}>
-            <SelectTrigger className="h-8 w-[130px] text-xs">
-              <SelectValue placeholder="Flag" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">No flag</SelectItem>
-              <SelectItem value="overdue">Overdue</SelectItem>
-              <SelectItem value="on_hold">On hold</SelectItem>
-            </SelectContent>
-          </Select>
+          <FilterSelect
+            placeholder="Flag"
+            value={flag}
+            options={[
+              { value: "overdue", label: "Overdue" },
+              { value: "on_hold", label: "On hold" },
+            ]}
+            onChange={setFlag}
+            width="130px"
+          />
 
           {activeFilterCount > 0 && (
             <>
@@ -455,6 +439,55 @@ function OrdersInner() {
           }}
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Native <select> wrapped in a styled shell. We deliberately avoid the
+ * Base UI Select here because its Value primitive renders the raw value
+ * string instead of the matched item's label when the underlying option
+ * set is dynamic (e.g. dealers fetched async). For a tiny dropdown the
+ * native control is faster, accessible by default, and integrates with
+ * the OS picker on mobile.
+ */
+function FilterSelect({
+  placeholder,
+  value,
+  options,
+  onChange,
+  width,
+}: {
+  placeholder: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (v: string) => void;
+  width: string;
+}) {
+  const active = value !== "";
+  return (
+    <div className="relative" style={{ width }}>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`h-8 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-2.5 pr-7 text-xs transition focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 ${
+          active ? "font-semibold text-indigo-700" : "text-slate-600"
+        }`}
+      >
+        <option value="">{placeholder}: any</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <svg
+        viewBox="0 0 16 16"
+        className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400"
+        fill="currentColor"
+      >
+        <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     </div>
   );
 }
