@@ -51,11 +51,13 @@ export function AssignmentCard({
     installers.map((i) => i.id),
   );
 
+  // Prefetch as soon as the card mounts so the Select doesn't briefly show
+  // raw numeric IDs while contractors load.
   const { data: contractors } = useQuery<ContractorsResponse>({
     queryKey: ["contractors"],
     queryFn: () => fetch("/api/contractors").then((r) => r.json()),
     staleTime: 5 * 60_000,
-    enabled: editing,
+    enabled: canEdit,
   });
 
   function startEdit() {

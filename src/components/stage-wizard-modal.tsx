@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, CheckCircle2, FileSignature } from "lucide-react";
 import { toast } from "sonner";
 import { SignaturePad, SignaturePadHandle } from "./signature-pad";
@@ -30,7 +30,12 @@ export interface StageWizardConfig {
   withSignature?: boolean;
   /** Optional amount field for the Invoice & paid wizard */
   withAmount?: boolean;
-  /** Optional measurements/SQF table fields */
+  /**
+   * If true, fetches order lines and renders a per-line SQF input table.
+   * On submit the values are written to indigo.order.line before the
+   * wizard fires. Used by the digitization wizard.
+   */
+  withSqfTable?: boolean;
   noteLabel?: string;
 }
 
@@ -66,6 +71,47 @@ export function StageWizardModal({
   const [error, setError] = useState<string | null>(null);
   const sigRef = useRef<SignaturePadHandle>(null);
 
+  interface SqfLine {
+    id: number;
+    design_id: [number, string] | false;
+    door_type: string | false;
+    width_label: string | false;
+    height_label: string | false;
+    qty: number;
+    sqf: number;
+  }
+  const [sqfLines, setSqfLines] = useState<SqfLine[]>([]);
+
+  // Pull the order's lines when the wizard mounts in SQF-table mode so the
+  // designer sees the live piece breakdown and can fill SQF per piece.
+  useEffect(() => {
+    if (!open || !config.withSqfTable) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/orders/${orderId}`);
+        if (!r.ok) return;
+        const j = await r.json();
+        if (cancelled) return;
+        const lines = (j.lines ?? []) as SqfLine[];
+        setSqfLines(lines.map((l) => ({ ...l, sqf: Number(l.sqf) || 0 })));
+      } catch {
+        /* surfaced on submit if needed */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, config.withSqfTable, orderId]);
+
+  function updateLineSqf(lineId: number, sqf: number) {
+    setSqfLines((prev) =>
+      prev.map((l) => (l.id === lineId ? { ...l, sqf } : l)),
+    );
+  }
+
+  const sqfTotal = sqfLines.reduce((s, l) => s + (Number(l.sqf) || 0), 0);
+
   async function submit() {
     setError(null);
     setBusy(true);
@@ -79,6 +125,11 @@ export function StageWizardModal({
       if (config.withSignature) {
         const sigData = sigRef.current?.getDataURL();
         if (sigData) payload.signature = sigData;
+      }
+      if (config.withSqfTable && sqfLines.length) {
+        const line_sqfs: Record<string, number> = {};
+        for (const l of sqfLines) line_sqfs[String(l.id)] = Number(l.sqf) || 0;
+        payload.line_sqfs = line_sqfs;
       }
 
       const r = await fetch(`/api/orders/${orderId}/advance`, {
@@ -154,6 +205,65 @@ export function StageWizardModal({
             </div>
           )}
 
+          {config.withSqfTable && (
+            <div className="space-y-1.5">
+              <Label>SQF per piece</Label>
+              {sqfLines.length === 0 ? (
+                <p className="text-xs italic text-slate-400">Loading pieces…</p>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">Design</th>
+                        <th className="px-2 py-1.5 text-left">Type</th>
+                        <th className="px-2 py-1.5 text-right">W × H</th>
+                        <th className="px-2 py-1.5 text-right">Qty</th>
+                        <th className="px-2 py-1.5 text-right">SQF</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sqfLines.map((l) => {
+                        const design = Array.isArray(l.design_id)
+                          ? l.design_id[1]
+                          : "—";
+                        return (
+                          <tr key={l.id} className="border-t border-slate-100">
+                            <td className="px-2 py-1.5 text-slate-700">{design}</td>
+                            <td className="px-2 py-1.5 text-slate-600">{l.door_type || "—"}</td>
+                            <td className="px-2 py-1.5 text-right text-slate-500">
+                              {(l.width_label || "?") + " × " + (l.height_label || "?")}
+                            </td>
+                            <td className="px-2 py-1.5 text-right text-slate-600">{l.qty}</td>
+                            <td className="px-1 py-1 text-right">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={l.sqf || ""}
+                                onChange={(e) =>
+                                  updateLineSqf(l.id, Number(e.target.value))
+                                }
+                                className="h-7 w-20 text-right tabular-nums"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="border-t border-slate-200 bg-slate-50">
+                        <td colSpan={4} className="px-2 py-1.5 text-right font-semibold text-slate-700">
+                          Total
+                        </td>
+                        <td className="px-2 py-1.5 text-right text-sm font-bold text-indigo-700">
+                          {sqfTotal.toFixed(2)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="wizard-note">{config.noteLabel ?? "Note (optional)"}</Label>
             <Textarea
@@ -206,6 +316,7 @@ export const STAGE_WIZARDS: Record<string, StageWizardConfig> = {
     description:
       "Enter the SQF you got from your CorelDraw plugin for each piece. Order moves to CNC.",
     submitLabel: "Save & advance to CNC",
+    withSqfTable: true,
   },
   cnc: {
     wizard: "indigo.cnc.done.wizard",

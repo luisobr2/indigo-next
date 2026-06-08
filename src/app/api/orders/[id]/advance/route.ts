@@ -39,6 +39,26 @@ export async function POST(
       );
     }
 
+    // Per-line SQF write (used by the digitization wizard). Apply to
+    // indigo.order.line BEFORE creating the wizard so the wizard's
+    // related fields (total_sqf etc.) reflect the new values.
+    const lineSqfs = payload.line_sqfs as Record<string, number> | undefined;
+    if (lineSqfs) {
+      for (const [lineIdStr, sqf] of Object.entries(lineSqfs)) {
+        const lineId = Number(lineIdStr);
+        const n = Number(sqf);
+        if (!Number.isFinite(lineId) || !Number.isFinite(n)) continue;
+        await call({
+          session: s.session,
+          model: "indigo.order.line",
+          method: "write",
+          args: [[lineId], { sqf: n }],
+          kwargs: {},
+        });
+      }
+      delete payload.line_sqfs;
+    }
+
     const wizardId = await call<number>({
       session: s.session,
       model: wizardModel,
