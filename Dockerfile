@@ -14,7 +14,10 @@ COPY package.json package-lock.json ./
 # Use `npm install` (not `npm ci`) because the lockfile has nested
 # duplicates that older npm in the build image refuses to validate. We
 # still get reproducibility from the committed lockfile.
-RUN npm install --no-audit --no-fund
+# --include=dev forces devDeps even when NODE_ENV=production leaks in
+# from Coolify env vars (tailwindcss, typescript, etc. are needed by
+# `next build`).
+RUN npm install --no-audit --no-fund --include=dev
 
 FROM node:22-alpine AS builder
 WORKDIR /app
