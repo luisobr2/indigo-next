@@ -264,8 +264,8 @@ function OrdersInner() {
         </div>
 
         {/* Filter row */}
-        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white px-2 py-2 ring-1 ring-slate-100">
-          <span className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-white px-4 py-3 ring-1 ring-slate-100">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
             Filters
           </span>
 
@@ -274,7 +274,7 @@ function OrdersInner() {
             value={stage}
             options={STAGE_OPTIONS.map((s) => ({ value: s.code, label: s.label }))}
             onChange={setStage}
-            width="180px"
+            width="220px"
           />
 
           <FilterSelect
@@ -285,7 +285,7 @@ function OrdersInner() {
               label: d.name,
             }))}
             onChange={setDealer}
-            width="160px"
+            width="200px"
           />
 
           <FilterSelect
@@ -297,7 +297,7 @@ function OrdersInner() {
               { value: "paid", label: "Paid" },
             ]}
             onChange={setPayment}
-            width="140px"
+            width="170px"
           />
 
           <FilterSelect
@@ -308,22 +308,25 @@ function OrdersInner() {
               { value: "on_hold", label: "On hold" },
             ]}
             onChange={setFlag}
-            width="130px"
+            width="160px"
           />
 
           {activeFilterCount > 0 && (
             <>
-              <Badge variant="secondary" className="bg-indigo-50 text-indigo-700">
+              <Badge
+                variant="secondary"
+                className="bg-indigo-50 px-2.5 py-1 text-xs text-indigo-700"
+              >
                 {activeFilterCount} active
               </Badge>
               <Button
                 type="button"
                 variant="ghost"
-                size="xs"
+                size="sm"
                 onClick={clearFilters}
                 className="text-slate-500 hover:text-slate-800"
               >
-                <X size={12} />
+                <X size={14} />
                 Clear
               </Button>
             </>
@@ -470,8 +473,10 @@ function FilterSelect({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`h-8 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-2.5 pr-7 text-xs transition focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 ${
-          active ? "font-semibold text-indigo-700" : "text-slate-600"
+        className={`h-11 w-full appearance-none rounded-xl border bg-white pl-3.5 pr-9 text-sm transition focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 ${
+          active
+            ? "border-indigo-200 font-semibold text-indigo-700"
+            : "border-slate-200 text-slate-700"
         }`}
       >
         <option value="">{placeholder}: any</option>
@@ -483,10 +488,10 @@ function FilterSelect({
       </select>
       <svg
         viewBox="0 0 16 16"
-        className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400"
-        fill="currentColor"
+        className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+        fill="none"
       >
-        <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
   );
