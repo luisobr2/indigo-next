@@ -11,7 +11,10 @@ WORKDIR /app
 # Next 16 + Turbopack against alpine.
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# Use `npm install` (not `npm ci`) because the lockfile has nested
+# duplicates that older npm in the build image refuses to validate. We
+# still get reproducibility from the committed lockfile.
+RUN npm install --no-audit --no-fund
 
 FROM node:22-alpine AS builder
 WORKDIR /app
