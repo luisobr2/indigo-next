@@ -223,11 +223,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen">
+    // h-screen + overflow-hidden anchors the shell to the viewport so the
+    // sidebar/topbar never scroll out of view. Each region manages its own
+    // overflow internally (sidebar nav + main content).
+    <div className="flex h-screen overflow-hidden">
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          "hidden shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-200 md:flex",
+          "hidden h-full shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-200 md:flex",
           collapsed ? "w-16" : "w-60",
         )}
       >
@@ -253,8 +256,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 items-center gap-3 border-b border-slate-100 bg-white px-4 sm:px-6">
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        <header className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-100 bg-white px-4 sm:px-6">
           <Button
             type="button"
             variant="ghost"
