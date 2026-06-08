@@ -61,6 +61,19 @@ export async function GET(req: NextRequest) {
     const onHold = sp.get("on_hold");
     if (onHold === "true") domain.push(["on_hold", "=", true]);
 
+    const overdue = sp.get("overdue");
+    if (overdue === "true") domain.push(["is_overdue", "=", true]);
+
+    const payment = sp.get("payment");
+    if (payment) {
+      const parts = payment.split(",").filter(Boolean);
+      if (parts.length === 1) {
+        domain.push(["payment_state", "=", parts[0]]);
+      } else if (parts.length > 1) {
+        domain.push(["payment_state", "in", parts]);
+      }
+    }
+
     const q = sp.get("q");
     if (q) {
       domain.push("|", "|");

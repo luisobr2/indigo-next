@@ -8,6 +8,7 @@ import {
   Download,
   Printer,
   AlertCircle,
+  X,
 } from "lucide-react";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -20,6 +21,34 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/pagination";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+interface Dealer {
+  id: number;
+  name: string;
+}
+
+const STAGE_OPTIONS = [
+  { code: "new", label: "New Order" },
+  { code: "design_pending", label: "Design Confirmation Pending" },
+  { code: "design_confirmed", label: "Design Confirmed" },
+  { code: "measure_pending", label: "Measurement Pending" },
+  { code: "measured", label: "Measured" },
+  { code: "ready_digitalization", label: "Ready for Digitalization" },
+  { code: "cnc", label: "CNC / Router" },
+  { code: "painting", label: "Painting" },
+  { code: "ready_install", label: "Ready for Installation" },
+  { code: "install_scheduled", label: "Installation Scheduled" },
+  { code: "installed", label: "Installed" },
+  { code: "invoiced", label: "Invoiced / Paid" },
+  { code: "closed", label: "Closed" },
+] as const;
 
 interface OrderRow {
   id: number;
@@ -64,14 +93,32 @@ const PAY_BADGE: Record<string, string> = {
 
 function OrdersInner() {
   const sp = useSearchParams();
-  const stage = sp.get("stage");
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
 
-  // Debounce the search so typing doesn't fire a request per keystroke,
-  // and reset to page 0 whenever the filter changes.
+  // Filter state — controlled by URL so the picker survives navigation
+  // and back/forward. Empty string = "no filter".
+  const [stage, setStage] = useState<string>(sp.get("stage") ?? "");
+  const [dealer, setDealer] = useState<string>(sp.get("dealer") ?? "");
+  const [payment, setPayment] = useState<string>(sp.get("payment") ?? "");
+  const [flag, setFlag] = useState<string>(
+    sp.get("overdue") === "true"
+      ? "overdue"
+      : sp.get("on_hold") === "true"
+        ? "on_hold"
+        : "",
+  );
+
+  // Pull dealers for the dropdown.
+  const dealersQ = useQuery<{ records: Dealer[] }>({
+    queryKey: ["catalog-dealers"],
+    queryFn: () => fetch("/api/catalog/dealers").then((r) => r.json()),
+    staleTime: 5 * 60_000,
+  });
+
+  // Debounce the search so typing doesn't fire a request per keystroke.
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedQ(q);
@@ -80,19 +127,55 @@ function OrdersInner() {
     return () => clearTimeout(t);
   }, [q]);
 
-  // Stage filter via URL param: reset to first page when it changes.
+  // Any filter change → reset to first page + reflect in URL.
   useEffect(() => {
     setPage(0);
-  }, [stage]);
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams();
+    if (stage) params.set("stage", stage);
+    if (dealer) params.set("dealer", dealer);
+    if (payment) params.set("payment", payment);
+    if (flag === "overdue") params.set("overdue", "true");
+    if (flag === "on_hold") params.set("on_hold", "true");
+    const qs = params.toString();
+    const next = qs ? `?${qs}` : "";
+    window.history.replaceState(null, "", `/orders${next}`);
+  }, [stage, dealer, payment, flag]);
+
+  const activeFilterCount =
+    (stage ? 1 : 0) +
+    (dealer ? 1 : 0) +
+    (payment ? 1 : 0) +
+    (flag ? 1 : 0);
+
+  function clearFilters() {
+    setStage("");
+    setDealer("");
+    setPayment("");
+    setFlag("");
+  }
 
   const { data, isLoading } = useQuery<{
     records: OrderRow[];
     total: number;
   }>({
-    queryKey: ["orders", stage, debouncedQ, page, pageSize],
+    queryKey: [
+      "orders",
+      stage,
+      dealer,
+      payment,
+      flag,
+      debouncedQ,
+      page,
+      pageSize,
+    ],
     queryFn: async () => {
       const url = new URL("/api/orders", window.location.origin);
       if (stage) url.searchParams.set("stage", stage);
+      if (dealer) url.searchParams.set("dealer", dealer);
+      if (payment) url.searchParams.set("payment", payment);
+      if (flag === "overdue") url.searchParams.set("overdue", "true");
+      if (flag === "on_hold") url.searchParams.set("on_hold", "true");
       if (debouncedQ) url.searchParams.set("q", debouncedQ);
       url.searchParams.set("limit", String(pageSize));
       url.searchParams.set("offset", String(page * pageSize));
@@ -110,7 +193,12 @@ function OrdersInner() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Orders {stage && <span className="text-slate-500">— {stage}</span>}
+            Orders
+            {stage && (
+              <span className="text-slate-500">
+                {" "}— {STAGE_OPTIONS.find((s) => s.code === stage)?.label ?? stage}
+              </span>
+            )}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             {fmtNum(total)} order{total === 1 ? "" : "s"} found
@@ -165,19 +253,97 @@ function OrdersInner() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search
-            size={16}
-            className="absolute top-1/2 left-3 -translate-y-1/2 text-slate-400"
-          />
-          <Input
-            type="search"
-            placeholder="Search by order, client or reference..."
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="pl-10"
-          />
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search
+              size={16}
+              className="absolute top-1/2 left-3 -translate-y-1/2 text-slate-400"
+            />
+            <Input
+              type="search"
+              placeholder="Search by order, client or reference..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+        </div>
+
+        {/* Filter row */}
+        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white px-2 py-2 ring-1 ring-slate-100">
+          <span className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Filters
+          </span>
+
+          <Select value={stage || "all"} onValueChange={(v) => setStage(v === "all" || !v ? "" : v)}>
+            <SelectTrigger className="h-8 w-[180px] text-xs">
+              <SelectValue placeholder="Stage" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All stages</SelectItem>
+              {STAGE_OPTIONS.map((s) => (
+                <SelectItem key={s.code} value={s.code}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={dealer || "all"} onValueChange={(v) => setDealer(v === "all" || !v ? "" : v)}>
+            <SelectTrigger className="h-8 w-[160px] text-xs">
+              <SelectValue placeholder="Dealer" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All dealers</SelectItem>
+              {(dealersQ.data?.records ?? []).map((d) => (
+                <SelectItem key={d.id} value={String(d.id)}>
+                  {d.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={payment || "all"} onValueChange={(v) => setPayment(v === "all" || !v ? "" : v)}>
+            <SelectTrigger className="h-8 w-[140px] text-xs">
+              <SelectValue placeholder="Payment" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any payment</SelectItem>
+              <SelectItem value="unpaid">Unpaid</SelectItem>
+              <SelectItem value="partial">Partial</SelectItem>
+              <SelectItem value="paid">Paid</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={flag || "all"} onValueChange={(v) => setFlag(v === "all" || !v ? "" : v)}>
+            <SelectTrigger className="h-8 w-[130px] text-xs">
+              <SelectValue placeholder="Flag" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">No flag</SelectItem>
+              <SelectItem value="overdue">Overdue</SelectItem>
+              <SelectItem value="on_hold">On hold</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {activeFilterCount > 0 && (
+            <>
+              <Badge variant="secondary" className="bg-indigo-50 text-indigo-700">
+                {activeFilterCount} active
+              </Badge>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={clearFilters}
+                className="text-slate-500 hover:text-slate-800"
+              >
+                <X size={12} />
+                Clear
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
