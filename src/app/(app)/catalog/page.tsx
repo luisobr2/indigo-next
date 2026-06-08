@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { Boxes, Building2, Pencil, Search } from "lucide-react";
+import { Boxes, Building2, Pencil, Plus, Search } from "lucide-react";
 import { fmtMoney } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/pagination";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 interface Design {
   id: number;
@@ -14,6 +16,7 @@ interface Design {
   name: string;
   description?: string;
   door_type?: string;
+  active?: boolean;
 }
 
 interface Dealer {
@@ -93,18 +96,27 @@ export default function CatalogPage() {
               Designs ({designs.data?.total ?? 0})
             </h2>
           </div>
-          <div className="relative w-full sm:w-64">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-            <Input
-              type="search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Filter by code or name…"
-              className="pl-9"
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative w-full sm:w-64">
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <Input
+                type="search"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Filter by code or name…"
+                className="pl-9"
+              />
+            </div>
+            <Link
+              href="/catalog/designs/new"
+              className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-indigo-700 px-4 text-sm font-semibold text-white shadow shadow-indigo-700/30 transition hover:bg-indigo-800"
+            >
+              <Plus size={14} />
+              New design
+            </Link>
           </div>
         </div>
         <div className="overflow-hidden rounded-xl border border-slate-100">
@@ -115,19 +127,39 @@ export default function CatalogPage() {
                   <th className="px-4 py-2.5">Code</th>
                   <th className="px-4 py-2.5">Name</th>
                   <th className="px-4 py-2.5">Door Type</th>
+                  <th className="px-4 py-2.5"></th>
                 </tr>
               </thead>
               <tbody>
                 {(designs.data?.records ?? []).map((d) => (
                   <tr
                     key={d.id}
-                    className="border-t border-slate-100 hover:bg-slate-50"
+                    className="border-t border-slate-100 transition hover:bg-indigo-50/30"
                   >
-                    <td className="px-4 py-2.5 font-mono font-bold text-indigo-700">
-                      {d.code}
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/catalog/designs/${d.id}`}
+                        className="font-mono font-bold text-indigo-700 hover:underline"
+                      >
+                        {d.code}
+                      </Link>
                     </td>
-                    <td className="px-4 py-2.5">{d.name}</td>
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/catalog/designs/${d.id}`}
+                        className="text-slate-800 hover:text-indigo-700"
+                      >
+                        {d.name}
+                      </Link>
+                    </td>
                     <td className="px-4 py-2.5 text-slate-600">{d.door_type}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      {d.active === false && (
+                        <Badge variant="secondary" className="bg-amber-50 text-amber-700">
+                          Archived
+                        </Badge>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

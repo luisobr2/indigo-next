@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { call, odooReportUrl, odooImageUrl } from "@/lib/odoo/client";
+import { call, odooReportUrl } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 
 export const runtime = "nodejs";
@@ -134,12 +134,10 @@ export async function GET(
         "indigo_decors.report_order_card_doc",
         id,
       ),
+      // Image of the first design (proxy endpoint handles missing images
+      // with a clean 404 so the order detail can fall back to a placeholder).
       designImage: lines[0]?.design_id
-        ? odooImageUrl(
-            "indigo.design",
-            ((lines[0].design_id as [number, string])?.[0] ?? 0) as number,
-            "image_1024",
-          )
+        ? `/api/catalog/designs/${((lines[0].design_id as [number, string])?.[0] ?? 0) as number}/image`
         : null,
     });
   } catch (e) {

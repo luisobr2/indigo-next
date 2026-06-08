@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Indigo Decors — Guía de la app</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            indigo: {
+              50: '#eef2fa',
+              100: '#d6dffa',
+              200: '#b6c4f1',
+              300: '#8da6e5',
+              400: '#5a7cc8',
+              500: '#345aa6',
+              600: '#244690',
+              700: '#1f4486',
+              800: '#1a376e',
+              900: '#0a1a3d',
+            },
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://rsms.me/" />
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white !important; }
+      .page-card { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 leading-relaxed">
+
+<!-- ======================================================== -->
+<!-- HEADER -->
+<!-- ======================================================== -->
+<header class="border-b border-slate-200 bg-white">
+  <div class="mx-auto max-w-6xl px-6 py-10">
+    <div class="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-indigo-700">
+      <span class="inline-block h-2 w-2 rounded-full bg-indigo-500"></span>
+      Indigo Decors · Production ERP
+    </div>
+    <h1 class="mt-3 text-4xl font-bold tracking-tight text-slate-900">
+      Guía visual de la aplicación
+    </h1>
+    <p class="mt-3 max-w-3xl text-lg text-slate-600">
+      Cómo funciona cada pantalla, quién la usa, qué muestra y cómo probarla.
+      Pensado como guion para grabar el video explicativo.
+    </p>
+    <div class="mt-6 flex flex-wrap items-center gap-4 text-sm text-slate-500">
+      <div class="rounded-full bg-slate-100 px-3 py-1">
+        <strong class="text-slate-900">URL prod:</strong>
+        http://qjalaa0kakcwbjkb1t3j2tqg.2.25.137.220.sslip.io
+      </div>
+      <div class="rounded-full bg-slate-100 px-3 py-1">
+        <strong class="text-slate-900">Password de todos los usuarios test:</strong>
+        <code class="ml-1 rounded bg-white px-1.5 font-mono">indigo123</code>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ======================================================== -->
+<!-- LAYOUT: SIDEBAR + CONTENT -->
+<!-- ======================================================== -->
+<div class="mx-auto max-w-6xl px-6 py-8 lg:flex lg:gap-8">
+
+  <!-- ======================================================== -->
+  <!-- TOC SIDEBAR -->
+  <!-- ======================================================== -->
+  <aside class="no-print mb-8 lg:sticky lg:top-6 lg:mb-0 lg:h-screen lg:w-60 lg:shrink-0 lg:overflow-y-auto lg:py-2 scrollbar-thin">
+    <div class="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+      Índice
+    </div>
+    <nav class="mt-3 space-y-1 text-sm">
+      <a href="#flow" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">Flujo general</a>
+      <a href="#login" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">1. Login</a>
+      <a href="#dashboard" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">2. Dashboard</a>
+      <a href="#orders" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">3. Orders</a>
+      <a href="#order-detail" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">4. Order detail</a>
+      <a href="#kanban" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">5. Kanban</a>
+      <a href="#stage-screens" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">6. Pantallas por etapa</a>
+      <a href="#paint" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">7. Paint (hoja del pintor)</a>
+      <a href="#installations" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">8. Installations</a>
+      <a href="#route-planner" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">9. Route Planner</a>
+      <a href="#billing" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">10. Billing</a>
+      <a href="#reports" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">11. Reports</a>
+      <a href="#catalog" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">12. Catalog</a>
+      <a href="#settings" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">13. Settings</a>
+      <a href="#installer-portal" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">14. Portal instalador</a>
+      <div class="my-3 border-t border-slate-200"></div>
+      <a href="#header-features" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">Features del header</a>
+      <a href="#documents" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">Documentos PDF</a>
+      <a href="#odoo-sync" class="block rounded-lg px-2 py-1.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">Relación con Odoo</a>
+    </nav>
+  </aside>
+
+  <!-- ======================================================== -->
+  <!-- MAIN -->
+  <!-- ======================================================== -->
+  <main class="flex-1 min-w-0 space-y-10">
+
+    <!-- ======================================================== -->
+    <!-- FLOW DIAGRAM -->
+    <!-- ======================================================== -->
+    <section id="flow" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <h2 class="text-2xl font-bold text-slate-900">El flujo de una orden, de principio a fin</h2>
+      <p class="mt-2 text-slate-600">
+        Indigo Decors fabrica y decora puertas para dealers (Lock Tight, USA Windows, Web Indigo, etc.).
+        Una orden entra por dealer, pasa por 13 etapas, y termina cobrada + el pintor e instalador pagados.
+      </p>
+
+      <div class="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-2xl bg-gradient-to-br from-indigo-50 to-white p-4 ring-1 ring-indigo-100">
+          <div class="text-xs font-bold uppercase tracking-wider text-indigo-700">1. Captura</div>
+          <p class="mt-1 text-sm text-slate-700">Office crea la orden con cliente, dealer, diseño y dimensiones</p>
+        </div>
+        <div class="rounded-2xl bg-gradient-to-br from-amber-50 to-white p-4 ring-1 ring-amber-100">
+          <div class="text-xs font-bold uppercase tracking-wider text-amber-700">2. Medición</div>
+          <p class="mt-1 text-sm text-slate-700">Javier va al sitio, confirma medidas. SQF se calcula</p>
+        </div>
+        <div class="rounded-2xl bg-gradient-to-br from-sky-50 to-white p-4 ring-1 ring-sky-100">
+          <div class="text-xs font-bold uppercase tracking-wider text-sky-700">3. Digitalización</div>
+          <p class="mt-1 text-sm text-slate-700">Pedro carga el SQF por pieza desde su CorelDraw</p>
+        </div>
+        <div class="rounded-2xl bg-gradient-to-br from-violet-50 to-white p-4 ring-1 ring-violet-100">
+          <div class="text-xs font-bold uppercase tracking-wider text-violet-700">4. CNC</div>
+          <p class="mt-1 text-sm text-slate-700">Ramon corta las piezas en el router</p>
+        </div>
+        <div class="rounded-2xl bg-gradient-to-br from-orange-50 to-white p-4 ring-1 ring-orange-100">
+          <div class="text-xs font-bold uppercase tracking-wider text-orange-700">5. Pintura</div>
+          <p class="mt-1 text-sm text-slate-700">Mario pinta. Al terminar se le genera la liquidación automática (SQF × $8)</p>
+        </div>
+        <div class="rounded-2xl bg-gradient-to-br from-blue-50 to-white p-4 ring-1 ring-blue-100">
+          <div class="text-xs font-bold uppercase tracking-wider text-blue-700">6. Instalación</div>
+          <p class="mt-1 text-sm text-slate-700">Carlos instala, sube foto + firma. Genera payout $35/puerta</p>
+        </div>
+        <div class="rounded-2xl bg-gradient-to-br from-emerald-50 to-white p-4 ring-1 ring-emerald-100">
+          <div class="text-xs font-bold uppercase tracking-wider text-emerald-700">7. Facturación</div>
+          <p class="mt-1 text-sm text-slate-700">Beatriz registra el cobro al dealer y la marca como pagada</p>
+        </div>
+        <div class="rounded-2xl bg-gradient-to-br from-slate-100 to-white p-4 ring-1 ring-slate-200">
+          <div class="text-xs font-bold uppercase tracking-wider text-slate-700">8. Liquidación</div>
+          <p class="mt-1 text-sm text-slate-700">Beatriz consolida y le paga a Mario y Carlos</p>
+        </div>
+      </div>
+
+      <div class="mt-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-700">
+        <strong class="text-slate-900">💡 Idea clave:</strong>
+        El sistema le muestra a cada persona <strong>solo lo que tiene que hacer ese día</strong>.
+        Mario no ve dashboards ni facturación, solo ve sus órdenes a pintar.
+        Beatriz no toca el canvas de instalación, ve cash flow + facturación pendiente.
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- ROLES -->
+    <!-- ======================================================== -->
+    <section class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <h2 class="text-2xl font-bold text-slate-900">Los 6 roles del sistema</h2>
+      <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+        <div class="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">🛡️</span>
+            <strong>Manager (Majela)</strong>
+          </div>
+          <p class="mt-1 text-xs text-slate-600">Ve todo. Asigna, supervisa, cierra el mes</p>
+          <code class="mt-2 block rounded bg-white px-2 py-0.5 text-[10px]">majela@indigodecors.com</code>
+        </div>
+        <div class="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">🏢</span>
+            <strong>Office (Beatriz)</strong>
+          </div>
+          <p class="mt-1 text-xs text-slate-600">Captura órdenes, factura, cobra, libera payouts</p>
+          <code class="mt-2 block rounded bg-white px-2 py-0.5 text-[10px]">oficina@indigodecors.com</code>
+        </div>
+        <div class="rounded-xl border border-sky-200 bg-sky-50/40 p-4">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">✏️</span>
+            <strong>Designer (Pedro)</strong>
+          </div>
+          <p class="mt-1 text-xs text-slate-600">Digitaliza, entra el SQF por pieza</p>
+          <code class="mt-2 block rounded bg-white px-2 py-0.5 text-[10px]">disenador@indigodecors.com</code>
+        </div>
+        <div class="rounded-xl border border-orange-200 bg-orange-50/40 p-4">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">🖌️</span>
+            <strong>Painter (Mario)</strong>
+          </div>
+          <p class="mt-1 text-xs text-slate-600">Pinta lo que llega de CNC, marca como hecho</p>
+          <code class="mt-2 block rounded bg-white px-2 py-0.5 text-[10px]">pintor@indigodecors.com</code>
+        </div>
+        <div class="rounded-xl border border-violet-200 bg-violet-50/40 p-4">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">🔨</span>
+            <strong>CNC (Ramon)</strong>
+          </div>
+          <p class="mt-1 text-xs text-slate-600">Corta las piezas en el router</p>
+          <code class="mt-2 block rounded bg-white px-2 py-0.5 text-[10px]">cnc@indigodecors.com</code>
+        </div>
+        <div class="rounded-xl border border-blue-200 bg-blue-50/40 p-4">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">🚚</span>
+            <strong>Installer (Carlos)</strong>
+          </div>
+          <p class="mt-1 text-xs text-slate-600">Instala en sitio (usa el portal móvil)</p>
+          <code class="mt-2 block rounded bg-white px-2 py-0.5 text-[10px]">instalador@indigodecors.com</code>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- LOGIN -->
+    <!-- ======================================================== -->
+    <section id="login" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>01</span>
+        <span class="rounded-full bg-indigo-50 px-2 py-0.5">Todos</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Login</h2>
+      <p class="mt-2 text-slate-600">
+        Punto de entrada. Cada usuario aterriza en su pantalla de trabajo principal.
+      </p>
+
+      <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Qué muestra</h3>
+          <ul class="mt-2 space-y-2 text-sm">
+            <li class="flex gap-2"><span class="text-indigo-600">●</span> Logo Indigo Decors + título</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span> Campo Email + Password</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span> Botón <strong>Sign in</strong> (indigo)</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span> Sección <strong>"Quick login (test)"</strong> con 6 botones, uno por rol</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Cómo probarlo</h3>
+          <ol class="mt-2 list-decimal space-y-2 pl-5 text-sm">
+            <li>Abrí la URL pública</li>
+            <li>Hacé click en cualquiera de los 6 botones de Quick Login</li>
+            <li>El sistema entra y te lleva al landing del rol:
+              <ul class="mt-1 list-disc pl-5 text-slate-600">
+                <li>Manager / Office → <code class="rounded bg-slate-100 px-1">/dashboard</code></li>
+                <li>Designer → <code class="rounded bg-slate-100 px-1">/digitalization</code></li>
+                <li>Painter → <code class="rounded bg-slate-100 px-1">/paint</code></li>
+                <li>CNC → <code class="rounded bg-slate-100 px-1">/cnc-production</code></li>
+                <li>Installer → <code class="rounded bg-slate-100 px-1">/installs</code></li>
+              </ul>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- DASHBOARD -->
+    <!-- ======================================================== -->
+    <section id="dashboard" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>02</span>
+        <span class="rounded-full bg-indigo-50 px-2 py-0.5">Manager · Office</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Dashboard</h2>
+      <p class="mt-2 text-slate-600">
+        La vista 360° del taller. Le dice a Majela: ¿cuánto hay activo, qué está atascado, cuánto vamos a cobrar este mes?
+      </p>
+
+      <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Qué muestra</h3>
+          <ul class="mt-2 space-y-2 text-sm">
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>5 KPI cards</strong>: Active Orders, Installations Pending, CNC Queue, Painting, Revenue this month</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Revenue last 6 months</strong>: chart de barras con cobros reales por mes</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Production Funnel</strong>: barras horizontales por etapa</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Orders by Company</strong>: pie chart con % y revenue por dealer</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Production Board</strong>: las 6 etapas principales con la card más vieja de cada una (click → Kanban)</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Today's Routes</strong>: instalaciones de hoy</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Production Capacity</strong>: barras de % utilización (CNC, Painting, Install) basadas en Settings</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Health</strong>: orders overdue, días promedio en etapa, instaladas/pendientes esta semana</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Cómo probarlo</h3>
+          <ol class="mt-2 list-decimal space-y-2 pl-5 text-sm">
+            <li>Login como <strong>Manager</strong> o <strong>Office</strong></li>
+            <li>Verificá que los KPI no tengan placeholders inventados (no "+12% vs last week")</li>
+            <li>El chart de Revenue debe mostrar barras reales (junio destacado en azul Indigo)</li>
+            <li>Click en cualquier card de Production Board → abre <strong>Kanban</strong></li>
+            <li>Click en "View all" del pie chart → abre <strong>Orders</strong></li>
+            <li>Click en "Open planner →" en Today's Routes → abre <strong>Route Planner</strong></li>
+            <li>Las barras de capacity están enlazadas a Settings (cambiá un valor allá y refrescá Dashboard)</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- ORDERS -->
+    <!-- ======================================================== -->
+    <section id="orders" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>03</span>
+        <span class="rounded-full bg-indigo-50 px-2 py-0.5">Todos los roles internos</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Orders (lista)</h2>
+      <p class="mt-2 text-slate-600">
+        El listado maestro de todas las órdenes con búsqueda, filtros, paginación y exportación.
+      </p>
+
+      <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Qué muestra</h3>
+          <ul class="mt-2 space-y-2 text-sm">
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Header</strong>: contador "X orders found" + botones Export CSV + Print/PDF</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Search bar</strong>: por order #, cliente o referencia (debounced 250ms)</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>4 filtros</strong>: Stage, Dealer, Payment, Flag (overdue / on hold) — se ponen en azul cuando hay filtro activo</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Badge "X active"</strong> + botón Clear cuando hay filtros</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Tabla</strong>: Order #, Client, Dealer, Address, Doors, SQF, Total, Stage, Payment</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Paginación</strong>: "Showing 1-50 of N" + Previous/Next + selector de page size</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Iconito rosado</strong> ⚠️ al lado del order # si está overdue</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Cómo probarlo</h3>
+          <ol class="mt-2 list-decimal space-y-2 pl-5 text-sm">
+            <li>Login como Manager → ir a Orders</li>
+            <li>Escribí <code class="rounded bg-slate-100 px-1">Karen</code> en el search → debe filtrar a IND/2026/00009</li>
+            <li>Limpiá el search</li>
+            <li>Stage filter → <strong>Painting</strong> → el subtitle cambia a "Orders — Painting", quedan 1 order</li>
+            <li>El URL cambió a <code class="rounded bg-slate-100 px-1">?stage=painting</code> — refresh y debe mantenerse</li>
+            <li>Click en <strong>Clear</strong> → todos los filtros se vacían</li>
+            <li>Click en <strong>Export</strong> → descarga un CSV con todas las filas visibles</li>
+            <li>Click en <strong>Print / PDF</strong> → abre PDF con ficha de orden de cada record</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- ORDER DETAIL -->
+    <!-- ======================================================== -->
+    <section id="order-detail" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>04</span>
+        <span class="rounded-full bg-indigo-50 px-2 py-0.5">Todos · acciones por rol</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Order detail</h2>
+      <p class="mt-2 text-slate-600">
+        La cara de una orden individual. Ficha técnica, cliente, piezas, asignaciones, chatter y el botón de avanzar de etapa.
+      </p>
+
+      <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Qué muestra</h3>
+          <ul class="mt-2 space-y-2 text-sm">
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Header</strong>: número de orden, badge de etapa actual + botones Print y wizard de la etapa actual</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Imagen + ficha técnica</strong>: door type, color, medidas, brand, glass, privacy</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Client Information</strong>: reference, nombre, dirección, teléfono, email</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Note</strong>: notas + total SQF</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Pieces</strong>: tabla con cada pieza (design, type, color, brand, glass, privacy, W×H, qty, SQF)</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Recent Activity</strong>: chatter de Odoo (cada cambio de etapa, asignación, foto, etc.)</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Order Progress (sidebar)</strong>: las 13 etapas con check verde / círculo azul (actual) / gris</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Order Summary</strong>: door type, color, glass, SQF, status, total</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Assigned Contractors</strong>: painter y installer(s) actuales + botón Edit (Manager/Office)</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Cómo probarlo</h3>
+          <ol class="mt-2 list-decimal space-y-2 pl-5 text-sm">
+            <li>Login como Manager</li>
+            <li>Orders → click en <strong>IND/2026/00010</strong> (Sebastian Cortes, Measurement Pending)</li>
+            <li>Verificá la sidebar de progreso: las primeras etapas con check, "Measurement Pending" como actual</li>
+            <li>Click en <strong>Enter measurements</strong> (botón verde arriba a la derecha) → abre wizard</li>
+            <li>Cancelá el wizard, scroll hasta el final → vas a ver el chatter con cada cambio</li>
+            <li>En <strong>Assigned Contractors</strong> → click Edit → cambiar painter / installer → Save</li>
+            <li>El chatter debe mostrar "Painter / installer assignment updated from Next panel"</li>
+            <li>Click en <strong>Print</strong> → descarga el Order Card PDF</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="mt-6 rounded-xl bg-amber-50 p-4 text-sm">
+        <strong class="text-amber-900">⚠ Importante:</strong>
+        <span class="text-amber-800">Si la orden no tiene painter / installer asignado y vas a avanzar desde Painting → Ready for Installation, el wizard te bloquea con un banner ámbar y un Save deshabilitado. Esto evita generar órdenes sin payout. Asigna primero desde la card de Assigned Contractors.</span>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- KANBAN -->
+    <!-- ======================================================== -->
+    <section id="kanban" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>05</span>
+        <span class="rounded-full bg-indigo-50 px-2 py-0.5">Manager · Office</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Kanban</h2>
+      <p class="mt-2 text-slate-600">
+        El tablero visual de las 13 etapas. Arrastrá una card para moverla de etapa.
+      </p>
+
+      <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Qué muestra</h3>
+          <ul class="mt-2 space-y-2 text-sm">
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>13 columnas</strong> horizontales (scroll horizontal): New Order → Closed</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span>Cada columna tiene el badge con el conteo de cards</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span>Cada card: order #, cliente, dealer, días en etapa, doors, $ total, badge de payment</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span>Borde izquierdo de la card en <span class="text-indigo-700 font-bold">indigo</span> (normal), <span class="text-rose-600 font-bold">rosa</span> (overdue), <span class="text-amber-700 font-bold">amber</span> (on hold)</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span>Botones <strong>Show archived</strong> y <strong>Refresh</strong> arriba a la derecha</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Cómo probarlo</h3>
+          <ol class="mt-2 list-decimal space-y-2 pl-5 text-sm">
+            <li>Login como Manager → sidebar → Kanban</li>
+            <li>Tomá una card de "New Order" con el mouse y arrastrala a "Design Confirmation Pending"</li>
+            <li>Toast verde "Moving X → Design Confirmation Pending"</li>
+            <li>La card aparece en la nueva columna inmediatamente (optimistic UI)</li>
+            <li>Si hacés click en el número de orden (sin drag) → abre el detail</li>
+            <li>Click <strong>Show archived</strong> → aparecen las columnas con orders closed/invoiced</li>
+            <li>El chatter de Odoo registra "Stage changed from Kanban drag-drop"</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- STAGE SCREENS -->
+    <!-- ======================================================== -->
+    <section id="stage-screens" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>06</span>
+        <span class="rounded-full bg-indigo-50 px-2 py-0.5">Por rol específico</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Pantallas por etapa</h2>
+      <p class="mt-2 text-slate-600">
+        Cada rol tiene su "estación de trabajo" — una vista filtrada solo de las órdenes en su etapa.
+      </p>
+
+      <div class="mt-6 overflow-hidden rounded-xl ring-1 ring-slate-200">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-xs font-bold uppercase text-slate-500">
+            <tr>
+              <th class="px-4 py-2 text-left">Pantalla</th>
+              <th class="px-4 py-2 text-left">Quien la usa</th>
+              <th class="px-4 py-2 text-left">Etapa(s) que filtra</th>
+              <th class="px-4 py-2 text-left">Wizard de avance</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr><td class="px-4 py-2">/design-approval</td><td>Office</td><td>Design Pending / Confirmed</td><td>Confirma diseño con cliente</td></tr>
+            <tr><td class="px-4 py-2">/measurements</td><td>Office · Javier</td><td>Measurement Pending / Measured</td><td>Enter measurements</td></tr>
+            <tr><td class="px-4 py-2">/digitalization</td><td>Pedro (Designer)</td><td>Ready for Digitalization</td><td><strong>Enter SQF</strong> (tabla por pieza)</td></tr>
+            <tr><td class="px-4 py-2">/cnc-production</td><td>Ramon (CNC)</td><td>CNC / Router</td><td>Mark CNC done</td></tr>
+            <tr><td class="px-4 py-2">/paint</td><td>Mario (Painter)</td><td>Painting</td><td>Mark painted (foto opcional)</td></tr>
+            <tr><td class="px-4 py-2">/installations</td><td>Office · Carlos</td><td>Ready for Install / Scheduled / Installed</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Cada pantalla tiene</h3>
+        <ul class="mt-2 space-y-2 text-sm">
+          <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>4 KPI cards</strong>: Pending, Done, On Hold, All</li>
+          <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Search bar</strong></li>
+          <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Tabla</strong> con order # + cliente + status</li>
+          <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Side panel</strong>: cuando clickeás una row aparece a la derecha con el botón verde para abrir el wizard + botón "Move to Hold"</li>
+          <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Botones Export · Print/PDF · Filters</strong></li>
+        </ul>
+      </div>
+
+      <div class="mt-6 rounded-xl bg-sky-50 p-4 text-sm">
+        <strong class="text-sky-900">🔍 Cómo probar el flujo completo end-to-end:</strong>
+        <ol class="mt-2 list-decimal space-y-1 pl-5 text-sky-800">
+          <li><strong>Manager</strong> crea la orden (por ahora desde Odoo backend)</li>
+          <li>Login como <strong>Pedro</strong> → /digitalization → clickea una row → "Enter SQF" → llena SQF por pieza → Save</li>
+          <li>Login como <strong>Ramon</strong> → /cnc-production → clickea la orden → "Mark CNC done"</li>
+          <li>Login como <strong>Mario</strong> → /paint → "Mark painted" + opcionalmente subir foto</li>
+          <li>Login como <strong>Carlos</strong> → portal /installs → instalar (ver portal abajo)</li>
+          <li>Login como <strong>Beatriz</strong> → /billing → Invoice → Mark paid</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- PAINT -->
+    <!-- ======================================================== -->
+    <section id="paint" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>07</span>
+        <span class="rounded-full bg-orange-50 px-2 py-0.5 text-orange-700">Painter</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Paint (Hoja del pintor)</h2>
+      <p class="mt-2 text-slate-600">
+        Es la versión digital del papel que hoy Mario tiene en la pared.
+        Replica exactamente la "Hoja del Pintor": Company / Order # / Cliente / Color / Door Type / SQF / Price / Total.
+      </p>
+
+      <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Qué muestra</h3>
+          <ul class="mt-2 space-y-2 text-sm">
+            <li class="flex gap-2"><span class="text-orange-600">●</span><strong>Banner azul</strong>: "Paint price: $8.00 per SQF"</li>
+            <li class="flex gap-2"><span class="text-orange-600">●</span><strong>Total Orders, Total SQF</strong> arriba a la derecha</li>
+            <li class="flex gap-2"><span class="text-orange-600">●</span><strong>Total Amount</strong> grande (lo que se le paga a Mario por todo lo pendiente)</li>
+            <li class="flex gap-2"><span class="text-orange-600">●</span><strong>Tabla</strong>: #, Company (dealer), Order #, Client Name, Doors, SQF, Price/SQF ($8), Total</li>
+            <li class="flex gap-2"><span class="text-orange-600">●</span><strong>Botón "Export Excel"</strong> (CSV)</li>
+            <li class="flex gap-2"><span class="text-orange-600">●</span><strong>Botón "Print / PDF"</strong>: genera la Hoja del Pintor lista para imprimir</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Cómo probarlo</h3>
+          <ol class="mt-2 list-decimal space-y-2 pl-5 text-sm">
+            <li>Login como <strong>Mario</strong> (Painter) o Manager</li>
+            <li>Sidebar → <strong>Paint</strong></li>
+            <li>Verás solo las órdenes en stage <strong>Painting</strong></li>
+            <li>Buscá por cliente para filtrar</li>
+            <li>Click <strong>Print / PDF</strong> → descarga PDF con la Hoja del Pintor</li>
+            <li>Cuando Mario termine una orden, abre el detail → "Mark painted" → la orden sale de Painting → automáticamente se genera la liquidación al pintor (SQF × $8 por cada pieza)</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- INSTALLATIONS -->
+    <!-- ======================================================== -->
+    <section id="installations" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>08</span>
+        <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">Office</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Installations</h2>
+      <p class="mt-2 text-slate-600">
+        Vista de Office para coordinar las instalaciones: qué falta agendar, qué está agendada para hoy/mañana, qué está instalado.
+      </p>
+
+      <ul class="mt-4 space-y-2 text-sm">
+        <li class="flex gap-2"><span class="text-emerald-600">●</span>Filtra órdenes en <strong>ready_install</strong>, <strong>install_scheduled</strong>, <strong>installed</strong></li>
+        <li class="flex gap-2"><span class="text-emerald-600">●</span>Muestra dirección, instalador asignado, fecha de instalación</li>
+        <li class="flex gap-2"><span class="text-emerald-600">●</span>Click en una row → Side panel → Wizard para "Schedule installation" (setea installer_ids + installation_date)</li>
+      </ul>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- ROUTE PLANNER -->
+    <!-- ======================================================== -->
+    <section id="route-planner" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>09</span>
+        <span class="rounded-full bg-indigo-50 px-2 py-0.5">Manager · Office</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Route Planner</h2>
+      <p class="mt-2 text-slate-600">
+        Para planear las paradas del día. Mapa + lista de stops + botón para mandar la ruta por WhatsApp.
+      </p>
+
+      <ul class="mt-4 space-y-2 text-sm">
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Mapa</strong> (placeholder hasta que se configure Mapbox)</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Lista de Stops</strong>: order #, cliente, dirección, fecha</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Botón "Print addresses"</strong> → genera PDF con direcciones, teléfonos e instaladores asignados</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Botón "Send route to WhatsApp"</strong> → abre WhatsApp Web con el mensaje pre-armado</li>
+      </ul>
+
+      <div class="mt-4 rounded-xl bg-slate-100 p-3 text-sm">
+        <strong>Cómo probarlo:</strong> Login Manager → Route Planner → debe haber al menos 1 instalación scheduled → click "Print addresses" → descarga PDF.
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- BILLING -->
+    <!-- ======================================================== -->
+    <section id="billing" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>10</span>
+        <span class="rounded-full bg-indigo-50 px-2 py-0.5">Manager · Office</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Billing</h2>
+      <p class="mt-2 text-slate-600">
+        El centro financiero. Cash IN, cash OUT, órdenes para facturar, recibos pendientes, liquidaciones a contratistas.
+      </p>
+
+      <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Qué muestra</h3>
+          <ul class="mt-2 space-y-2 text-sm">
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Cash IN del mes</strong>: paid + pending invoice (amber)</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Cash OUT del mes</strong>: settled payouts + pending payouts</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>To invoice</strong>: órdenes en stage "Installed" no pagadas — cada una con botón verde <strong>Invoice</strong></li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Outstanding</strong>: invoiced pero unpaid/partial — receivables</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Painter payouts</strong> agrupados por pintor con expandible que muestra cada payout draft / approved / paid + impresión de recibo + botón <strong>Pay all pending</strong></li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Installer payouts</strong> igual que el de pintor</li>
+            <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Revenue by month chart</strong> (últimos 6 meses)</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Cómo probarlo</h3>
+          <ol class="mt-2 list-decimal space-y-2 pl-5 text-sm">
+            <li>Login como Office (Beatriz)</li>
+            <li>Sidebar → Billing</li>
+            <li>Click en <strong>Invoice</strong> de IND/2026/00013 → wizard se abre con Total pre-cargado</li>
+            <li>Seleccionar "Paid in full" + tipear referencia → Save & advance</li>
+            <li>Toast verde + la orden sale de "To invoice" y entra en Cash IN paid</li>
+            <li>Expandir Painter payouts → "View 1 payout" → ver detalle</li>
+            <li>Click <strong>Pay all pending ($384)</strong> → marca el payout como paid + toast</li>
+            <li>Click 🖨 en un payout específico → descarga PDF del recibo</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- REPORTS -->
+    <!-- ======================================================== -->
+    <section id="reports" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>11</span>
+        <span class="rounded-full bg-indigo-50 px-2 py-0.5">Manager · Office</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Reports</h2>
+      <p class="mt-2 text-slate-600">
+        Análisis de los últimos 6 meses. Datos reales, no agregaciones inventadas.
+      </p>
+
+      <ul class="mt-4 space-y-2 text-sm">
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>3 KPI tiles</strong>: Revenue 6m, current month con Δ% vs mes anterior, active dealers</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Revenue chart</strong>: barras por mes</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Top dealers</strong>: leaderboard ordenado por revenue (paid + pending)</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Top designs</strong>: cuántas órdenes / puertas / SQF tiene cada modelo</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Stage aging</strong>: por etapa, cuántas órdenes activas y cuánto tiempo promedio llevan</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Contractor performance</strong> (8 semanas): cuántos payouts pagados + monto por contratista</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Export top dealers</strong>: CSV</li>
+      </ul>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- CATALOG -->
+    <!-- ======================================================== -->
+    <section id="catalog" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>12</span>
+        <span class="rounded-full bg-indigo-50 px-2 py-0.5">Manager · Office</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Catalog</h2>
+      <p class="mt-2 text-slate-600">
+        Donde vive la lista de dealers (clientes-empresa) y la lista de diseños de puertas disponibles.
+      </p>
+
+      <ul class="mt-4 space-y-2 text-sm">
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Dealers</strong>: cards con nombre + precio default por SQF — click abre detail</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Designs (33)</strong>: tabla con código + nombre + door type</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Filtro</strong> por código o nombre</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Paginación</strong> (25 / 50 / 100 / 200 per page)</li>
+      </ul>
+
+      <div class="mt-4">
+        <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Dealer detail (click en una card)</h3>
+        <ul class="mt-2 space-y-1 text-sm">
+          <li class="flex gap-2"><span class="text-indigo-600">●</span>Form editable: name, default price/SQF, email, teléfono, dirección</li>
+          <li class="flex gap-2"><span class="text-indigo-600">●</span>Recent orders del dealer (6 últimos)</li>
+          <li class="flex gap-2"><span class="text-indigo-600">●</span>Botón Save changes</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- SETTINGS -->
+    <!-- ======================================================== -->
+    <section id="settings" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>13</span>
+        <span class="rounded-full bg-indigo-50 px-2 py-0.5">Manager · Office</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Settings</h2>
+      <p class="mt-2 text-slate-600">
+        Configuración del negocio: capacidades de producción, tarifas de contratistas, asignaciones huérfanas.
+      </p>
+
+      <ul class="mt-4 space-y-2 text-sm">
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Production capacity per day</strong>: 3 inputs (CNC orders/día, Painting SQF/día, Installation orders/día) — manejan las barras de capacity del Dashboard</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Contractor rates</strong>: lista editable por tipo (Painter $8/SQF, Installer $35/piece, Other) — drives los payouts automáticos</li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Orphan contractor assignments</strong>: muestra órdenes que pasaron etapas sin painter / installer asignado + botón <strong>Auto-assign defaults</strong></li>
+        <li class="flex gap-2"><span class="text-indigo-600">●</span><strong>Admin shortcuts</strong>: links a Dealers y Catalog</li>
+      </ul>
+
+      <div class="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">
+        <strong>Prueba:</strong> cambia CNC capacity de 8 a 4 → Save → andá al Dashboard → la barra de CNC se va al doble. Volvelo a 8 para no afectar.
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- INSTALLER PORTAL -->
+    <!-- ======================================================== -->
+    <section id="installer-portal" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-indigo-700">
+        <span>14</span>
+        <span class="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">Installer</span>
+      </div>
+      <h2 class="mt-2 text-2xl font-bold text-slate-900">Portal del instalador (móvil)</h2>
+      <p class="mt-2 text-slate-600">
+        Vista lean optimizada para celular. Carlos abre desde el celular en la obra.
+      </p>
+
+      <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">/installs (lista)</h3>
+          <ul class="mt-2 space-y-2 text-sm">
+            <li class="flex gap-2"><span class="text-blue-600">●</span>Header azul con "My installations"</li>
+            <li class="flex gap-2"><span class="text-blue-600">●</span>Search bar grande</li>
+            <li class="flex gap-2"><span class="text-blue-600">●</span>Cards: order #, cliente, dirección, doors, dealer, fecha de instalación</li>
+            <li class="flex gap-2"><span class="text-blue-600">●</span>Badge de etapa actual a la derecha</li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">/installs/[id] (detail)</h3>
+          <ul class="mt-2 space-y-2 text-sm">
+            <li class="flex gap-2"><span class="text-blue-600">●</span><strong>Customer card</strong>: nombre, teléfono tappable, dirección</li>
+            <li class="flex gap-2"><span class="text-blue-600">●</span><strong>Upload work photo</strong>: botón "Take or pick a photo" → abre la cámara o galería</li>
+            <li class="flex gap-2"><span class="text-blue-600">●</span><strong>Mark as installed</strong>: canvas para firma del cliente + botón verde "Confirm installation completed"</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="mt-6 rounded-xl bg-blue-50 p-4 text-sm">
+        <strong class="text-blue-900">📱 Cómo probarlo:</strong>
+        <ol class="mt-2 list-decimal space-y-1 pl-5 text-blue-800">
+          <li>Quick login como <strong>Installer (Carlos)</strong> → te lleva a /installs</li>
+          <li>Click en una orden asignada (ej. IND/2026/00016)</li>
+          <li>Llamar al cliente: tap el teléfono → abre tel:</li>
+          <li>"Take or pick a photo" → abre cámara nativa del SO → upload</li>
+          <li>Toast verde "Photo uploaded ✓"</li>
+          <li>Dibujá firma en el canvas (mouse o touch) → aparece chip "✓ Signature captured"</li>
+          <li>"Confirm installation completed" → toast + redirige a la lista en 1.5s</li>
+          <li>Volvé al Manager → /billing → debería haber un nuevo Installer payout para Carlos</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- HEADER FEATURES -->
+    <!-- ======================================================== -->
+    <section id="header-features" class="page-card scroll-mt-6 rounded-3xl bg-gradient-to-br from-indigo-50 to-white p-8 shadow-sm ring-1 ring-slate-100">
+      <h2 class="text-2xl font-bold text-slate-900">⚡ Features del header (siempre visibles)</h2>
+
+      <div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-3">
+        <div>
+          <h3 class="font-bold text-slate-900">🔔 Campana de notificaciones</h3>
+          <p class="mt-1 text-sm text-slate-600">
+            Badge rojo con el número de items pendientes.
+            Cada rol ve <strong>solo lo que requiere su acción</strong>.
+          </p>
+          <ul class="mt-2 list-disc space-y-1 pl-4 text-xs text-slate-600">
+            <li>Manager: overdue, new orders, pending invoices, outstanding</li>
+            <li>Painter: 5 órdenes más viejas en Painting + draft payouts</li>
+            <li>Installer: instalaciones de hoy</li>
+          </ul>
+          <p class="mt-2 text-[10px] text-slate-500"><strong>Refresca cada 60s</strong>. Click → navega al item.</p>
+        </div>
+
+        <div>
+          <h3 class="font-bold text-slate-900">👁 View as</h3>
+          <p class="mt-1 text-sm text-slate-600">
+            Solo Manager. Permite "convertirse" en otro rol para verificar lo que ve cada uno.
+          </p>
+          <ul class="mt-2 list-disc space-y-1 pl-4 text-xs text-slate-600">
+            <li>Click → dropdown con 5 targets (Beatriz, Pedro, Mario, Ramon, Carlos)</li>
+            <li>Banner ámbar arriba indica "Viewing as X · Exit"</li>
+            <li>Sidebar se filtra al rol impersonado</li>
+            <li>Click Exit → vuelve a Majela</li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 class="font-bold text-slate-900">👤 Avatar del usuario</h3>
+          <p class="mt-1 text-sm text-slate-600">
+            Dropdown con nombre + email + Log out.
+            El avatar es la inicial del nombre sobre fondo azul Indigo.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- DOCUMENTS -->
+    <!-- ======================================================== -->
+    <section id="documents" class="page-card scroll-mt-6 rounded-3xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
+      <h2 class="text-2xl font-bold text-slate-900">📄 Documentos PDF que genera el sistema</h2>
+      <p class="mt-2 text-slate-600">
+        Todos se generan automáticamente con QWeb desde Odoo, accesibles con un click en la app.
+      </p>
+
+      <div class="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div class="rounded-xl bg-slate-50 p-4">
+          <strong>1. Order Card</strong> (ficha de orden)
+          <p class="mt-1 text-xs text-slate-600">Se imprime y se le entrega al cliente. Disponible desde Orders, Order detail, Stage screens.</p>
+        </div>
+        <div class="rounded-xl bg-slate-50 p-4">
+          <strong>2. Order Label</strong> (etiqueta del diseñador, 12.7 × 57.15 mm)
+          <p class="mt-1 text-xs text-slate-600">Se pega detrás de cada pieza cortada. Trae QR con el order.name + medidas + PRIV + parts + diseño.</p>
+        </div>
+        <div class="rounded-xl bg-slate-50 p-4">
+          <strong>3. Painter Sheet</strong> (Hoja del pintor)
+          <p class="mt-1 text-xs text-slate-600">Company / Order / Cliente / Color / Door Type / SQF / Price / Total. Imprimís desde /paint.</p>
+        </div>
+        <div class="rounded-xl bg-slate-50 p-4">
+          <strong>4. Installation Addresses</strong>
+          <p class="mt-1 text-xs text-slate-600">Lista de paradas con dirección, teléfono, instaladores. Imprimís desde /route-planner.</p>
+        </div>
+        <div class="rounded-xl bg-slate-50 p-4">
+          <strong>5. Payout Receipt</strong>
+          <p class="mt-1 text-xs text-slate-600">Recibo de pago al contratista. Click en 🖨 al lado de cada payout en /billing.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- ODOO SYNC -->
+    <!-- ======================================================== -->
+    <section id="odoo-sync" class="page-card scroll-mt-6 rounded-3xl bg-slate-900 p-8 text-slate-100 shadow-sm">
+      <h2 class="text-2xl font-bold text-white">🔄 Relación con Odoo</h2>
+      <p class="mt-2 text-slate-300">
+        La app Next no tiene base de datos propia. Es un cliente Odoo con UI a medida.
+      </p>
+
+      <div class="mt-6 rounded-2xl bg-slate-800 p-6">
+        <pre class="overflow-x-auto text-xs text-slate-200"><code>Usuario hace algo en la app Next
+  ↓ /api/orders/8/assign { painter_id: 33 }
+Next BFF (proxy)
+  ↓ JSON-RPC POST /web/dataset/call_kw
+  model: indigo.order, method: write, args: [[8], { painter_id: 33 }]
+  Cookie: session_id=&lt;session del usuario logueado&gt;
+Odoo backend
+  → record rules verifican permisos del usuario
+  → escribe en Postgres
+  → trigger en write() ejecuta _create_painter_payout / _create_installer_payouts
+  → message_post() al chatter
+  → notifica a usuarios suscritos al record</code></pre>
+      </div>
+
+      <ul class="mt-6 space-y-2 text-sm">
+        <li class="flex gap-2"><span class="text-emerald-400">✓</span> Todo lo que ves en la app vive en Odoo</li>
+        <li class="flex gap-2"><span class="text-emerald-400">✓</span> Cualquier cambio se ve también en el backend de Odoo (incluyendo el kanban nativo)</li>
+        <li class="flex gap-2"><span class="text-emerald-400">✓</span> Las record rules y los permisos de Odoo aplican igual: un Painter no puede ver órdenes que no le pertenecen</li>
+        <li class="flex gap-2"><span class="text-emerald-400">✓</span> Los reportes PDF los renderiza Odoo con QWeb</li>
+        <li class="flex gap-2"><span class="text-emerald-400">✓</span> El chatter, attachments, activities — todo de Odoo</li>
+      </ul>
+
+      <div class="mt-6 rounded-xl bg-indigo-700/20 p-4 text-sm">
+        <strong class="text-indigo-200">¿Por qué entonces hacer la app Next?</strong>
+        <p class="mt-1 text-slate-300">
+          Para darle a cada rol una UX hecha a su medida: el pintor abre y ve solo lo que tiene que pintar.
+          El instalador abre desde el celular y tiene un canvas táctil para la firma del cliente.
+          Beatriz tiene un Cash Flow al primer vistazo.
+          El backend de Odoo es potente pero pensado para administradores — no para operativos.
+        </p>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- FOOTER -->
+    <!-- ======================================================== -->
+    <footer class="rounded-3xl bg-white p-8 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-100">
+      <p>Indigo Decors · Production ERP</p>
+      <p class="mt-1 text-xs text-slate-400">Manual generado para grabar el video explicativo del producto · 2026</p>
+    </footer>
+
+  </main>
+</div>
+
+</body>
+</html>

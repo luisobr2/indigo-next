@@ -197,10 +197,21 @@ export default function OrderDetailPage({
                     src={data.designImage}
                     alt="Door design"
                     className="h-full w-auto object-contain"
+                    onError={(e) => {
+                      // The design has no image yet — hide gracefully.
+                      const el = e.currentTarget;
+                      el.style.display = "none";
+                      const sibling = el.nextElementSibling as HTMLElement | null;
+                      if (sibling) sibling.style.display = "block";
+                    }}
                   />
-                ) : (
-                  <span className="text-sm text-slate-300">No design image</span>
-                )}
+                ) : null}
+                <span
+                  className="text-sm text-slate-300"
+                  style={{ display: data.designImage ? "none" : "block" }}
+                >
+                  No design image
+                </span>
               </div>
             </div>
 
