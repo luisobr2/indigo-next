@@ -34,5 +34,10 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Skip the middleware on _next assets and on any static file in /public.
+  // The trailing extension list covers images, fonts and manifests so
+  // public/indigo-logo.webp etc. are served without an auth redirect.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:webp|png|jpg|jpeg|svg|gif|ico|webmanifest|woff2?|ttf)$).*)",
+  ],
 };
