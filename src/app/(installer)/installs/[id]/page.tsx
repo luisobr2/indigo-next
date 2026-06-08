@@ -5,6 +5,7 @@ import { useState, use, useRef, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft, Camera, CheckCircle2, LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -25,10 +26,17 @@ export default function InstallDetailPage({
   });
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [drawing, setDrawing] = useState(false);
+  // Refs avoid the stale-closure bug: keeping `drawing` and `lastX/lastY`
+  // as state would re-create the listeners on each setState, losing the
+  // `lastX/lastY` set in the synchronous mousedown handler.
+  const drawingRef = useRef(false);
+  const lastRef = useRef({ x: 0, y: 0 });
   const [hasInk, setHasInk] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoNote, setPhotoNote] = useState("");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -46,53 +54,83 @@ export default function InstallDetailPage({
         y: ((t.clientY - r.top) * canvas!.height) / r.height,
       };
     }
-    let lastX = 0,
-      lastY = 0;
     function start(e: MouseEvent | TouchEvent) {
-      setDrawing(true);
+      drawingRef.current = true;
       const p = pos(e);
-      lastX = p.x;
-      lastY = p.y;
+      lastRef.current = p;
       e.preventDefault();
     }
     function move(e: MouseEvent | TouchEvent) {
-      if (!drawing) return;
+      if (!drawingRef.current) return;
       const p = pos(e);
       ctx.beginPath();
-      ctx.moveTo(lastX, lastY);
+      ctx.moveTo(lastRef.current.x, lastRef.current.y);
       ctx.lineTo(p.x, p.y);
       ctx.stroke();
-      lastX = p.x;
-      lastY = p.y;
+      lastRef.current = p;
       setHasInk(true);
       e.preventDefault();
     }
     function end() {
-      setDrawing(false);
+      drawingRef.current = false;
     }
     canvas.addEventListener("mousedown", start);
     canvas.addEventListener("mousemove", move);
     canvas.addEventListener("mouseup", end);
-    canvas.addEventListener("mouseout", end);
+    canvas.addEventListener("mouseleave", end);
     canvas.addEventListener("touchstart", start, { passive: false });
     canvas.addEventListener("touchmove", move, { passive: false });
     canvas.addEventListener("touchend", end);
+    canvas.addEventListener("touchcancel", end);
     return () => {
       canvas.removeEventListener("mousedown", start);
       canvas.removeEventListener("mousemove", move);
       canvas.removeEventListener("mouseup", end);
-      canvas.removeEventListener("mouseout", end);
+      canvas.removeEventListener("mouseleave", end);
       canvas.removeEventListener("touchstart", start);
       canvas.removeEventListener("touchmove", move);
       canvas.removeEventListener("touchend", end);
+      canvas.removeEventListener("touchcancel", end);
     };
-  }, [drawing]);
+  }, []);
 
   function clearSignature() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height);
     setHasInk(false);
+  }
+
+  async function uploadPhoto(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!photoFile) {
+      toast.warning("Choose a photo first");
+      return;
+    }
+    setUploading(true);
+    const fd = new FormData();
+    fd.append("file", photoFile);
+    if (photoNote) fd.append("note", photoNote);
+
+    const promise = fetch(`/api/orders/${id}/attachments`, {
+      method: "POST",
+      body: fd,
+    }).then(async (r) => {
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Upload failed");
+      setPhotoFile(null);
+      setPhotoNote("");
+      // Reset the file input so the same file can be picked again.
+      const form = e.target as HTMLFormElement;
+      form.reset();
+      return j;
+    }).finally(() => setUploading(false));
+
+    toast.promise(promise, {
+      loading: "Uploading…",
+      success: "Photo uploaded ✓",
+      error: (err) => (err instanceof Error ? err.message : "Failed"),
+    });
   }
 
   async function submit() {
@@ -102,7 +140,7 @@ export default function InstallDetailPage({
       const signatureDataUrl = hasInk
         ? canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "")
         : "";
-      await fetch(`/api/orders/${id}/advance`, {
+      const r = await fetch(`/api/orders/${id}/advance`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -112,8 +150,13 @@ export default function InstallDetailPage({
             : {},
         }),
       });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Submit failed");
+      toast.success("Marked as installed");
       setDone(true);
       setTimeout(() => router.push("/installs"), 1500);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
       setBusy(false);
     }
@@ -188,9 +231,7 @@ export default function InstallDetailPage({
 
         {/* Photo upload */}
         <form
-          method="post"
-          encType="multipart/form-data"
-          action={`/my/install/${id}/upload`}
+          onSubmit={uploadPhoto}
           className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm"
         >
           <div className="mb-2 flex items-center gap-2 font-semibold text-slate-800">
@@ -199,23 +240,27 @@ export default function InstallDetailPage({
           </div>
           <Input
             type="file"
-            name="photo"
             accept="image/*"
             capture="environment"
-            required
+            onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
           />
+          {photoFile && (
+            <p className="mt-1 text-xs text-emerald-700">✓ {photoFile.name}</p>
+          )}
           <Input
             type="text"
-            name="note"
+            value={photoNote}
+            onChange={(e) => setPhotoNote(e.target.value)}
             placeholder="Note (optional)"
             className="mt-2"
           />
           <Button
             type="submit"
             size="lg"
+            disabled={uploading || !photoFile}
             className="mt-3 h-12 w-full text-base"
           >
-            Upload photo
+            {uploading ? "Uploading…" : "Upload photo"}
           </Button>
         </form>
 
@@ -245,6 +290,11 @@ export default function InstallDetailPage({
               >
                 Clear signature
               </Button>
+              {hasInk && (
+                <span className="ml-auto self-center text-[10px] text-emerald-700">
+                  ✓ Signature captured
+                </span>
+              )}
             </div>
             <Button
               size="lg"
