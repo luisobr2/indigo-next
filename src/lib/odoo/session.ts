@@ -30,12 +30,28 @@ export async function requireSession(): Promise<SessionPayload> {
   return s;
 }
 
+/**
+ * Whether the session cookie should carry the `Secure` flag.
+ *
+ * Defaults to true in production, but lets the operator override via
+ * `COOKIE_SECURE=false` for environments behind plain HTTP (e.g. the
+ * Coolify sslip.io URL before DNS + SSL are wired). Setting `Secure` on
+ * an HTTP origin makes the browser silently drop the cookie, which
+ * looks like a successful login that immediately bounces back to /login.
+ */
+const COOKIE_SECURE = (() => {
+  const v = process.env.COOKIE_SECURE;
+  if (v === "false" || v === "0") return false;
+  if (v === "true" || v === "1") return true;
+  return process.env.NODE_ENV === "production";
+})();
+
 export async function writeSession(payload: SessionPayload): Promise<void> {
   const store = await cookies();
   store.set(COOKIE_NAME, JSON.stringify(payload), {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: COOKIE_SECURE,
     path: "/",
     maxAge: 60 * 60 * 8,
   });
