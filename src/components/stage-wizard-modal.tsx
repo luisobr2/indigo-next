@@ -82,10 +82,23 @@ export function StageWizardModal({
   }
   const [sqfLines, setSqfLines] = useState<SqfLine[]>([]);
 
-  // Pull the order's lines when the wizard mounts in SQF-table mode so the
-  // designer sees the live piece breakdown and can fill SQF per piece.
+  // Track painter/installer assignment for wizards that require them.
+  // Lets us block submission with a clear message instead of silently
+  // letting the stage advance create no payout.
+  const requiresPainter = config.wizard === "indigo.painter.done.wizard";
+  const requiresInstaller = config.wizard === "indigo.installed.wizard";
+  const needsOrderFetch =
+    config.withSqfTable || requiresPainter || requiresInstaller;
+
+  const [assignment, setAssignment] = useState<{
+    painter: [number, string] | false;
+    installerCount: number;
+  } | null>(null);
+
+  // Pull the order whenever the wizard mounts in a mode that needs the
+  // order's lines (SQF) or its painter/installer assignment.
   useEffect(() => {
-    if (!open || !config.withSqfTable) return;
+    if (!open || !needsOrderFetch) return;
     let cancelled = false;
     (async () => {
       try {
@@ -93,8 +106,17 @@ export function StageWizardModal({
         if (!r.ok) return;
         const j = await r.json();
         if (cancelled) return;
-        const lines = (j.lines ?? []) as SqfLine[];
-        setSqfLines(lines.map((l) => ({ ...l, sqf: Number(l.sqf) || 0 })));
+        if (config.withSqfTable) {
+          const lines = (j.lines ?? []) as SqfLine[];
+          setSqfLines(lines.map((l) => ({ ...l, sqf: Number(l.sqf) || 0 })));
+        }
+        const order = j.order ?? {};
+        setAssignment({
+          painter: order.painter_id ?? false,
+          installerCount: Array.isArray(order.installer_ids)
+            ? order.installer_ids.length
+            : 0,
+        });
       } catch {
         /* surfaced on submit if needed */
       }
@@ -102,7 +124,11 @@ export function StageWizardModal({
     return () => {
       cancelled = true;
     };
-  }, [open, config.withSqfTable, orderId]);
+  }, [open, needsOrderFetch, config.withSqfTable, orderId]);
+
+  const missingAssignment =
+    (requiresPainter && assignment !== null && !assignment.painter) ||
+    (requiresInstaller && assignment !== null && assignment.installerCount === 0);
 
   function updateLineSqf(lineId: number, sqf: number) {
     setSqfLines((prev) =>
@@ -162,6 +188,22 @@ export function StageWizardModal({
         </DialogHeader>
 
         <div className="space-y-4">
+          {missingAssignment && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+              <div className="font-semibold uppercase tracking-wide text-amber-700">
+                ⚠ Assignment missing
+              </div>
+              <p className="mt-1">
+                {requiresPainter
+                  ? "This order has no painter assigned. Advancing now would skip the painter payout."
+                  : "This order has no installer assigned. Advancing now would skip the installer payout."}
+                {" "}
+                Close this wizard, click <strong>Edit</strong> on the
+                Assigned Contractors card and pick a contractor before
+                marking the order complete.
+              </p>
+            </div>
+          )}
           {config.withAmount && (
             <div className="space-y-1.5">
               <Label htmlFor="wizard-amount">Amount collected (USD)</Label>
@@ -289,7 +331,7 @@ export function StageWizardModal({
           <Button
             type="button"
             onClick={submit}
-            disabled={busy}
+            disabled={busy || missingAssignment}
             className="bg-indigo-700 text-white shadow shadow-indigo-700/30 hover:bg-indigo-800"
           >
             <CheckCircle2 size={14} />

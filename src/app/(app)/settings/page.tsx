@@ -13,6 +13,9 @@ import {
   Tag,
   Layers,
   Building2,
+  Users,
+  AlertTriangle,
+  Wand2,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -290,6 +293,9 @@ export default function SettingsPage() {
         )}
       </section>
 
+      {/* ---------- Orphan assignments ---------- */}
+      <OrphanAssignmentCard />
+
       {/* ---------- Admin shortcuts ---------- */}
       <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
         <h2 className="mb-4 text-base font-semibold text-slate-900">Admin shortcuts</h2>
@@ -309,6 +315,128 @@ export default function SettingsPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+interface OrphansPayload {
+  orphanPainters: Array<{ id: number; name: string }>;
+  orphanInstallers: Array<{ id: number; name: string }>;
+  defaults: {
+    painter: { id: number; name: string } | null;
+    installer: { id: number; name: string } | null;
+  };
+}
+
+function OrphanAssignmentCard() {
+  const qc = useQueryClient();
+  const { data, refetch, isLoading } = useQuery<OrphansPayload>({
+    queryKey: ["orphans"],
+    queryFn: () => fetch("/api/orders/auto-assign").then((r) => r.json()),
+    staleTime: 30_000,
+  });
+
+  const totalOrphans =
+    (data?.orphanPainters.length ?? 0) + (data?.orphanInstallers.length ?? 0);
+
+  async function fix() {
+    const promise = fetch("/api/orders/auto-assign", { method: "POST" }).then(
+      async (r) => {
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+        await refetch();
+        qc.invalidateQueries({ queryKey: ["dashboard"] });
+        qc.invalidateQueries({ queryKey: ["billing-summary"] });
+        return j;
+      },
+    );
+    toast.promise(promise, {
+      loading: "Auto-assigning…",
+      success: (j) =>
+        `Updated ${j.painterUpdates} painter / ${j.installerUpdates} installer assignments`,
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
+    });
+  }
+
+  return (
+    <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Users size={16} className="text-amber-600" />
+          <h2 className="text-base font-semibold text-slate-900">
+            Orphan contractor assignments
+          </h2>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={fix}
+          disabled={isLoading || totalOrphans === 0}
+        >
+          <Wand2 size={14} />
+          Auto-assign defaults
+        </Button>
+      </div>
+      <p className="mb-4 text-xs text-slate-500">
+        Orders past CNC need a painter assigned, and orders past Ready for
+        Installation need at least one installer — otherwise the Odoo stage
+        trigger generates no payout. This panel fills the gap with the
+        first active contractor of each type.
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-orange-700">
+            <Brush size={14} />
+            Painter
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 tabular-nums">
+              {data?.orphanPainters.length ?? "…"}
+            </span>
+            <span className="text-xs text-slate-500">orphan orders</span>
+          </div>
+          {data?.defaults.painter ? (
+            <p className="mt-2 text-[11px] text-slate-500">
+              Default: <strong>{data.defaults.painter.name}</strong>
+            </p>
+          ) : (
+            <p className="mt-2 text-[11px] text-rose-700">
+              <AlertTriangle size={10} className="inline" /> No active painter
+              configured.
+            </p>
+          )}
+        </div>
+        <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            <Wrench size={14} />
+            Installer
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 tabular-nums">
+              {data?.orphanInstallers.length ?? "…"}
+            </span>
+            <span className="text-xs text-slate-500">orphan orders</span>
+          </div>
+          {data?.defaults.installer ? (
+            <p className="mt-2 text-[11px] text-slate-500">
+              Default: <strong>{data.defaults.installer.name}</strong>
+            </p>
+          ) : (
+            <p className="mt-2 text-[11px] text-rose-700">
+              <AlertTriangle size={10} className="inline" /> No active installer
+              configured.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {totalOrphans === 0 && !isLoading && (
+        <p className="mt-3 text-center text-xs text-emerald-700">
+          ✓ All orders past CNC have contractor assignments.
+        </p>
+      )}
+    </section>
   );
 }
 
