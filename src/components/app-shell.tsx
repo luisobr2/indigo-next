@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Bell,
   LogOut,
   ChevronDown,
   Menu,
@@ -36,6 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { NotificationsBell } from "@/components/notifications-bell";
 
 interface MeResponse {
   user: {
@@ -372,16 +372,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="relative"
-              aria-label="Notifications"
-            >
-              <Bell size={18} />
-              <span className="absolute top-1.5 right-1.5 inline-flex h-2 w-2 rounded-full bg-rose-500" />
-            </Button>
+            <NotificationsBell />
             <DropdownMenu>
               <DropdownMenuTrigger
                 className="flex items-center gap-2 rounded-xl border border-slate-200 px-2 py-1.5 text-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 sm:px-3"
