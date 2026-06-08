@@ -62,4 +62,47 @@ export async function clearSession(): Promise<void> {
   store.delete(COOKIE_NAME);
 }
 
+/* ----------------------------------------------------------------- */
+/* Impersonation backup — stores the manager's session under a       */
+/* separate cookie so it can be restored when impersonation ends.    */
+/* ----------------------------------------------------------------- */
+
+const ORIGINAL_COOKIE = `${COOKIE_NAME}_original`;
+
+export async function pushOriginalSession(
+  payload: SessionPayload,
+): Promise<void> {
+  const store = await cookies();
+  store.set(ORIGINAL_COOKIE, JSON.stringify(payload), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: COOKIE_SECURE,
+    path: "/",
+    maxAge: 60 * 60 * 8,
+  });
+}
+
+export async function popOriginalSession(): Promise<SessionPayload | null> {
+  const store = await cookies();
+  const raw = store.get(ORIGINAL_COOKIE)?.value;
+  if (!raw) return null;
+  store.delete(ORIGINAL_COOKIE);
+  try {
+    return JSON.parse(raw) as SessionPayload;
+  } catch {
+    return null;
+  }
+}
+
+export async function getOriginalSession(): Promise<SessionPayload | null> {
+  const store = await cookies();
+  const raw = store.get(ORIGINAL_COOKIE)?.value;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as SessionPayload;
+  } catch {
+    return null;
+  }
+}
+
 export const SESSION_COOKIE = COOKIE_NAME;

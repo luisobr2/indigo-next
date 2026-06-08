@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bell,
   LogOut,
@@ -11,8 +11,17 @@ import {
   X,
   ChevronsLeft,
   ChevronsRight,
+  Eye,
+  EyeOff,
+  UserCog,
+  Building2,
+  Pencil,
+  Brush,
+  Hammer,
+  Truck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS, type NavItem } from "@/lib/nav";
 import { deriveRole } from "@/lib/odoo/types";
@@ -37,7 +46,19 @@ interface MeResponse {
     groups: string[];
   } | null;
   role?: ReturnType<typeof deriveRole>;
+  impersonating?: {
+    original: { id: number; name: string; login: string };
+  } | null;
 }
+
+/** Targets the manager can impersonate. Must match server allow-list. */
+const IMPERSONATE_TARGETS = [
+  { role: "Office", login: "oficina@indigodecors.com", name: "Beatriz", icon: Building2 },
+  { role: "Designer", login: "disenador@indigodecors.com", name: "Pedro", icon: Pencil },
+  { role: "Painter", login: "pintor@indigodecors.com", name: "Mario", icon: Brush },
+  { role: "CNC", login: "cnc@indigodecors.com", name: "Ramon", icon: Hammer },
+  { role: "Installer", login: "instalador@indigodecors.com", name: "Carlos", icon: Truck },
+] as const;
 
 const COLLAPSE_KEY = "indigo:sidebar-collapsed";
 
@@ -77,6 +98,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setMobileNavOpen(false);
   }, [pathname]);
 
+  const qc = useQueryClient();
   const { data } = useQuery<MeResponse>({
     queryKey: ["me"],
     queryFn: () => fetch("/api/auth/me").then((r) => r.json()),
@@ -84,6 +106,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const user = data?.user;
   const role = data?.role;
+  const impersonating = data?.impersonating ?? null;
+  // "View as" entry point is gated behind Manager / admin. When the
+  // original session belongs to a manager but the active session is
+  // impersonated, we still expose Exit but hide the picker (you can't
+  // nest).
+  const canImpersonate =
+    !!user && (role?.isManager || user.isAdmin) && !impersonating;
+
   const items = role
     ? NAV_ITEMS.filter((it) => !it.show || it.show(role))
     : NAV_ITEMS;
@@ -91,6 +121,43 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
+  }
+
+  async function startImpersonation(target: (typeof IMPERSONATE_TARGETS)[number]) {
+    const promise = fetch("/api/auth/impersonate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ login: target.login }),
+    })
+      .then(async (r) => {
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "Failed");
+        await qc.invalidateQueries({ queryKey: ["me"] });
+        router.replace(j.landing || "/dashboard");
+        return j;
+      });
+    toast.promise(promise, {
+      loading: `Switching to ${target.name}...`,
+      success: `Now viewing as ${target.name}`,
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
+    });
+  }
+
+  async function exitImpersonation() {
+    const promise = fetch("/api/auth/impersonate", { method: "DELETE" }).then(
+      async (r) => {
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "Failed");
+        await qc.invalidateQueries({ queryKey: ["me"] });
+        router.replace("/dashboard");
+        return j;
+      },
+    );
+    toast.promise(promise, {
+      loading: "Restoring session...",
+      success: (j) => `Back as ${j.user.name}`,
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
+    });
   }
 
   /**
@@ -269,6 +336,42 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Menu size={20} />
           </Button>
           <div className="ml-auto flex items-center gap-3">
+            {canImpersonate && (
+              <DropdownMenu>
+                <DropdownMenuTrigger className="flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 sm:px-3">
+                  <Eye size={14} className="text-indigo-700" />
+                  <span className="hidden sm:inline">View as</span>
+                  <ChevronDown size={12} className="text-slate-400" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Impersonate
+                    </DropdownMenuLabel>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  {IMPERSONATE_TARGETS.map((t) => {
+                    const Icon = t.icon;
+                    return (
+                      <DropdownMenuItem
+                        key={t.login}
+                        onClick={() => startImpersonation(t)}
+                      >
+                        <Icon size={14} className="text-slate-500" />
+                        <div className="flex min-w-0 flex-col">
+                          <span className="font-semibold text-slate-800">
+                            {t.name}
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            {t.role}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -333,6 +436,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </DropdownMenu>
           </div>
         </header>
+        {impersonating && (
+          <div className="flex shrink-0 items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs sm:px-6">
+            <UserCog size={14} className="shrink-0 text-amber-700" />
+            <div className="min-w-0 flex-1 truncate text-amber-900">
+              Viewing as{" "}
+              <strong className="font-bold">{user?.name ?? ""}</strong>
+              <span className="ml-1.5 hidden text-amber-700/80 sm:inline">
+                · original session: {impersonating.original.name} ({impersonating.original.login})
+              </span>
+            </div>
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={exitImpersonation}
+              className="border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+            >
+              <EyeOff size={12} />
+              Exit
+            </Button>
+          </div>
+        )}
         <main className="min-w-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5">
           {children}
         </main>
