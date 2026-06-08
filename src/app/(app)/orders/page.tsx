@@ -9,7 +9,7 @@ import {
   Printer,
   AlertCircle,
 } from "lucide-react";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
 import { TableSkeleton } from "@/components/skeleton";
@@ -19,6 +19,7 @@ import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Pagination } from "@/components/pagination";
 
 interface OrderRow {
   id: number;
@@ -65,20 +66,40 @@ function OrdersInner() {
   const sp = useSearchParams();
   const stage = sp.get("stage");
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
+
+  // Debounce the search so typing doesn't fire a request per keystroke,
+  // and reset to page 0 whenever the filter changes.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedQ(q);
+      setPage(0);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // Stage filter via URL param: reset to first page when it changes.
+  useEffect(() => {
+    setPage(0);
+  }, [stage]);
 
   const { data, isLoading } = useQuery<{
     records: OrderRow[];
     total: number;
   }>({
-    queryKey: ["orders", stage, q],
+    queryKey: ["orders", stage, debouncedQ, page, pageSize],
     queryFn: async () => {
       const url = new URL("/api/orders", window.location.origin);
       if (stage) url.searchParams.set("stage", stage);
-      if (q) url.searchParams.set("q", q);
-      url.searchParams.set("limit", "100");
+      if (debouncedQ) url.searchParams.set("q", debouncedQ);
+      url.searchParams.set("limit", String(pageSize));
+      url.searchParams.set("offset", String(page * pageSize));
       const r = await fetch(url);
       return r.json();
     },
+    placeholderData: (prev) => prev, // keep the table painted while paging
   });
 
   const total = data?.total ?? 0;
@@ -257,6 +278,16 @@ function OrdersInner() {
           </tbody>
         </table>
         </div>
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          onPageChange={setPage}
+          onPageSizeChange={(s) => {
+            setPageSize(s);
+            setPage(0);
+          }}
+        />
       </div>
     </div>
   );
