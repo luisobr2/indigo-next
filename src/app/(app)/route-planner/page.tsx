@@ -1,11 +1,12 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Map, MapPin, Truck, Send, ArrowRight } from "lucide-react";
+import { Map, MapPin, Truck, Send, ArrowRight, Printer } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { fmtDate, m2o } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 
 interface RouteOrder {
   id: number;
@@ -41,6 +42,25 @@ export default function RoutePlannerPage() {
             stop list to the team by WhatsApp.
           </p>
         </div>
+        <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="lg"
+          onClick={() => {
+            if (!orders.length) {
+              toast.warning("No installations scheduled");
+              return;
+            }
+            openOdooReport({
+              report: REPORTS.installationAddresses,
+              ids: orders.map((o) => o.id),
+              filename: `installations-${new Date().toISOString().slice(0, 10)}.pdf`,
+            });
+          }}
+        >
+          <Printer size={14} />
+          Print addresses
+        </Button>
         <Button
           size="lg"
           onClick={() => {
@@ -76,6 +96,7 @@ export default function RoutePlannerPage() {
           <Send size={14} />
           Send route to WhatsApp
         </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

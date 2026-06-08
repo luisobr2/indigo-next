@@ -37,5 +37,6 @@ export const REPORTS = {
   orderCard: "indigo_decors.report_order_card_doc",
   orderLabel: "indigo_decors.report_order_label_doc",
   painterSheet: "indigo_decors.report_painter_sheet_doc",
-  installationAddresses: "indigo_decors.report_installation_addresses_doc",
+  installationAddresses: "indigo_decors.report_install_addresses_doc",
+  payout: "indigo_decors.report_payout_doc",
 } as const;
