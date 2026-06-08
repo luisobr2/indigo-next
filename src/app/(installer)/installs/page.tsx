@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Calendar, LogOut, Search } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtDate, m2o } from "@/lib/utils";
+import { Pagination } from "@/components/pagination";
 
 interface InstallOrder {
   id: number;
@@ -23,17 +24,33 @@ interface InstallOrder {
 export default function InstallerListPage() {
   const router = useRouter();
   const [q, setQ] = useState("");
-  const { data, isLoading } = useQuery<{ records: InstallOrder[] }>({
-    queryKey: ["installer", q],
-    queryFn: () =>
-      fetch(
-        `/api/orders?stages=ready_install,install_scheduled${
-          q ? `&q=${encodeURIComponent(q)}` : ""
-        }`,
-      ).then((r) => r.json()),
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 20;
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedQ(q);
+      setPage(0);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const { data, isLoading } = useQuery<{ records: InstallOrder[]; total: number }>({
+    queryKey: ["installer", debouncedQ, page],
+    queryFn: () => {
+      const url = new URL("/api/orders", window.location.origin);
+      url.searchParams.set("stages", "ready_install,install_scheduled");
+      if (debouncedQ) url.searchParams.set("q", debouncedQ);
+      url.searchParams.set("limit", String(PAGE_SIZE));
+      url.searchParams.set("offset", String(page * PAGE_SIZE));
+      return fetch(url).then((r) => r.json());
+    },
+    placeholderData: (prev) => prev,
   });
 
   const orders = data?.records ?? [];
+  const total = data?.total ?? 0;
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -117,6 +134,15 @@ export default function InstallerListPage() {
               </div>
             </Link>
           ))}
+        </div>
+        <div className="mt-4 overflow-hidden rounded-xl bg-white">
+          <Pagination
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            onPageChange={setPage}
+            hideOnSinglePage
+          />
         </div>
       </div>
     </div>

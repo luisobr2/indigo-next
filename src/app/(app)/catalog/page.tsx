@@ -1,9 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { Boxes, Building2, Pencil } from "lucide-react";
+import { Boxes, Building2, Pencil, Search } from "lucide-react";
 import { fmtMoney } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/pagination";
 
 interface Design {
   id: number;
@@ -21,9 +24,29 @@ interface Dealer {
 }
 
 export default function CatalogPage() {
-  const designs = useQuery<{ records: Design[] }>({
-    queryKey: ["catalog-designs"],
-    queryFn: () => fetch("/api/catalog/designs").then((r) => r.json()),
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
+  const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedQ(q);
+      setPage(0);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const designs = useQuery<{ records: Design[]; total: number }>({
+    queryKey: ["catalog-designs", debouncedQ, page, pageSize],
+    queryFn: () => {
+      const url = new URL("/api/catalog/designs", window.location.origin);
+      if (debouncedQ) url.searchParams.set("q", debouncedQ);
+      url.searchParams.set("limit", String(pageSize));
+      url.searchParams.set("offset", String(page * pageSize));
+      return fetch(url).then((r) => r.json());
+    },
+    placeholderData: (prev) => prev,
   });
   const dealers = useQuery<{ records: Dealer[] }>({
     queryKey: ["catalog-dealers"],
@@ -63,36 +86,63 @@ export default function CatalogPage() {
 
       {/* Designs */}
       <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <Boxes size={18} className="text-indigo-700" />
-          <h2 className="font-semibold text-slate-800">
-            Designs ({designs.data?.records?.length ?? 0})
-          </h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Boxes size={18} className="text-indigo-700" />
+            <h2 className="font-semibold text-slate-800">
+              Designs ({designs.data?.total ?? 0})
+            </h2>
+          </div>
+          <div className="relative w-full sm:w-64">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+            />
+            <Input
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Filter by code or name…"
+              className="pl-9"
+            />
+          </div>
         </div>
-        <div className="overflow-x-auto scrollbar-thin rounded-xl border border-slate-100">
-          <table className="w-full min-w-[480px] text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-2.5">Code</th>
-                <th className="px-4 py-2.5">Name</th>
-                <th className="px-4 py-2.5">Door Type</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(designs.data?.records ?? []).map((d) => (
-                <tr
-                  key={d.id}
-                  className="border-t border-slate-100 hover:bg-slate-50"
-                >
-                  <td className="px-4 py-2.5 font-mono font-bold text-indigo-700">
-                    {d.code}
-                  </td>
-                  <td className="px-4 py-2.5">{d.name}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{d.door_type}</td>
+        <div className="overflow-hidden rounded-xl border border-slate-100">
+          <div className="overflow-x-auto scrollbar-thin">
+            <table className="w-full min-w-[480px] text-sm">
+              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-2.5">Code</th>
+                  <th className="px-4 py-2.5">Name</th>
+                  <th className="px-4 py-2.5">Door Type</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(designs.data?.records ?? []).map((d) => (
+                  <tr
+                    key={d.id}
+                    className="border-t border-slate-100 hover:bg-slate-50"
+                  >
+                    <td className="px-4 py-2.5 font-mono font-bold text-indigo-700">
+                      {d.code}
+                    </td>
+                    <td className="px-4 py-2.5">{d.name}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{d.door_type}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={designs.data?.total ?? 0}
+            onPageChange={setPage}
+            onPageSizeChange={(s) => {
+              setPageSize(s);
+              setPage(0);
+            }}
+          />
         </div>
       </section>
     </div>

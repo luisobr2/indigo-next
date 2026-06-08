@@ -11,18 +11,22 @@ export const runtime = "nodejs";
  * Once they're moved to `invoiced` (by the wizard), if payment isn't
  * `paid`, they show up here as outstanding receivables.
  */
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const s = await requireSession();
+    const url = new URL(req.url);
+    const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "25", 10), 500);
+    const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+    const domain = [
+      ["payment_state", "in", ["unpaid", "partial"]],
+      ["stage_id.code", "in", ["invoiced", "installed"]],
+    ];
     const records = await call<Array<Record<string, unknown>>>({
       session: s.session,
       model: "indigo.order",
       method: "search_read",
       args: [
-        [
-          ["payment_state", "in", ["unpaid", "partial"]],
-          ["stage_id.code", "in", ["invoiced", "installed"]],
-        ],
+        domain,
         [
           "id",
           "name",
@@ -35,9 +39,16 @@ export async function GET() {
           "create_date",
         ],
       ],
-      kwargs: { order: "write_date asc", limit: 100 },
+      kwargs: { order: "write_date asc", limit, offset },
     });
-    return NextResponse.json({ records });
+    const total = await call<number>({
+      session: s.session,
+      model: "indigo.order",
+      method: "search_count",
+      args: [domain],
+      kwargs: {},
+    });
+    return NextResponse.json({ records, total, limit, offset });
   } catch (e) {
     if (e instanceof Response) return e;
     return NextResponse.json(

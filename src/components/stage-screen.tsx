@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, Download, Printer, Filter, Play, Pause, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn, fmtDate, fmtNum, m2o } from "@/lib/utils";
@@ -13,6 +13,7 @@ import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Pagination } from "@/components/pagination";
 // `X` is imported above for the side-panel close affordance.
 void X;
 
@@ -71,6 +72,9 @@ export function StageScreen({
 }: StageScreenProps) {
   const [selected, setSelected] = useState<StageOrder | null>(null);
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [holdOpen, setHoldOpen] = useState(false);
   const qc = useQueryClient();
@@ -78,21 +82,37 @@ export function StageScreen({
   const stageParam = Array.isArray(stageCode) ? stageCode.join(",") : stageCode;
   const paramKey = Array.isArray(stageCode) ? "stages" : "stage";
 
-  const { data, isLoading } = useQuery<{ records: StageOrder[] }>({
-    queryKey: ["stage-orders", stageParam, q],
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedQ(q);
+      setPage(0);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const { data, isLoading } = useQuery<{ records: StageOrder[]; total: number }>({
+    queryKey: ["stage-orders", stageParam, debouncedQ, page, pageSize],
     queryFn: async () => {
       const url = new URL("/api/orders", window.location.origin);
       url.searchParams.set(paramKey, stageParam);
-      if (q) url.searchParams.set("q", q);
+      if (debouncedQ) url.searchParams.set("q", debouncedQ);
+      url.searchParams.set("limit", String(pageSize));
+      url.searchParams.set("offset", String(page * pageSize));
       const r = await fetch(url);
       return r.json();
     },
+    placeholderData: (prev) => prev,
   });
 
   const records = data?.records ?? [];
+  const total = data?.total ?? 0;
 
+  // "all" uses the global total from the API (not the per-page slice).
+  // The per-stage / on-hold counters still come from the visible page,
+  // since we don't have a server-side breakdown — when there's a
+  // future need, swap these for a dedicated aggregation endpoint.
   const counters: Record<string, number> = {
-    all: records.length,
+    all: total,
   };
   records.forEach((r) => {
     counters[r.stage_code] = (counters[r.stage_code] ?? 0) + 1;
@@ -289,6 +309,16 @@ export function StageScreen({
             </tbody>
           </table>
           </div>
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onPageChange={setPage}
+            onPageSizeChange={(s) => {
+              setPageSize(s);
+              setPage(0);
+            }}
+          />
         </div>
 
         {/* SIDE PANEL */}

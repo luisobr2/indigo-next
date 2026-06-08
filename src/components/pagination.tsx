@@ -18,7 +18,11 @@ interface PaginationProps {
   onPageChange: (next: number) => void;
   onPageSizeChange?: (next: number) => void;
   pageSizes?: number[];
-  /** Hide when total fits in a single page. Defaults to true. */
+  /**
+   * Hide the entire strip when everything fits on one page. Defaults
+   * to false — we still show the "Showing X of Y" hint so the user
+   * always knows the total. Only the prev/next controls hide.
+   */
   hideOnSinglePage?: boolean;
 }
 
@@ -34,13 +38,14 @@ export function Pagination({
   onPageChange,
   onPageSizeChange,
   pageSizes = [25, 50, 100, 200],
-  hideOnSinglePage = true,
+  hideOnSinglePage = false,
 }: PaginationProps) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   if (hideOnSinglePage && total <= pageSize) return null;
 
   const from = total === 0 ? 0 : page * pageSize + 1;
   const to = Math.min((page + 1) * pageSize, total);
+  const navVisible = totalPages > 1;
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-white px-3 py-2.5 text-xs text-slate-600 sm:px-4">
@@ -72,52 +77,54 @@ export function Pagination({
         )}
       </div>
 
-      <div className="flex items-center gap-1">
-        <Button
-          type="button"
-          variant="outline"
-          size="icon-sm"
-          onClick={() => onPageChange(0)}
-          disabled={page === 0}
-          aria-label="First page"
-        >
-          <ChevronsLeft size={14} />
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon-sm"
-          onClick={() => onPageChange(Math.max(0, page - 1))}
-          disabled={page === 0}
-          aria-label="Previous page"
-        >
-          <ChevronLeft size={14} />
-        </Button>
-        <span className="px-2 tabular-nums">
-          Page <strong className="text-slate-900">{page + 1}</strong> /{" "}
-          {totalPages}
-        </span>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon-sm"
-          onClick={() => onPageChange(Math.min(totalPages - 1, page + 1))}
-          disabled={page >= totalPages - 1}
-          aria-label="Next page"
-        >
-          <ChevronRight size={14} />
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon-sm"
-          onClick={() => onPageChange(totalPages - 1)}
-          disabled={page >= totalPages - 1}
-          aria-label="Last page"
-        >
-          <ChevronsRight size={14} />
-        </Button>
-      </div>
+      {navVisible && (
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            onClick={() => onPageChange(0)}
+            disabled={page === 0}
+            aria-label="First page"
+          >
+            <ChevronsLeft size={14} />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            onClick={() => onPageChange(Math.max(0, page - 1))}
+            disabled={page === 0}
+            aria-label="Previous page"
+          >
+            <ChevronLeft size={14} />
+          </Button>
+          <span className="px-2 tabular-nums">
+            Page <strong className="text-slate-900">{page + 1}</strong> /{" "}
+            {totalPages}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            onClick={() => onPageChange(Math.min(totalPages - 1, page + 1))}
+            disabled={page >= totalPages - 1}
+            aria-label="Next page"
+          >
+            <ChevronRight size={14} />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            onClick={() => onPageChange(totalPages - 1)}
+            disabled={page >= totalPages - 1}
+            aria-label="Last page"
+          >
+            <ChevronsRight size={14} />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

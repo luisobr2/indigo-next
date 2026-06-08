@@ -34,6 +34,7 @@ import {
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Pagination } from "@/components/pagination";
 
 interface SummaryData {
   cashIn: { paid: number; pending: number };
@@ -89,13 +90,24 @@ export default function BillingPage() {
     queryKey: ["billing-summary"],
     queryFn: () => fetch("/api/billing/summary").then((r) => r.json()),
   });
-  const toInvoiceQ = useQuery<{ records: OrderRow[] }>({
-    queryKey: ["billing-to-invoice"],
-    queryFn: () => fetch("/api/billing/to-invoice").then((r) => r.json()),
+  const [toInvoicePage, setToInvoicePage] = useState(0);
+  const [outstandingPage, setOutstandingPage] = useState(0);
+  const PAGE_SIZE = 10;
+  const toInvoiceQ = useQuery<{ records: OrderRow[]; total: number }>({
+    queryKey: ["billing-to-invoice", toInvoicePage],
+    queryFn: () =>
+      fetch(
+        `/api/billing/to-invoice?limit=${PAGE_SIZE}&offset=${toInvoicePage * PAGE_SIZE}`,
+      ).then((r) => r.json()),
+    placeholderData: (prev) => prev,
   });
-  const outstandingQ = useQuery<{ records: OrderRow[] }>({
-    queryKey: ["billing-outstanding"],
-    queryFn: () => fetch("/api/billing/outstanding").then((r) => r.json()),
+  const outstandingQ = useQuery<{ records: OrderRow[]; total: number }>({
+    queryKey: ["billing-outstanding", outstandingPage],
+    queryFn: () =>
+      fetch(
+        `/api/billing/outstanding?limit=${PAGE_SIZE}&offset=${outstandingPage * PAGE_SIZE}`,
+      ).then((r) => r.json()),
+    placeholderData: (prev) => prev,
   });
   const payoutsQ = useQuery<{
     painters: PayoutBucket[];
@@ -232,7 +244,7 @@ export default function BillingPage() {
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-semibold text-slate-800">
               <Receipt size={16} className="text-amber-600" />
-              To invoice ({toInvoiceQ.data?.records?.length ?? 0})
+              To invoice ({toInvoiceQ.data?.total ?? 0})
             </h2>
           </div>
           {toInvoiceQ.isLoading && <Skeleton className="h-40 rounded-xl" />}
@@ -277,13 +289,20 @@ export default function BillingPage() {
               </li>
             ))}
           </ul>
+          <Pagination
+            page={toInvoicePage}
+            pageSize={PAGE_SIZE}
+            total={toInvoiceQ.data?.total ?? 0}
+            onPageChange={setToInvoicePage}
+            hideOnSinglePage
+          />
         </div>
 
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-semibold text-slate-800">
               <FileText size={16} className="text-rose-600" />
-              Outstanding ({outstandingQ.data?.records?.length ?? 0})
+              Outstanding ({outstandingQ.data?.total ?? 0})
             </h2>
           </div>
           {outstandingQ.isLoading && <Skeleton className="h-40 rounded-xl" />}
@@ -341,6 +360,13 @@ export default function BillingPage() {
               );
             })}
           </ul>
+          <Pagination
+            page={outstandingPage}
+            pageSize={PAGE_SIZE}
+            total={outstandingQ.data?.total ?? 0}
+            onPageChange={setOutstandingPage}
+            hideOnSinglePage
+          />
         </div>
       </section>
 
