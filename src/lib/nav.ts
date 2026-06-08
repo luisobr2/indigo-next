@@ -12,6 +12,7 @@ import {
   BarChart3,
   Settings,
   Boxes,
+  KanbanSquare,
   type LucideIcon,
 } from "lucide-react";
 import type { SessionPayload } from "./odoo/types";
@@ -30,6 +31,7 @@ const allManagerOrOffice = (r: ReturnType<typeof deriveRole>) =>
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, show: allManagerOrOffice },
   { href: "/orders", label: "Orders", icon: ListChecks },
+  { href: "/kanban", label: "Kanban", icon: KanbanSquare, show: allManagerOrOffice },
   { href: "/design-approval", label: "Design Approval", icon: CheckCircle2, show: allManagerOrOffice },
   { href: "/measurements", label: "Measurements", icon: Ruler },
   { href: "/digitalization", label: "Digitalization", icon: Pencil, show: (r) => allManagerOrOffice(r) || r.isDesigner },

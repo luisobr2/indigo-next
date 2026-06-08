@@ -329,7 +329,7 @@ export default function DashboardPage() {
         <div className="mb-4 flex items-center justify-between">
           <h3 className="font-semibold text-slate-800">Production Board</h3>
           <Link
-            href="/orders"
+            href="/kanban"
             className="text-xs font-medium text-indigo-700 hover:underline"
           >
             Open Kanban &rarr;
