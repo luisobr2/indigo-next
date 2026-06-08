@@ -20,18 +20,25 @@ import { ActivityFeed } from "@/components/activity-feed";
 import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal";
 import { OrderDetailSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
+import { AssignmentCard } from "@/components/assignment-card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { deriveRole } from "@/lib/odoo/types";
 import { cn } from "@/lib/utils";
 
 interface OrderDetail {
   order: Record<string, unknown>;
   lines: Record<string, unknown>[];
   stages: Array<{ id: number; name: string; sequence: number; code: string }>;
+  installers: Array<{ id: number; name: string }>;
   labelPdfUrl: string;
   paintSheetPdfUrl: string;
   orderCardPdfUrl: string;
   designImage: string | null;
+}
+
+interface MePayload {
+  user: { isAdmin: boolean; groups: string[] } | null;
 }
 
 export default function OrderDetailPage({
@@ -46,6 +53,12 @@ export default function OrderDetailPage({
     queryKey: ["order", id],
     queryFn: () => fetch(`/api/orders/${id}`).then((r) => r.json()),
   });
+  const { data: me } = useQuery<MePayload>({
+    queryKey: ["me"],
+    queryFn: () => fetch("/api/auth/me").then((r) => r.json()),
+  });
+  const role = me?.user ? deriveRole(me.user.groups) : null;
+  const canAssign = !!(role?.isManager || role?.isOffice || me?.user?.isAdmin);
 
   if (isLoading) return <OrderDetailSkeleton />;
 
@@ -77,6 +90,8 @@ export default function OrderDetailPage({
     create_date: string;
     notes: string;
     priv_ref: string;
+    painter_id: [number, string] | false;
+    installer_ids: number[] | Array<[number, string]>;
   };
 
   const lines = data.lines as Array<{
@@ -478,20 +493,6 @@ export default function OrderDetailPage({
                 }
               />
               <Row
-                label="Created By"
-                value={
-                  <span className="text-indigo-700 font-medium">Majela</span>
-                }
-              />
-              <Row
-                label="Assigned To"
-                value={
-                  <span className="text-indigo-700 font-medium">
-                    {o.stage_code === "painting" ? "Painting Team" : "—"}
-                  </span>
-                }
-              />
-              <Row
                 label="Total"
                 value={
                   <span className="text-base font-bold text-emerald-700">
@@ -501,6 +502,17 @@ export default function OrderDetailPage({
               />
             </dl>
           </div>
+
+          <AssignmentCard
+            orderId={o.id}
+            painter={
+              o.painter_id
+                ? { id: o.painter_id[0], name: o.painter_id[1] }
+                : null
+            }
+            installers={data.installers ?? []}
+            canEdit={canAssign}
+          />
         </div>
       </div>
 

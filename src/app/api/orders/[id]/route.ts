@@ -104,10 +104,27 @@ export async function GET(
       kwargs: { order: "sequence asc" },
     });
 
+    // Enrich installer_ids (Odoo `read` only returns IDs for many2many).
+    interface PartnerRow {
+      id: number;
+      name: string;
+    }
+    const installerIds = (order.installer_ids ?? []) as number[];
+    const installers = installerIds.length
+      ? await call<PartnerRow[]>({
+          session: s.session,
+          model: "res.partner",
+          method: "read",
+          args: [installerIds, ["id", "name"]],
+          kwargs: {},
+        })
+      : [];
+
     return NextResponse.json({
       order,
       lines,
       stages,
+      installers,
       labelPdfUrl: odooReportUrl("indigo_decors.report_order_label_doc", id),
       paintSheetPdfUrl: odooReportUrl(
         "indigo_decors.report_painter_sheet_doc",
