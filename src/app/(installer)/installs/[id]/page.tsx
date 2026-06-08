@@ -238,15 +238,32 @@ export default function InstallDetailPage({
             <Camera size={16} className="text-indigo-700" />
             Upload work photo
           </div>
-          <Input
+          {/*
+            Native <input type="file"> instead of the shadcn Input wrapper.
+            Base UI's Input swallows the native file-picker click behavior
+            on certain mobile browsers, so we drop down to plain HTML for
+            this single field. Hidden + label-wrapped so we get a big tap
+            target that's friendly on phones.
+          */}
+          <label
+            htmlFor="install-photo"
+            className="flex h-12 w-full cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition active:bg-slate-50"
+          >
+            <Camera size={16} className="text-indigo-600" />
+            {photoFile ? (
+              <span className="truncate text-slate-900">{photoFile.name}</span>
+            ) : (
+              <span>Take or pick a photo…</span>
+            )}
+          </label>
+          <input
+            id="install-photo"
             type="file"
             accept="image/*"
             capture="environment"
             onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+            className="hidden"
           />
-          {photoFile && (
-            <p className="mt-1 text-xs text-emerald-700">✓ {photoFile.name}</p>
-          )}
           <Input
             type="text"
             value={photoNote}

@@ -224,16 +224,26 @@ export function StageWizardModal({
                 <Camera size={12} />
                 Photo (optional)
               </Label>
-              <Input
+              {/* Native input — Base UI Input wrapper breaks the file picker. */}
+              <label
+                htmlFor="wizard-photo"
+                className="flex h-10 w-full cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition hover:bg-slate-50"
+              >
+                <Camera size={14} className="text-indigo-600" />
+                {photoFile ? (
+                  <span className="truncate text-slate-900">{photoFile.name}</span>
+                ) : (
+                  <span>Choose photo…</span>
+                )}
+              </label>
+              <input
                 id="wizard-photo"
                 type="file"
                 accept="image/*"
                 capture="environment"
                 onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+                className="hidden"
               />
-              {photoFile && (
-                <p className="text-xs text-emerald-700">✓ {photoFile.name}</p>
-              )}
             </div>
           )}
 
