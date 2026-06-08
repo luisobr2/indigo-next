@@ -5,10 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   Search,
-  Filter,
   Download,
   Printer,
-  Plus,
   AlertCircle,
 } from "lucide-react";
 import { Suspense, useMemo, useState } from "react";
@@ -142,21 +140,6 @@ function OrdersInner() {
           >
             <Printer size={14} />
             Print / PDF
-          </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            onClick={() => toast.info("Advanced filter panel coming soon — use the search box for now.")}
-          >
-            <Filter size={14} />
-            Filters
-          </Button>
-          <Button
-            size="lg"
-            onClick={() => toast.info("Create from Odoo backend for now — Next form coming next.")}
-          >
-            <Plus size={14} />
-            New Order
           </Button>
         </div>
       </div>

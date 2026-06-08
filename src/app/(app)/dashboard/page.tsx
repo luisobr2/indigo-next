@@ -10,14 +10,12 @@ import {
   Activity,
   Building2,
   ChevronRight,
-  CalendarRange,
 } from "lucide-react";
 import Link from "next/link";
 import { KpiCard } from "@/components/kpi-card";
 import { DashboardSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { fmtMoney, fmtNum } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import {
   BarChart,
   Bar,
@@ -26,9 +24,6 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  LineChart,
-  Line,
-  Legend,
   PieChart,
   Pie,
   Cell,
@@ -91,6 +86,10 @@ interface CapacitiesPayload {
   capacities: { cnc: number; painting: number; install: number };
 }
 
+interface RevenueSeriesPayload {
+  series: Array<{ month: string; label: string; value: number }>;
+}
+
 export default function DashboardPage() {
   const { data, isLoading, error, refetch } = useQuery<DashboardData>({
     queryKey: ["dashboard"],
@@ -102,6 +101,12 @@ export default function DashboardPage() {
     staleTime: 60_000,
   });
   const caps = settings?.capacities ?? { cnc: 8, painting: 200, install: 5 };
+  const { data: revenue } = useQuery<RevenueSeriesPayload>({
+    queryKey: ["dashboard-revenue"],
+    queryFn: () =>
+      fetch("/api/billing/revenue-by-month").then((r) => r.json()),
+    staleTime: 60_000,
+  });
 
   if (isLoading) return <DashboardSkeleton />;
   if (error || !data?.data)
@@ -128,55 +133,33 @@ export default function DashboardPage() {
     count: p.count,
   }));
 
-  // Synthetic 30-day Production Overview from health + KPIs (until we have a
-  // dedicated endpoint). Visualization-only smoothing.
-  const today = new Date();
-  const overview = Array.from({ length: 12 }).map((_, i) => {
-    const day = new Date(today);
-    day.setDate(today.getDate() - (11 - i) * 2);
-    const base = d.kpis.active_count / 3 + (i - 6) * 1.5;
-    return {
-      date: day.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      orders: Math.max(0, Math.round(base + Math.sin(i) * 4)),
-      production: Math.max(0, Math.round(base - 4 + Math.cos(i) * 3)),
-      installations: Math.max(0, Math.round(base / 2 + Math.sin(i + 1) * 2)),
-    };
-  });
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            Good morning, Production
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Here&apos;s what&apos;s happening in Indigo Decors today.
-          </p>
-        </div>
-        <Button type="button" variant="outline" size="lg">
-          <CalendarRange size={16} className="text-slate-400" />
-          Last 30 days
-        </Button>
+      <header>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          Good morning, Production
+        </h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Here&apos;s what&apos;s happening in Indigo Decors today.
+        </p>
       </header>
 
       {/* ---------- KPI cards ---------- */}
       <section className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
         <KpiCard
-          label="Orders"
+          label="Active Orders"
           value={fmtNum(d.kpis.active_count)}
           icon={ShoppingBag}
           iconBg="bg-indigo-50"
           iconColor="text-indigo-700"
-          trend={{ value: 12 }}
         />
         <KpiCard
-          label="Installations"
+          label="Installations Pending"
           value={fmtNum(d.kpis.pending_install)}
           icon={Truck}
           iconBg="bg-emerald-50"
           iconColor="text-emerald-600"
-          trend={{ value: 8 }}
         />
         <KpiCard
           label="CNC Queue"
@@ -186,7 +169,6 @@ export default function DashboardPage() {
           icon={Hammer}
           iconBg="bg-violet-50"
           iconColor="text-violet-700"
-          trend={{ value: 5 }}
         />
         <KpiCard
           label="Painting"
@@ -196,7 +178,6 @@ export default function DashboardPage() {
           icon={Brush}
           iconBg="bg-orange-50"
           iconColor="text-orange-600"
-          trend={{ value: -2 }}
         />
         <KpiCard
           label="Revenue (This Month)"
@@ -204,7 +185,6 @@ export default function DashboardPage() {
           icon={DollarSign}
           iconBg="bg-emerald-50"
           iconColor="text-emerald-700"
-          trend={{ value: 18 }}
         />
       </section>
 
@@ -212,41 +192,34 @@ export default function DashboardPage() {
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="col-span-1 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-5">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-semibold text-slate-800">Production Overview</h3>
+            <h3 className="font-semibold text-slate-800">Revenue (last 6 months)</h3>
+            <Link
+              href="/reports"
+              className="text-xs font-medium text-indigo-700 hover:underline"
+            >
+              Open reports →
+            </Link>
           </div>
           <div className="h-64">
             <ResponsiveContainer>
-              <LineChart data={overview}>
+              <BarChart data={revenue?.series ?? []}>
                 <CartesianGrid stroke="#eef2fa" strokeDasharray="3 3" />
-                <XAxis dataKey="date" stroke="#94a3b8" fontSize={11} />
-                <YAxis stroke="#94a3b8" fontSize={11} />
-                <Tooltip />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="orders"
-                  stroke="#1f4486"
-                  strokeWidth={2}
-                  dot={false}
-                  name="New Orders"
+                <XAxis dataKey="label" stroke="#94a3b8" fontSize={11} />
+                <YAxis
+                  stroke="#94a3b8"
+                  fontSize={11}
+                  tickFormatter={(v) => `$${Math.round(Number(v) / 1000)}k`}
                 />
-                <Line
-                  type="monotone"
-                  dataKey="production"
-                  stroke="#a855f7"
-                  strokeWidth={2}
-                  dot={false}
-                  name="Production"
+                <Tooltip
+                  formatter={(v) => fmtMoney(Number(v))}
+                  contentStyle={{
+                    borderRadius: 8,
+                    border: "1px solid #e2e8f0",
+                    fontSize: 12,
+                  }}
                 />
-                <Line
-                  type="monotone"
-                  dataKey="installations"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  dot={false}
-                  name="Installations"
-                />
-              </LineChart>
+                <Bar dataKey="value" fill="#1f4486" radius={[6, 6, 0, 0]} />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>

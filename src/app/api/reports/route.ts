@@ -36,7 +36,7 @@ export async function GET() {
     interface OrderRow {
       id: number;
       dealer_id: [number, string] | false;
-      design_id: [number, string] | false;
+      line_ids: number[];
       payment_state: "paid" | "partial" | "unpaid";
       date_paid: string | false;
       create_date: string;
@@ -54,7 +54,7 @@ export async function GET() {
         [
           "id",
           "dealer_id",
-          "design_id",
+          "line_ids",
           "payment_state",
           "date_paid",
           "create_date",
@@ -66,6 +66,31 @@ export async function GET() {
       ],
       kwargs: { limit: 10000 },
     });
+
+    // Design lives on order lines, not the order itself.
+    // Pull lines for all the orders in one shot and bucket by order_id.
+    const allLineIds = orders.flatMap((o) => o.line_ids ?? []);
+    interface LineRow {
+      id: number;
+      order_id: [number, string] | false;
+      design_id: [number, string] | false;
+    }
+    const lines: LineRow[] = allLineIds.length
+      ? await call<LineRow[]>({
+          session: s.session,
+          model: "indigo.order.line",
+          method: "read",
+          args: [allLineIds, ["id", "order_id", "design_id"]],
+          kwargs: {},
+        })
+      : [];
+    const designsByOrder = new Map<number, Array<[number, string]>>();
+    for (const l of lines) {
+      if (!l.order_id || !l.design_id) continue;
+      const orderId = l.order_id[0];
+      if (!designsByOrder.has(orderId)) designsByOrder.set(orderId, []);
+      designsByOrder.get(orderId)!.push(l.design_id);
+    }
 
     // --- Active orders for stage aging ---
     interface ActiveRow {
@@ -198,6 +223,10 @@ export async function GET() {
       .sort((a, b) => b.count - a.count);
 
     // ---------- topDesigns ----------
+    // An order can have multiple lines with different designs. We count
+    // each (order, design) pair once for orderCount and split sqf/doors
+    // evenly across designs within the order — a rough proxy that beats
+    // counting the order N times.
     const designMap = new Map<number, {
       id: number;
       name: string;
@@ -206,22 +235,29 @@ export async function GET() {
       sqf: number;
     }>();
     for (const o of orders) {
-      if (!o.design_id) continue;
-      const [id, name] = o.design_id;
-      let bucket = designMap.get(id);
-      if (!bucket) {
-        bucket = { id, name, orderCount: 0, doors: 0, sqf: 0 };
-        designMap.set(id, bucket);
+      const designs = designsByOrder.get(o.id);
+      if (!designs || !designs.length) continue;
+      const seen = new Set<number>();
+      const share = 1 / designs.length;
+      for (const [id, name] of designs) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        let bucket = designMap.get(id);
+        if (!bucket) {
+          bucket = { id, name, orderCount: 0, doors: 0, sqf: 0 };
+          designMap.set(id, bucket);
+        }
+        bucket.orderCount += 1;
+        bucket.doors += (Number(o.door_count) || 0) * share;
+        bucket.sqf += (Number(o.total_sqf) || 0) * share;
       }
-      bucket.orderCount += 1;
-      bucket.doors += Number(o.door_count) || 0;
-      bucket.sqf += Number(o.total_sqf) || 0;
     }
     const topDesigns = [...designMap.values()]
       .sort((a, b) => b.orderCount - a.orderCount)
       .slice(0, 10)
       .map((d) => ({
         ...d,
+        doors: Math.round(d.doors),
         sqf: Math.round(d.sqf * 10) / 10,
       }));
 

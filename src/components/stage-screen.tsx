@@ -155,6 +155,7 @@ export function StageScreen({
             <Printer size={14} /> Print / PDF
           </Button>
           <Button
+            variant="outline"
             size="lg"
             onClick={() => toast.info("Advanced filter panel coming soon — use the search box.")}
           >

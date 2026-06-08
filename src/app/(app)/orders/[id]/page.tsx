@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   Circle,
   Printer,
-  Pencil,
   Phone,
   MapPin,
   Mail,
@@ -22,6 +21,7 @@ import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal
 import { OrderDetailSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 interface OrderDetail {
@@ -165,10 +165,6 @@ export default function OrderDetailPage({
               {wizardCfg.title}
             </Button>
           )}
-          <Button size="lg">
-            <Pencil size={14} />
-            Edit Order
-          </Button>
         </div>
       </div>
 
@@ -204,11 +200,6 @@ export default function OrderDetailPage({
                     ? m2o(lines[0].design_id)?.name
                     : "—"}
                 </span>
-                {lines[0]?.design_id && (
-                  <span className="text-sm font-bold text-rose-600">
-                    DOOR CODE
-                  </span>
-                )}
               </div>
 
               <dl className="space-y-3 border-t border-slate-100 pt-3">
@@ -377,15 +368,16 @@ export default function OrderDetailPage({
                       </td>
                       <td className="py-2">{l.glass_type}</td>
                       <td className="py-2">
-                        {glassPrivacy === "privacy" ? (
-                          <span className="inline-block rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-rose-700">
-                            Privacy
-                          </span>
-                        ) : (
-                          <span className="inline-block rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-emerald-700">
-                            Clear
-                          </span>
-                        )}
+                        <Badge
+                          variant="secondary"
+                          className={
+                            glassPrivacy === "privacy"
+                              ? "bg-indigo-50 text-indigo-700"
+                              : "bg-slate-100 text-slate-600"
+                          }
+                        >
+                          {glassPrivacy === "privacy" ? "Privacy" : "Clear"}
+                        </Badge>
                       </td>
                       <td className="py-2 text-right">{l.width_label || l.width}</td>
                       <td className="py-2 text-right">{l.height_label || l.height}</td>
