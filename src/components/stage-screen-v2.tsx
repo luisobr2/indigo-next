@@ -366,7 +366,20 @@ export function StageScreenV2({
           </h1>
           <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full max-w-md sm:w-80">
+            <Search
+              size={16}
+              className="absolute top-1/2 left-3 -translate-y-1/2 text-slate-400"
+            />
+            <Input
+              type="search"
+              placeholder="Search by order, client or reference..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="h-10 pl-10"
+            />
+          </div>
           <Button
             variant="outline"
             size="lg"
@@ -513,21 +526,6 @@ export function StageScreenV2({
             </button>
           </div>
         </div>
-      </div>
-
-      {/* ---------- Search ---------- */}
-      <div className="relative">
-        <Search
-          size={16}
-          className="absolute top-1/2 left-3 -translate-y-1/2 text-slate-400"
-        />
-        <Input
-          type="search"
-          placeholder="Search by order, client or reference..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          className="h-11 pl-10"
-        />
       </div>
 
       {/* ---------- Body: list + side panel ---------- */}
@@ -1361,29 +1359,35 @@ function SidePanel({
                 </>
               )}
             </Button>
-            <Button
-              onClick={onCancel}
-              variant="outline"
-              size="lg"
-              className={cn(
-                "h-11 w-full justify-start",
-                order.cancelled_at
-                  ? "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                  : "border-rose-200 text-rose-700 hover:bg-rose-50",
-              )}
-            >
-              {order.cancelled_at ? (
-                <>
-                  <Play size={14} />
-                  Restore Cancelled
-                </>
-              ) : (
-                <>
-                  <AlertCircle size={14} />
-                  Cancel Order
-                </>
-              )}
-            </Button>
+            {/* Cancel: only surface when the order is already cancelled
+                (Restore button) or when the user might want to bail
+                mid-flight (in_progress / completed). When sub == ready
+                we mirror Majela's mockup and keep just Start + Hold. */}
+            {(order.cancelled_at || sub === "in_progress" || sub === "completed") && (
+              <Button
+                onClick={onCancel}
+                variant="outline"
+                size="lg"
+                className={cn(
+                  "h-11 w-full justify-start",
+                  order.cancelled_at
+                    ? "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                    : "border-rose-200 text-rose-700 hover:bg-rose-50",
+                )}
+              >
+                {order.cancelled_at ? (
+                  <>
+                    <Play size={14} />
+                    Restore Cancelled
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle size={14} />
+                    Cancel Order
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </div>
       </div>
