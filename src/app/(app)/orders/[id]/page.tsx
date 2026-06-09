@@ -19,6 +19,7 @@ import { fmtMoney, fmtNum, m2o } from "@/lib/utils";
 import { ActivityFeed } from "@/components/activity-feed";
 import { DesignCarousel } from "@/components/design-carousel";
 import { FilesDocumentsPanel } from "@/components/files-documents-panel";
+import { StockMatchBanner } from "@/components/stock-match-banner";
 import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal";
 import { OrderDetailSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
@@ -184,6 +185,15 @@ export default function OrderDetailPage({
           )}
         </div>
       </div>
+
+      {/* Stock-match banner — only shown when an order in pre-CNC stage
+          has finished doors in the stock pool that match its design. */}
+      <StockMatchBanner
+        orderId={parseInt(id, 10)}
+        disabled={
+          ["cnc", "painting", "ready_install", "install_scheduled", "installed", "invoiced", "closed"].includes(o.stage_code)
+        }
+      />
 
       {/* Main grid */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">

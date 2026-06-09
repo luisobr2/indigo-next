@@ -734,6 +734,13 @@ export function StageScreenV2({
           orderId={selected.id}
           orderName={selected.name}
           restoring={!!selected.cancelled_at}
+          finishedDoor={
+            !!selected.cnc_done_at ||
+            !!selected.paint_done_at ||
+            ["painting", "ready_install", "install_scheduled"].includes(
+              selected.stage_code,
+            )
+          }
         />
       )}
     </div>
