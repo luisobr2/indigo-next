@@ -1403,11 +1403,17 @@ function SidePanel({
                 </>
               )}
             </Button>
-            {/* Cancel: only surface when the order is already cancelled
-                (Restore button) or when the user might want to bail
-                mid-flight (in_progress / completed). When sub == ready
-                we mirror Majela's mockup and keep just Start + Hold. */}
-            {(order.cancelled_at || sub === "in_progress" || sub === "completed") && (
+            {/* Cancel: hide only when the order is in a pre-CNC stage AND
+                sub == ready (mirrors the Majela CNC/Digi mockup where the
+                READY state shows just Start + Hold). For post-CNC stages
+                (painting / ready_install / install_scheduled) we ALWAYS
+                surface Cancel so the door can be moved to Available Stock. */}
+            {(order.cancelled_at ||
+              sub === "in_progress" ||
+              sub === "completed" ||
+              ["painting", "ready_install", "install_scheduled"].includes(
+                order.stage_code,
+              )) && (
               <Button
                 onClick={onCancel}
                 variant="outline"
