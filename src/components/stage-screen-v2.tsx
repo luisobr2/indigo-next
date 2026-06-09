@@ -990,12 +990,18 @@ function Row({
           href={`/orders/${row.id}`}
           onClick={(e) => e.stopPropagation()}
           className="font-medium text-indigo-700 hover:underline"
+          title={row.name}
         >
-          {row.name}
+          {row.dealer_ref || row.name}
         </Link>
       </td>
       <td className="px-3 py-3">
         <div className="font-medium text-slate-800">{row.client_name}</div>
+        {row.dealer_id && Array.isArray(row.dealer_id) && (
+          <div className="text-xs text-slate-500">
+            {row.dealer_id[1]} Project
+          </div>
+        )}
         <div className="text-xs text-slate-400 line-clamp-1">
           {row.client_address}
         </div>
@@ -1172,8 +1178,9 @@ function SidePanel({
           <Link
             href={`/orders/${order.id}`}
             className="text-2xl font-bold text-indigo-700 hover:underline"
+            title={order.name}
           >
-            {order.name}
+            {order.dealer_ref || order.name}
           </Link>
           <Badge
             variant="secondary"
@@ -1182,6 +1189,9 @@ function SidePanel({
             {pill.label}
           </Badge>
         </div>
+        {order.dealer_ref && order.name && (
+          <div className="-mt-2 text-[10px] text-slate-400">{order.name}</div>
+        )}
 
         {/* Image */}
         <div className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50">

@@ -6,12 +6,24 @@ import {
   Clock,
 } from "lucide-react";
 import { StageScreenV2 } from "@/components/stage-screen-v2";
-import { fmtDate, fmtNum, m2o } from "@/lib/utils";
+import { fmtDate, fmtNum } from "@/lib/utils";
 
 const MATERIAL_LABEL: Record<string, string> = {
   acm_white: "ACM White",
   acm_black: "ACM Black",
   acm_bronze: "ACM Bronze",
+};
+
+const THICKNESS_LABEL: Record<string, string> = {
+  "3mm": "3mm",
+  "4mm": "4mm",
+  "6mm": "6mm",
+};
+
+const DOOR_TYPE_LABEL: Record<string, string> = {
+  SD: "Single Door",
+  DD: "Double Door",
+  SDL: "Door with Sidelites",
 };
 
 export default function CncProductionPage() {
@@ -22,6 +34,7 @@ export default function CncProductionPage() {
       stageCode="cnc"
       subStatusPrefix="cnc"
       startActionLabel="Start CNC Cutting"
+      includeLines
       tabs={[
         {
           key: "ready",
@@ -64,38 +77,44 @@ export default function CncProductionPage() {
         {
           key: "design",
           label: "Design",
-          render: (r) => (
-            <div>
-              <div className="font-mono font-bold text-indigo-700">
-                {/* The design code lives on the line; we don't have it on the
-                    list endpoint. Use dealer ref as a placeholder so the row
-                    stays readable. The side panel queries the order detail. */}
-                —
+          render: (r) => {
+            const code =
+              r.first_line?.design_id &&
+              Array.isArray(r.first_line.design_id)
+                ? r.first_line.design_id[1]
+                : "—";
+            const doorType = r.first_line?.door_type ?? "";
+            return (
+              <div>
+                <div className="font-mono font-bold text-indigo-700">{code}</div>
+                <div className="text-xs text-slate-500">
+                  {DOOR_TYPE_LABEL[doorType] ?? doorType ?? "—"}
+                </div>
               </div>
-              <div className="text-xs text-slate-500">
-                {m2o(r.dealer_id)?.name}
-              </div>
-            </div>
-          ),
+            );
+          },
         },
         {
           key: "material",
           label: "Material",
-          render: (_r) => (
-            <span className="text-xs text-slate-500">
-              {/* MATERIAL_LABEL[...] when wired into list endpoint */}
-              —
+          render: (r) => (
+            <span className="text-sm text-slate-700">
+              {MATERIAL_LABEL[r.first_line?.material ?? ""] ?? "—"}
             </span>
           ),
         },
         {
           key: "thickness",
           label: "Thickness",
-          render: () => <span className="text-xs text-slate-500">—</span>,
+          render: (r) => (
+            <span className="font-mono text-sm text-slate-700">
+              {THICKNESS_LABEL[r.first_line?.thickness ?? ""] ?? "—"}
+            </span>
+          ),
         },
         {
           key: "sqf",
-          label: "SQF",
+          label: "SQFT",
           align: "right",
           render: (r) => fmtNum(r.total_sqf),
         },
@@ -108,5 +127,3 @@ export default function CncProductionPage() {
     />
   );
 }
-// Surface the helper so the linter doesn't trim it.
-void MATERIAL_LABEL;
