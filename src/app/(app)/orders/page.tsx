@@ -20,6 +20,7 @@ import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Pagination } from "@/components/pagination";
 
 interface Dealer {
@@ -90,6 +91,19 @@ function OrdersInner() {
   const [debouncedQ, setDebouncedQ] = useState("");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  function toggleOne(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelected(new Set());
+  }
 
   // Filter state — controlled by URL so the picker survives navigation
   // and back/forward. Empty string = "no filter".
@@ -197,16 +211,35 @@ function OrdersInner() {
             {fmtNum(total)} order{total === 1 ? "" : "s"} found
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {selected.size > 0 && (
+            <Badge
+              variant="secondary"
+              className="bg-indigo-50 text-xs font-bold uppercase tracking-wide text-indigo-700"
+            >
+              {selected.size} selected
+              <button
+                type="button"
+                onClick={clearSelection}
+                aria-label="Clear selection"
+                className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-indigo-100"
+              >
+                <X size={10} />
+              </button>
+            </Badge>
+          )}
           <Button
             variant="outline"
             size="lg"
             onClick={() => {
-              if (!records.length) {
+              const targets = selected.size > 0
+                ? records.filter((r) => selected.has(r.id))
+                : records;
+              if (!targets.length) {
                 toast.warning("No orders to export");
                 return;
               }
-              const csv = toCsv(records, [
+              const csv = toCsv(targets, [
                 { header: "Order #", value: (r) => r.name },
                 { header: "Client", value: (r) => r.client_name },
                 { header: "Dealer", value: (r) => m2o(r.dealer_id)?.name ?? "" },
@@ -219,29 +252,49 @@ function OrdersInner() {
                 { header: "Created", value: (r) => fmtDate(r.create_date) },
               ]);
               downloadCsv(`indigo-orders-${new Date().toISOString().slice(0, 10)}.csv`, csv);
-              toast.success(`Exported ${records.length} orders`);
+              toast.success(`Exported ${targets.length} orders`);
             }}
           >
             <Download size={14} />
             Export
+            {selected.size > 0 ? ` (${selected.size})` : ""}
           </Button>
           <Button
             variant="outline"
             size="lg"
             onClick={() => {
-              if (!records.length) {
+              // Print rule:
+              //   - Selected rows → print those (any count).
+              //   - No selection + page small (≤20) → print the page.
+              //   - No selection + page large → ask the user to pick rows
+              //     so we don't blast 80 PDFs unintentionally.
+              const ids = selected.size > 0
+                ? records.filter((r) => selected.has(r.id)).map((r) => r.id)
+                : records.length <= 20
+                  ? records.map((r) => r.id)
+                  : null;
+              if (!ids) {
+                toast.warning(
+                  `Showing ${records.length} orders — select rows first, or narrow filters so the page has ≤ 20.`,
+                  { duration: 6000 },
+                );
+                return;
+              }
+              if (!ids.length) {
                 toast.warning("No orders to print");
                 return;
               }
               openOdooReport({
                 report: REPORTS.orderCard,
-                ids: records.map((r) => r.id),
+                ids,
                 filename: `orders-${new Date().toISOString().slice(0, 10)}.pdf`,
               });
+              toast.success(`Generating PDF for ${ids.length} order${ids.length === 1 ? "" : "s"}…`);
             }}
           >
             <Printer size={14} />
             Print / PDF
+            {selected.size > 0 ? ` (${selected.size})` : ""}
           </Button>
         </div>
       </div>
@@ -339,6 +392,29 @@ function OrdersInner() {
           <table className="w-full min-w-[900px] text-sm">
           <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
+              <th className="px-4 py-3 w-10">
+                <Checkbox
+                  checked={
+                    records.length > 0 &&
+                    records.every((r) => selected.has(r.id))
+                  }
+                  onCheckedChange={(v) => {
+                    if (v) {
+                      setSelected(
+                        (prev) =>
+                          new Set([...prev, ...records.map((r) => r.id)]),
+                      );
+                    } else {
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        for (const r of records) next.delete(r.id);
+                        return next;
+                      });
+                    }
+                  }}
+                  aria-label="Select all on this page"
+                />
+              </th>
               <th className="px-4 py-3">Order #</th>
               <th className="px-4 py-3">Client</th>
               <th className="px-4 py-3">Dealer</th>
@@ -353,14 +429,14 @@ function OrdersInner() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={9} className="p-0">
-                  <TableSkeleton rows={6} cols={9} />
+                <td colSpan={10} className="p-0">
+                  <TableSkeleton rows={6} cols={10} />
                 </td>
               </tr>
             )}
             {!isLoading && records.length === 0 && (
               <tr>
-                <td colSpan={9} className="p-0">
+                <td colSpan={10} className="p-0">
                   <EmptyState
                     title="No orders match"
                     message="Try clearing filters or searching by client name."
@@ -373,8 +449,17 @@ function OrdersInner() {
               return (
                 <tr
                   key={r.id}
-                  className="border-t border-slate-100 transition hover:bg-slate-50"
+                  className={`border-t border-slate-100 transition hover:bg-slate-50 ${
+                    selected.has(r.id) ? "bg-indigo-50/40" : ""
+                  }`}
                 >
+                  <td className="px-4 py-3">
+                    <Checkbox
+                      checked={selected.has(r.id)}
+                      onCheckedChange={() => toggleOne(r.id)}
+                      aria-label={`Select ${r.name}`}
+                    />
+                  </td>
                   <td className="px-4 py-3 font-medium">
                     <Link
                       href={`/orders/${r.id}`}
