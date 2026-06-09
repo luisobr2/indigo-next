@@ -247,17 +247,28 @@ export default function DesignEditorPage({
 
   async function deleteImage() {
     if (isNew) return;
+    // The DELETE endpoint removes EVERY ir.attachment linked to this
+    // design, not just the cover image. Confirm so the user does not
+    // wipe a full gallery (4-7 renders) with a single click.
+    if (
+      !confirm(
+        "Remove ALL images from this design? This deletes every uploaded picture, not just the cover.",
+      )
+    ) {
+      return;
+    }
     const promise = fetch(`/api/catalog/designs/${id}/image`, {
       method: "DELETE",
     }).then(async (r) => {
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
       qc.invalidateQueries({ queryKey: ["design", idStr] });
+      qc.invalidateQueries({ queryKey: ["design-images", Number(id)] });
       return j;
     });
     toast.promise(promise, {
-      loading: "Removing image…",
-      success: "Image removed",
+      loading: "Removing images…",
+      success: "All images removed",
       error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }

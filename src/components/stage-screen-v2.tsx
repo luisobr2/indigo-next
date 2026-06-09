@@ -380,12 +380,31 @@ export function StageScreenV2({
               className="h-10 pl-10"
             />
           </div>
+          {bulk.size > 0 && (
+            <Badge
+              variant="secondary"
+              className="bg-indigo-50 text-xs font-bold uppercase tracking-wide text-indigo-700"
+            >
+              {bulk.size} selected
+              <button
+                type="button"
+                onClick={() => setBulk(new Set())}
+                aria-label="Clear selection"
+                className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-indigo-100"
+              >
+                <X size={10} />
+              </button>
+            </Badge>
+          )}
           <Button
             variant="outline"
             size="lg"
             onClick={() => {
-              if (!records.length) return toast.warning("Nothing to export");
-              const csv = toCsv(records, [
+              const targets = bulk.size > 0
+                ? records.filter((r) => bulk.has(r.id))
+                : records;
+              if (!targets.length) return toast.warning("Nothing to export");
+              const csv = toCsv(targets, [
                 { header: "Order #", value: (r) => r.name },
                 { header: "Client", value: (r) => r.client_name },
                 { header: "Dealer", value: (r) => m2o(r.dealer_id)?.name ?? "" },
@@ -399,23 +418,41 @@ export function StageScreenV2({
                   .slice(0, 10)}.csv`,
                 csv,
               );
+              toast.success(`Exported ${targets.length} row${targets.length === 1 ? "" : "s"}`);
             }}
           >
             <Download size={14} /> Export
+            {bulk.size > 0 ? ` (${bulk.size})` : ""}
           </Button>
           <Button
             variant="outline"
             size="lg"
             onClick={() => {
-              if (!records.length) return toast.warning("Nothing to print");
+              // Print rule: selection wins (any ticked id across pages);
+              // otherwise small page (≤20) prints visible records;
+              // larger page asks the user to narrow filters or tick rows.
+              const ids = bulk.size > 0
+                ? Array.from(bulk)
+                : records.length <= 20
+                  ? records.map((r) => r.id)
+                  : null;
+              if (!ids) {
+                return toast.warning(
+                  `Showing ${records.length} rows — select first, or narrow filters so the page has ≤ 20.`,
+                  { duration: 6000 },
+                );
+              }
+              if (!ids.length) return toast.warning("Nothing to print");
               openOdooReport({
                 report: REPORTS.orderCard,
-                ids: records.map((r) => r.id),
+                ids,
                 filename: `${title.toLowerCase().replace(/\s+/g, "-")}.pdf`,
               });
+              toast.success(`Generating PDF for ${ids.length} order${ids.length === 1 ? "" : "s"}…`);
             }}
           >
             <Printer size={14} /> Print / PDF
+            {bulk.size > 0 ? ` (${bulk.size})` : ""}
           </Button>
           <Button
             size="lg"

@@ -138,6 +138,15 @@ export default function BillingPage() {
       toast.info("Nothing to settle for this contractor.");
       return;
     }
+    // Real-money operation: confirm before marking N payouts as paid.
+    // Show the contractor, count and amount so the user sees the scope.
+    if (
+      !confirm(
+        `Mark ${pendingIds.length} payout${pendingIds.length === 1 ? "" : "s"} for ${bucket.name} as paid (${fmtMoney(bucket.pending)})?`,
+      )
+    ) {
+      return;
+    }
     const promise = fetch("/api/billing/settle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

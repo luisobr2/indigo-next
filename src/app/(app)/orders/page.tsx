@@ -232,9 +232,18 @@ function OrdersInner() {
             variant="outline"
             size="lg"
             onClick={() => {
+              // When a selection exists, export EVERY ticked row even if
+              // some of them aren't on the visible page. Otherwise export
+              // the visible records as a fallback.
               const targets = selected.size > 0
                 ? records.filter((r) => selected.has(r.id))
                 : records;
+              if (selected.size > 0 && targets.length < selected.size) {
+                toast.warning(
+                  `Only ${targets.length} of ${selected.size} selected rows are on this page — export will skip the off-page ones. Go to those pages first if you want them included.`,
+                  { duration: 6000 },
+                );
+              }
               if (!targets.length) {
                 toast.warning("No orders to export");
                 return;
@@ -264,12 +273,13 @@ function OrdersInner() {
             size="lg"
             onClick={() => {
               // Print rule:
-              //   - Selected rows → print those (any count).
+              //   - Selected rows → print EVERY ticked id (across pages),
+              //     since Odoo only needs ids, not visible records.
               //   - No selection + page small (≤20) → print the page.
               //   - No selection + page large → ask the user to pick rows
               //     so we don't blast 80 PDFs unintentionally.
               const ids = selected.size > 0
-                ? records.filter((r) => selected.has(r.id)).map((r) => r.id)
+                ? Array.from(selected)
                 : records.length <= 20
                   ? records.map((r) => r.id)
                   : null;
