@@ -1,7 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Send, X, ArrowRight, Check } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Send,
+  X,
+  ArrowRight,
+  Check,
+  AlertTriangle,
+  ChevronDown,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -29,6 +37,16 @@ interface Props {
   stages: Stage[];
   /** Called after every order has been processed (success or partial). */
   onSuccess?: () => void;
+}
+
+interface SelectedOrder {
+  id: number;
+  name: string;
+  dealer_ref: string;
+  stage_id: [number, string] | false;
+  stage_code: string;
+  is_stock?: boolean;
+  cancelled_at?: string | false;
 }
 
 const STAGE_GROUPS: Array<{ label: string; codes: string[] }> = [
@@ -71,6 +89,13 @@ const STAGE_BADGE_COLOR: Record<string, string> = {
  * on every list screen so the user can mass-route approved orders to
  * Measurements / Digitalization / wherever in a single click.
  *
+ * Coherence guard:
+ *   - We pull the current stage of every ticked order.
+ *   - When the user picks a target, we compute the forward / backward /
+ *     no-op classification per order and show a banner.
+ *   - Backwards moves require an explicit "I know" tick before Confirm
+ *     unlocks. Forwards & no-ops Just Work.
+ *
  * Implementation note: there's no DB transaction across writes. We fan
  * out N concurrent /api/orders/:id/stage POSTs and report partial
  * failures via toast. The chatter on each order keeps the audit trail.
@@ -80,14 +105,76 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
   const [target, setTarget] = useState<Stage | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showOrderList, setShowOrderList] = useState(false);
+  const [overrideBackwards, setOverrideBackwards] = useState(false);
 
   const byCode = new Map(stages.map((s) => [s.code, s]));
   const count = orderIds.length;
+
+  // Pull the current stage of every selected order so we can decide
+  // forward vs backward moves. Disabled until the dialog opens (no need
+  // to thrash the network in the background).
+  const ordersQ = useQuery<{ orders: SelectedOrder[] }>({
+    queryKey: ["bulk-send-orders", orderIds.sort().join(",")],
+    queryFn: async () => {
+      // We fetch via the existing /api/orders endpoint. There's no
+      // "ids in" filter on the public surface, so we read each order
+      // detail in parallel. This is bounded by `count`.
+      const fallback = (id: number): SelectedOrder => ({
+        id,
+        name: `#${id}`,
+        dealer_ref: "",
+        stage_id: false,
+        stage_code: "",
+        is_stock: false,
+        cancelled_at: false,
+      });
+      const reads = await Promise.all(
+        orderIds.map((id) =>
+          fetch(`/api/orders/${id}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((j) => (j?.order as SelectedOrder | undefined) ?? fallback(id))
+            .catch(() => fallback(id)),
+        ),
+      );
+      return { orders: reads };
+    },
+    enabled: open && orderIds.length > 0,
+    staleTime: 30_000,
+  });
+
+  const ordersLoaded = ordersQ.data?.orders ?? [];
+
+  // Build a sequence-ordered classification once the user picks a
+  // target. "forward" = current seq < target seq, "backward" = current
+  // seq > target seq, "same" = no-op (already there).
+  function classify(order: SelectedOrder, t: Stage | null) {
+    if (!t || !order.stage_code) return "unknown" as const;
+    const curStage = stages.find((s) => s.code === order.stage_code);
+    if (!curStage) return "unknown" as const;
+    if (curStage.id === t.id) return "same" as const;
+    if (curStage.sequence < t.sequence) return "forward" as const;
+    return "backward" as const;
+  }
+
+  const counts = (() => {
+    if (!target) {
+      return { forward: 0, backward: 0, same: 0, unknown: 0 };
+    }
+    const out = { forward: 0, backward: 0, same: 0, unknown: 0 };
+    for (const o of ordersLoaded) {
+      const k = classify(o, target);
+      out[k] += 1;
+    }
+    return out;
+  })();
 
   function reset() {
     setOpen(false);
     setTarget(null);
     setNote("");
+    setOverrideBackwards(false);
+    setShowOrderList(false);
   }
 
   async function send() {
@@ -112,9 +199,6 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
     );
     setBusy(false);
 
-    // Refresh decisions are delegated to the parent: only it knows the
-    // right queryKey for the screen it lives on (/orders uses
-    // ["orders"], stage screens use ["stage-v2", ...]).
     const failed = results.filter((r) => r.status === "rejected").length;
     if (failed === 0) {
       toast.success(`Moved ${count} orders to ${target.name}`);
@@ -123,11 +207,9 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
       return;
     }
     if (failed === count) {
-      toast.error(
-        `All ${count} moves failed. Stage write rejected by Odoo.`,
-        { duration: 7000 },
-      );
-      // keep modal open so the user can retry
+      toast.error(`All ${count} moves failed. Stage write rejected by Odoo.`, {
+        duration: 7000,
+      });
       return;
     }
     const ok = count - failed;
@@ -139,11 +221,16 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
     onSuccess?.();
   }
 
-  // Hide when nothing's ticked or when the stages query hasn't resolved
-  // yet — opening the modal with an empty list would surface as an
-  // ALL-BLANK picker (every group filters to no options) which looks
-  // broken. Wait until /api/stages returns before exposing the action.
   if (!count || !stages.length) return null;
+
+  const confirmDisabled =
+    !target ||
+    busy ||
+    ordersQ.isLoading ||
+    // Backwards moves require an explicit override to unlock.
+    (counts.backward > 0 && !overrideBackwards) ||
+    // If EVERY order is already in the target stage we have nothing to do.
+    (counts.same === ordersLoaded.length && ordersLoaded.length > 0);
 
   return (
     <>
@@ -174,13 +261,88 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
               Every ticked order will be routed to the picked stage. The
               note (if any) is logged on each order&apos;s history.{" "}
               <strong>Cancelled or stock orders</strong> in the selection
-              still get moved — un-cancel them or release from stock
-              first if that&apos;s not what you want.
+              still get moved — un-cancel them or release from stock first
+              if that&apos;s not what you want.
             </DialogDescription>
           </DialogHeader>
 
+          {/* Current stages summary — collapsible list */}
+          {ordersLoaded.length > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+              <button
+                type="button"
+                onClick={() => setShowOrderList((v) => !v)}
+                className="flex w-full items-center justify-between text-xs"
+              >
+                <span className="font-semibold text-slate-700">
+                  Current stages of the {ordersLoaded.length} order
+                  {ordersLoaded.length === 1 ? "" : "s"}:
+                </span>
+                <ChevronDown
+                  size={12}
+                  className={cn(
+                    "text-slate-500 transition",
+                    !showOrderList && "-rotate-90",
+                  )}
+                />
+              </button>
+              {(() => {
+                // Group orders by stage_code for a compact summary.
+                const byStage = new Map<string, SelectedOrder[]>();
+                for (const o of ordersLoaded) {
+                  const k = o.stage_code || "_unknown";
+                  if (!byStage.has(k)) byStage.set(k, []);
+                  byStage.get(k)!.push(o);
+                }
+                return (
+                  <>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {Array.from(byStage.entries()).map(([code, list]) => {
+                        const stage = stages.find((s) => s.code === code);
+                        return (
+                          <span
+                            key={code}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                              STAGE_BADGE_COLOR[code] ??
+                                "bg-slate-100 text-slate-600",
+                            )}
+                          >
+                            {stage?.name ?? code ?? "(unknown)"}
+                            <span className="rounded bg-white/60 px-1 text-[10px]">
+                              {list.length}
+                            </span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {showOrderList && (
+                      <ul className="mt-2 space-y-1 text-[11px]">
+                        {ordersLoaded.map((o) => (
+                          <li
+                            key={o.id}
+                            className="flex items-center justify-between gap-2 rounded bg-white px-2 py-1 ring-1 ring-slate-100"
+                          >
+                            <span className="font-mono text-slate-700">
+                              {o.dealer_ref || o.name}
+                            </span>
+                            <span className="text-slate-500">
+                              {(o.stage_id && Array.isArray(o.stage_id)
+                                ? o.stage_id[1]
+                                : "(no stage)") || "(no stage)"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
           {!target ? (
-            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
               {STAGE_GROUPS.map((grp) => {
                 const options = grp.codes
                   .map((c) => byCode.get(c))
@@ -202,12 +364,16 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
                             <span
                               className={cn(
                                 "rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
-                                STAGE_BADGE_COLOR[s.code] ?? "bg-slate-100 text-slate-700",
+                                STAGE_BADGE_COLOR[s.code] ??
+                                  "bg-slate-100 text-slate-700",
                               )}
                             >
                               {s.name}
                             </span>
-                            <ArrowRight size={14} className="ml-auto text-slate-300" />
+                            <ArrowRight
+                              size={14}
+                              className="ml-auto text-slate-300"
+                            />
                           </button>
                         </li>
                       ))}
@@ -224,6 +390,60 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
                 <span className="text-slate-500"> to </span>
                 <strong className="text-indigo-800">{target.name}</strong>
               </div>
+
+              {/* Coherence analysis */}
+              {ordersQ.isLoading && (
+                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                  Checking current stages of the selection…
+                </div>
+              )}
+              {!ordersQ.isLoading && counts.same > 0 && (
+                <div className="rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-700">
+                  <strong>{counts.same}</strong>{" "}
+                  {counts.same === 1 ? "order is" : "orders are"} already in{" "}
+                  <strong>{target.name}</strong> — these will be no-ops.
+                </div>
+              )}
+              {!ordersQ.isLoading && counts.forward > 0 && (
+                <div className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                  <strong>{counts.forward}</strong>{" "}
+                  {counts.forward === 1 ? "order will move" : "orders will move"}{" "}
+                  forward in the flow.
+                </div>
+              )}
+              {!ordersQ.isLoading && counts.backward > 0 && (
+                <div className="space-y-2 rounded-xl border-2 border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle
+                      size={14}
+                      className="mt-0.5 flex-none text-rose-600"
+                    />
+                    <div>
+                      <strong>
+                        {counts.backward}{" "}
+                        {counts.backward === 1 ? "order" : "orders"} would move
+                        BACKWARDS
+                      </strong>{" "}
+                      (currently at a later stage than{" "}
+                      <strong>{target.name}</strong>). The original work stays
+                      logged in chatter, but the operators downstream will see
+                      the order reappear in their queue. Only do this if you
+                      really want to redo the step.
+                    </div>
+                  </div>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-white px-2 py-1.5 text-[11px] font-medium text-rose-900 ring-1 ring-rose-200">
+                    <input
+                      type="checkbox"
+                      checked={overrideBackwards}
+                      onChange={(e) => setOverrideBackwards(e.target.checked)}
+                      className="accent-rose-600"
+                    />
+                    Yes, move {counts.backward}{" "}
+                    {counts.backward === 1 ? "order" : "orders"} backwards
+                  </label>
+                </div>
+              )}
+
               <div className="space-y-1">
                 <Label htmlFor="bulk-send-note">Note (optional)</Label>
                 <Textarea
@@ -241,22 +461,21 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
             {target && (
               <Button
                 variant="outline"
-                onClick={() => setTarget(null)}
+                onClick={() => {
+                  setTarget(null);
+                  setOverrideBackwards(false);
+                }}
                 disabled={busy}
               >
                 <X size={14} /> Pick another stage
               </Button>
             )}
-            <Button
-              variant="ghost"
-              onClick={() => setOpen(false)}
-              disabled={busy}
-            >
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
               Cancel
             </Button>
             <Button
               onClick={send}
-              disabled={!target || busy}
+              disabled={confirmDisabled}
               className="bg-indigo-700 text-white shadow shadow-indigo-700/30 hover:bg-indigo-800"
             >
               <Check size={14} />
