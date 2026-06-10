@@ -8,13 +8,12 @@ import {
   CheckCircle2,
   Circle,
   Printer,
-  Phone,
-  MapPin,
   Mail,
   FileText,
   User as UserIcon,
   Play,
 } from "lucide-react";
+import { AddressLink, PhoneLink } from "@/components/address-link";
 import { fmtMoney, fmtNum, m2o } from "@/lib/utils";
 import { ActivityFeed } from "@/components/activity-feed";
 import { FilesDocumentsPanel } from "@/components/files-documents-panel";
@@ -26,6 +25,7 @@ import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal
 import { OrderDetailSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { AssignmentCard } from "@/components/assignment-card";
+import { NextActionCard } from "@/components/next-action-card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { deriveRole } from "@/lib/odoo/types";
@@ -226,6 +226,18 @@ export default function OrderDetailPage({
         </div>
       </div>
 
+      {/* Next-action steer — tells the operator what to do next based
+          on the current stage. Includes "Mark as Paid" when payment is
+          the obvious next move. */}
+      <NextActionCard
+        orderId={o.id}
+        stageCode={o.stage_code}
+        onHold={o.on_hold}
+        paymentState={o.payment_state}
+        onOpenWizard={wizardCfg ? () => setWizardOpen(true) : undefined}
+        wizardLabel={wizardCfg?.title}
+      />
+
       {/* Edit panel — appears when "Edit order" is toggled in the header. */}
       {canAssign && (
         <EditOrderPanel
@@ -394,27 +406,11 @@ export default function OrderDetailPage({
                 <Row label="Name" value={o.client_name} />
                 <Row
                   label="Address"
-                  value={
-                    <span className="flex items-start gap-1.5">
-                      <MapPin size={12} className="mt-1 text-slate-400" />
-                      <span className="whitespace-pre-line">
-                        {o.client_address}
-                      </span>
-                    </span>
-                  }
+                  value={<AddressLink address={o.client_address} />}
                 />
                 <Row
                   label="Phone"
-                  value={
-                    o.client_phone ? (
-                      <span className="flex items-center gap-1.5">
-                        <Phone size={12} className="text-slate-400" />
-                        {o.client_phone}
-                      </span>
-                    ) : (
-                      "—"
-                    )
-                  }
+                  value={<PhoneLink phone={o.client_phone} />}
                 />
                 <Row
                   label="Email"

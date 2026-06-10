@@ -34,6 +34,7 @@ import { CancelModal } from "./cancel-modal";
 import { SendToDropdown } from "./send-to-dropdown";
 import { BulkSendToButton } from "./bulk-send-to-button";
 import { QuickPhotoUpload } from "./quick-photo-upload";
+import { AddressLink } from "./address-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -1150,8 +1151,10 @@ function Row({
             {row.dealer_id[1]} Project
           </div>
         )}
-        <div className="text-xs text-slate-400 line-clamp-1">
-          {row.client_address}
+        {/* Map-deeplink truncated to one line so wide rows don't wrap.
+            On mobile this opens the OS Maps app directly. */}
+        <div className="text-xs line-clamp-1">
+          <AddressLink address={row.client_address} variant="compact" />
         </div>
       </td>
       {designPreview && (

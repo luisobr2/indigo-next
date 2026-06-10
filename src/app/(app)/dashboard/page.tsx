@@ -215,6 +215,7 @@ export default function DashboardPage() {
           icon={ShoppingBag}
           iconBg="bg-indigo-50"
           iconColor="text-indigo-700"
+          href="/orders"
         />
         <KpiCard
           label="Installations Pending"
@@ -222,6 +223,7 @@ export default function DashboardPage() {
           icon={Truck}
           iconBg="bg-emerald-50"
           iconColor="text-emerald-600"
+          href="/installations"
         />
         <KpiCard
           label="CNC Queue"
@@ -231,6 +233,7 @@ export default function DashboardPage() {
           icon={Hammer}
           iconBg="bg-violet-50"
           iconColor="text-violet-700"
+          href="/cnc-production"
         />
         <KpiCard
           label="Painting"
@@ -240,6 +243,7 @@ export default function DashboardPage() {
           icon={Brush}
           iconBg="bg-orange-50"
           iconColor="text-orange-600"
+          href="/paint"
         />
         <KpiCard
           label="Revenue (This Month)"
@@ -247,6 +251,7 @@ export default function DashboardPage() {
           icon={DollarSign}
           iconBg="bg-emerald-50"
           iconColor="text-emerald-700"
+          href="/billing"
         />
       </section>
 

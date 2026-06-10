@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkSendToButton } from "@/components/bulk-send-to-button";
+import { QuickStageActionButton } from "@/components/quick-stage-action-button";
 import { fmtMoney, fmtNum } from "@/lib/utils";
 import { toCsv, downloadCsv } from "@/lib/csv";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
@@ -324,19 +325,20 @@ export default function PaintPage() {
                 <th className="px-4 py-3 text-right">Price (USD) / SQF</th>
                 <th className="px-4 py-3 text-right">Total (USD)</th>
                 <th className="px-4 py-3 text-center w-24">Design Preview</th>
+                <th className="px-4 py-3 text-center w-32">Action</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={12} className="p-12 text-center text-slate-400">
+                  <td colSpan={13} className="p-12 text-center text-slate-400">
                     Loading...
                   </td>
                 </tr>
               )}
               {!isLoading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="p-12 text-center text-slate-400">
+                  <td colSpan={13} className="p-12 text-center text-slate-400">
                     No orders in painting stage
                   </td>
                 </tr>
@@ -421,6 +423,14 @@ export default function PaintPage() {
                           <span className="text-[10px] text-slate-300">—</span>
                         )}
                       </div>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <QuickStageActionButton
+                        orderId={r.id}
+                        targetStageCode="ready_install"
+                        label="Received"
+                        loadingVerb="Marking received"
+                      />
                     </td>
                   </tr>
                 );

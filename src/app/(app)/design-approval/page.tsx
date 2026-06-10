@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { Clock, CheckCircle2, AlertCircle, PauseCircle } from "lucide-react";
 import { StageScreenV2 } from "@/components/stage-screen-v2";
+import { PhoneLink } from "@/components/address-link";
+import { QuickStageActionButton } from "@/components/quick-stage-action-button";
 import { m2o, fmtDate, fmtNum } from "@/lib/utils";
 
 export default function DesignApprovalPage() {
@@ -66,7 +68,7 @@ export default function DesignApprovalPage() {
         {
           key: "phone",
           label: "Phone",
-          render: (r) => r.client_phone || "—",
+          render: (r) => <PhoneLink phone={r.client_phone} />,
         },
         {
           key: "sqf",
@@ -78,6 +80,23 @@ export default function DesignApprovalPage() {
           key: "created",
           label: "Created",
           render: (r) => fmtDate(r.create_date),
+        },
+        {
+          key: "quick",
+          label: "Action",
+          align: "right",
+          // Inline 1-click confirm: design_pending → design_confirmed.
+          // Only meaningful on the Pending tab — once confirmed the row
+          // moves off this stage so the button never duplicates work.
+          render: (r) =>
+            r.stage_code === "design_pending" ? (
+              <QuickStageActionButton
+                orderId={r.id}
+                targetStageCode="design_confirmed"
+                label="Confirm"
+                loadingVerb="Confirming design"
+              />
+            ) : null,
         },
       ]}
     />

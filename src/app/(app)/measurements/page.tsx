@@ -1,6 +1,7 @@
 "use client";
 import { Ruler, CheckCircle2, PauseCircle, AlertCircle } from "lucide-react";
 import { StageScreenV2 } from "@/components/stage-screen-v2";
+import { PhoneLink } from "@/components/address-link";
 import { m2o, fmtDate, fmtNum } from "@/lib/utils";
 
 export default function MeasurementsPage() {
@@ -54,7 +55,7 @@ export default function MeasurementsPage() {
         {
           key: "phone",
           label: "Phone",
-          render: (r) => r.client_phone || "—",
+          render: (r) => <PhoneLink phone={r.client_phone} />,
         },
         {
           key: "dealer",

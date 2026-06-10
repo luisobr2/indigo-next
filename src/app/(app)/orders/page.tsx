@@ -421,7 +421,7 @@ function OrdersInner() {
 
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
         <div className="overflow-x-auto scrollbar-thin">
-          <table className="w-full min-w-[900px] text-sm">
+          <table className="w-full min-w-[1100px] text-sm">
           <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-3 w-10">
@@ -450,25 +450,26 @@ function OrdersInner() {
               <th className="px-4 py-3">Order #</th>
               <th className="px-4 py-3">Client</th>
               <th className="px-4 py-3">Dealer</th>
+              <th className="px-4 py-3">Stage</th>
+              <th className="px-4 py-3 text-right">Days</th>
               <th className="px-4 py-3">Address</th>
               <th className="px-4 py-3 text-right">Doors</th>
               <th className="px-4 py-3 text-right">SQF</th>
               <th className="px-4 py-3 text-right">Total</th>
-              <th className="px-4 py-3">Stage</th>
               <th className="px-4 py-3">Payment</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={10} className="p-0">
+                <td colSpan={11} className="p-0">
                   <TableSkeleton rows={6} cols={10} />
                 </td>
               </tr>
             )}
             {!isLoading && records.length === 0 && (
               <tr>
-                <td colSpan={10} className="p-0">
+                <td colSpan={11} className="p-0">
                   <EmptyState
                     title="No orders match"
                     message="Try clearing filters or searching by client name."
@@ -514,16 +515,6 @@ function OrdersInner() {
                   <td className="px-4 py-3 text-slate-600">
                     {dealer?.name ?? "—"}
                   </td>
-                  <td className="px-4 py-3 text-slate-500">
-                    <div className="line-clamp-2 max-w-[260px]">
-                      {r.client_address}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">{r.door_count}</td>
-                  <td className="px-4 py-3 text-right">{fmtNum(r.total_sqf)}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-800">
-                    {fmtMoney(r.total_dealer_charge)}
-                  </td>
                   <td className="px-4 py-3">
                     <Badge
                       variant="secondary"
@@ -533,6 +524,41 @@ function OrdersInner() {
                     >
                       {m2o(r.stage_id)?.name ?? "?"}
                     </Badge>
+                    {r.on_hold && (
+                      <Badge
+                        variant="secondary"
+                        className="ml-1 bg-amber-100 text-[10px] font-bold uppercase text-amber-800"
+                      >
+                        On hold
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {/* Color-coded staleness:
+                        ≤3 d slate (green-ish), 4-6 d amber (warning),
+                        ≥7 d rose (stuck). Helps Majela spot bottlenecks
+                        without opening every order. */}
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums ${
+                        r.days_in_current_stage >= 7
+                          ? "bg-rose-50 text-rose-700"
+                          : r.days_in_current_stage >= 4
+                            ? "bg-amber-50 text-amber-700"
+                            : "text-slate-500"
+                      }`}
+                    >
+                      {r.days_in_current_stage}d
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-500">
+                    <div className="line-clamp-2 max-w-[260px]">
+                      {r.client_address}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right">{r.door_count}</td>
+                  <td className="px-4 py-3 text-right">{fmtNum(r.total_sqf)}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-800">
+                    {fmtMoney(r.total_dealer_charge)}
                   </td>
                   <td className="px-4 py-3">
                     <Badge

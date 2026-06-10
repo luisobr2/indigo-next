@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { ArrowUpRight, ArrowDownRight, type LucideIcon } from "lucide-react";
 
@@ -8,6 +9,7 @@ interface KpiCardProps {
   iconColor?: string;
   iconBg?: string;
   trend?: { value: number; label?: string };
+  /** When provided, the whole card becomes a clickable link to this route. */
   href?: string;
   className?: string;
 }
@@ -19,16 +21,12 @@ export function KpiCard({
   iconColor = "text-indigo-700",
   iconBg = "bg-indigo-50",
   trend,
+  href,
   className,
 }: KpiCardProps) {
   const positive = (trend?.value ?? 0) >= 0;
-  return (
-    <div
-      className={cn(
-        "rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition hover:shadow-md",
-        className,
-      )}
-    >
+  const body = (
+    <>
       <div className="flex items-start justify-between">
         <div className={cn("rounded-2xl p-3", iconBg)}>
           <Icon size={20} className={iconColor} />
@@ -55,6 +53,23 @@ export function KpiCard({
           <span className="text-slate-400">{trend.label ?? "vs last week"}</span>
         </div>
       )}
-    </div>
+    </>
   );
+
+  const baseCls = cn(
+    "rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition",
+    href
+      ? "hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md cursor-pointer block focus:outline-none focus:ring-2 focus:ring-indigo-200"
+      : "hover:shadow-md",
+    className,
+  );
+
+  if (href) {
+    return (
+      <Link href={href} className={baseCls}>
+        {body}
+      </Link>
+    );
+  }
+  return <div className={baseCls}>{body}</div>;
 }
