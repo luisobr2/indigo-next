@@ -1,0 +1,297 @@
+import { NextRequest, NextResponse } from "next/server";
+import { call } from "@/lib/odoo/client";
+import { requireSession } from "@/lib/odoo/session";
+
+export const runtime = "nodejs";
+
+const INSTALLER_RATE_PER_DOOR = 35;
+
+/**
+ * GET /api/installers/dashboard?week=YYYY-MM-DD
+ *
+ * Returns the data the Installations management page needs:
+ *   - per-installer buckets with their order list and KPIs
+ *   - weekly KPI summary
+ *   - daily breakdown for the bar chart
+ *   - donut payload (installed / pending / not_started)
+ *
+ * `week` is the Monday of the target ISO week. If omitted we default to
+ * the current week.
+ */
+function startOfWeek(d: Date): Date {
+  // Mon as the first day so May 13 (Mon) is the bar-chart anchor.
+  const day = (d.getDay() + 6) % 7;
+  const r = new Date(d);
+  r.setDate(d.getDate() - day);
+  r.setHours(0, 0, 0, 0);
+  return r;
+}
+
+function ymd(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const s = await requireSession();
+    const sp = req.nextUrl.searchParams;
+    const weekParam = sp.get("week");
+    const monday = weekParam ? startOfWeek(new Date(weekParam)) : startOfWeek(new Date());
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const mondayStr = ymd(monday);
+    const sundayStr = ymd(sunday);
+
+    interface OrderRow {
+      id: number;
+      name: string;
+      dealer_ref: string;
+      client_name: string;
+      client_address: string;
+      installer_ids: number[];
+      door_count: number;
+      installation_date: string | false;
+      stage_code: string;
+      total_sqf: number;
+    }
+
+    // 1. Pull every order with installation_date inside this week, regardless
+    //    of stage (Pending, Scheduled, Installed). We grab a wider net for
+    //    the "Pending" / "Not Started" buckets too.
+    const orders = await call<OrderRow[]>({
+      session: s.session,
+      model: "indigo.order",
+      method: "search_read",
+      args: [
+        [
+          ["installation_date", ">=", mondayStr],
+          ["installation_date", "<=", sundayStr],
+        ],
+        [
+          "id",
+          "name",
+          "dealer_ref",
+          "client_name",
+          "client_address",
+          "installer_ids",
+          "door_count",
+          "installation_date",
+          "stage_code",
+          "total_sqf",
+        ],
+      ],
+      kwargs: { limit: 500, order: "installation_date" },
+    });
+
+    // 2. Resolve installer names from res.partner (since installer_ids is
+    //    a m2m to res.partner via the `installer_partner_rel` table). Read
+    //    them once for the whole batch.
+    const installerIdSet = new Set<number>();
+    for (const o of orders) {
+      for (const iid of o.installer_ids || []) installerIdSet.add(iid);
+    }
+    interface PartnerRow {
+      id: number;
+      name: string;
+    }
+    const installers = installerIdSet.size
+      ? await call<PartnerRow[]>({
+          session: s.session,
+          model: "res.partner",
+          method: "read",
+          args: [Array.from(installerIdSet), ["id", "name"]],
+          kwargs: {},
+        })
+      : [];
+    const nameOf = new Map(installers.map((p) => [p.id, p.name]));
+
+    // 3. Pull first_line per order for door_type + color.
+    const orderIds = orders.map((o) => o.id);
+    interface LineRow {
+      id: number;
+      order_id: [number, string] | false;
+      door_type?: string;
+      color?: string;
+    }
+    const lines = orderIds.length
+      ? await call<LineRow[]>({
+          session: s.session,
+          model: "indigo.order.line",
+          method: "search_read",
+          args: [
+            [["order_id", "in", orderIds]],
+            ["id", "order_id", "door_type", "color"],
+          ],
+          kwargs: { order: "order_id, id" },
+        })
+      : [];
+    const firstLineByOrder = new Map<number, LineRow>();
+    for (const l of lines) {
+      const oid = l.order_id && Array.isArray(l.order_id) ? l.order_id[0] : 0;
+      if (oid && !firstLineByOrder.has(oid)) firstLineByOrder.set(oid, l);
+    }
+
+    // 4. Bucket per installer.
+    interface InstallerBucket {
+      id: number;
+      name: string;
+      doors: number;
+      installed: number;
+      pending: number;
+      paymentDue: number;
+      orders: Array<{
+        id: number;
+        name: string;
+        dealer_ref: string;
+        client_name: string;
+        client_address: string;
+        door_type: string;
+        color: string;
+        qty: number;
+        status: "installed" | "scheduled" | "pending";
+        scheduled_date: string | false;
+      }>;
+    }
+
+    const buckets = new Map<number, InstallerBucket>();
+    const unassigned: InstallerBucket = {
+      id: 0,
+      name: "Unassigned",
+      doors: 0,
+      installed: 0,
+      pending: 0,
+      paymentDue: 0,
+      orders: [],
+    };
+
+    for (const o of orders) {
+      const status: "installed" | "scheduled" | "pending" =
+        o.stage_code === "installed" || o.stage_code === "invoiced" || o.stage_code === "closed"
+          ? "installed"
+          : o.stage_code === "install_scheduled"
+            ? "scheduled"
+            : "pending";
+      const firstLine = firstLineByOrder.get(o.id);
+      const row = {
+        id: o.id,
+        name: o.name,
+        dealer_ref: o.dealer_ref || "",
+        client_name: o.client_name,
+        client_address: o.client_address || "",
+        door_type: firstLine?.door_type ?? "",
+        color: firstLine?.color ?? "",
+        qty: o.door_count || 1,
+        status,
+        scheduled_date: o.installation_date,
+      };
+
+      const targets = (o.installer_ids?.length ?? 0) > 0 ? o.installer_ids : [0];
+      for (const iid of targets) {
+        let bucket = iid === 0 ? unassigned : buckets.get(iid);
+        if (!bucket) {
+          bucket = {
+            id: iid,
+            name: nameOf.get(iid) ?? "(unknown)",
+            doors: 0,
+            installed: 0,
+            pending: 0,
+            paymentDue: 0,
+            orders: [],
+          };
+          buckets.set(iid, bucket);
+        }
+        bucket.doors += row.qty;
+        if (status === "installed") bucket.installed += row.qty;
+        else bucket.pending += row.qty;
+        bucket.orders.push(row);
+        if (status === "installed") {
+          bucket.paymentDue += row.qty * INSTALLER_RATE_PER_DOOR;
+        }
+      }
+    }
+
+    const installerBuckets = Array.from(buckets.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+    if (unassigned.orders.length) installerBuckets.push(unassigned);
+
+    // 5. Daily breakdown for the bar chart. One bar per weekday with
+    //    installed / pending / not_scheduled counts.
+    const days: Array<{
+      date: string;
+      label: string;
+      installed: number;
+      pending: number;
+      not_scheduled: number;
+    }> = [];
+    const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const dStr = ymd(d);
+      const dayLabel = `${dayNames[i]} ${d.getDate()}`;
+      let installed = 0;
+      let pending = 0;
+      for (const o of orders) {
+        if (!o.installation_date) continue;
+        const installDate = String(o.installation_date).slice(0, 10);
+        if (installDate !== dStr) continue;
+        const qty = o.door_count || 1;
+        if (o.stage_code === "installed" || o.stage_code === "invoiced" || o.stage_code === "closed") {
+          installed += qty;
+        } else {
+          pending += qty;
+        }
+      }
+      days.push({
+        date: dStr,
+        label: dayLabel,
+        installed,
+        pending,
+        not_scheduled: 0,
+      });
+    }
+
+    // 6. Summary KPIs.
+    const totalDoors = orders.reduce((s, o) => s + (o.door_count || 1), 0);
+    const installedThisWeek = orders
+      .filter((o) => ["installed", "invoiced", "closed"].includes(o.stage_code))
+      .reduce((s, o) => s + (o.door_count || 1), 0);
+    const pendingThisWeek = totalDoors - installedThisWeek;
+    const paymentDue = installedThisWeek * INSTALLER_RATE_PER_DOOR;
+
+    // Also: total installers (active workers, even with no assignment this week).
+    const totalInstallersResp = await call<Array<{ id: number }>>({
+      session: s.session,
+      model: "res.partner",
+      method: "search_read",
+      args: [
+        [["is_indigo_installer", "=", true]],
+        ["id"],
+      ],
+      kwargs: { limit: 100 },
+    }).catch(() => [] as Array<{ id: number }>);
+    const totalInstallersCount = totalInstallersResp.length || installerBuckets.filter((b) => b.id !== 0).length;
+
+    return NextResponse.json({
+      weekStart: mondayStr,
+      weekEnd: sundayStr,
+      ratePerDoor: INSTALLER_RATE_PER_DOOR,
+      summary: {
+        totalInstallers: totalInstallersCount,
+        doorsToInstall: totalDoors,
+        installedThisWeek,
+        pendingThisWeek,
+        paymentDue,
+      },
+      installers: installerBuckets,
+      days,
+    });
+  } catch (e) {
+    if (e instanceof Response) return e;
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Error" },
+      { status: 500 },
+    );
+  }
+}
