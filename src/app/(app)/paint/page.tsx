@@ -66,6 +66,7 @@ export default function PaintPage() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [marking, setMarking] = useState(false);
 
   const { data, isLoading } = useQuery<{ records: PaintRow[]; total: number }>({
     queryKey: ["paint", q],
@@ -109,8 +110,10 @@ export default function PaintPage() {
   }
 
   async function markReceived() {
+    if (marking) return;
     const ids = Array.from(selected);
     if (!ids.length) return;
+    setMarking(true);
     const readyStage = stagesQ.data?.records?.find(
       (s) => s.code === "ready_install",
     );
@@ -137,6 +140,7 @@ export default function PaintPage() {
         }),
       ),
     );
+    setMarking(false);
     qc.invalidateQueries({ queryKey: ["paint"] });
     const failed = results.filter((r) => r.status === "rejected").length;
     if (failed === 0) {
@@ -262,10 +266,11 @@ export default function PaintPage() {
               <Button
                 size="sm"
                 onClick={markReceived}
-                className="bg-emerald-600 text-white shadow shadow-emerald-600/30 hover:bg-emerald-700"
+                disabled={marking}
+                className="bg-emerald-600 text-white shadow shadow-emerald-600/30 hover:bg-emerald-700 disabled:opacity-60"
               >
                 <CheckSquare size={12} />
-                Mark Received → Ready for Install
+                {marking ? "Moving…" : "Mark Received → Ready for Install"}
               </Button>
               <BulkSendToButton
                 orderIds={Array.from(selected)}

@@ -217,6 +217,7 @@ export function StageScreenV2({
   const [wizardOpen, setWizardOpen] = useState(false);
   const [holdOpen, setHoldOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [completing, setCompleting] = useState(false);
   const [groupBy, setGroupBy] = useState<"none" | "status">("status");
   const [view, setView] = useState<"list" | "grid">("list");
   const [bulk, setBulk] = useState<Set<number>>(new Set());
@@ -361,7 +362,7 @@ export function StageScreenV2({
    *      - advance `stage_id` to the next Odoo stage.
    */
   async function completeAndAdvance() {
-    if (!selected) return;
+    if (!selected || completing) return;
 
     const wizardConfig = STAGE_WIZARDS[selected.stage_code];
     if (wizardConfig) {
@@ -394,6 +395,7 @@ export function StageScreenV2({
       );
       return;
     }
+    setCompleting(true);
     const promise = (async () => {
       const r1 = await fetch(`/api/orders/${selected.id}/substatus`, {
         method: "POST",
@@ -419,7 +421,7 @@ export function StageScreenV2({
       qc.invalidateQueries({ queryKey: ["order-timeline", selected.id] });
       qc.invalidateQueries({ queryKey: ["order-activity", selected.id] });
       return j2;
-    })();
+    })().finally(() => setCompleting(false));
 
     toast.promise(promise, {
       loading: `${COMPLETE_LABEL[subStatusPrefix].verb}…`,
@@ -779,6 +781,7 @@ export function StageScreenV2({
               prefix={subStatusPrefix}
               onClose={() => setSelected(null)}
               onComplete={completeAndAdvance}
+              completing={completing}
               onHold={() => setHoldOpen(true)}
               onCancel={() => setCancelOpen(true)}
               onAfterAction={() => {
@@ -1271,6 +1274,7 @@ function SidePanel({
   prefix,
   onClose,
   onComplete,
+  completing,
   onHold,
   onCancel,
   onAfterAction,
@@ -1282,6 +1286,10 @@ function SidePanel({
   onClose: () => void;
   /** One-click "work done + advance" — only used when prefix is set. */
   onComplete: () => void;
+  /** Mirrors the parent's `completing` state — used to grey-out the
+      Complete button while the network round-trip is in flight so a
+      double-tap can't fan out duplicate writes. */
+  completing: boolean;
   onHold: () => void;
   onCancel: () => void;
   /** Fired after a SendTo action so the parent can refresh + close panel. */
@@ -1491,7 +1499,7 @@ function SidePanel({
               <Button
                 onClick={onComplete}
                 size="lg"
-                disabled={stages.length === 0}
+                disabled={stages.length === 0 || completing}
                 className="h-11 w-full justify-between bg-emerald-600 text-white hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
               >
                 <span className="flex items-center gap-2">

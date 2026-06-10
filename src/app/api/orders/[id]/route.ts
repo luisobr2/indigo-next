@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { call, odooReportUrl } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
+import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
 
@@ -221,6 +222,10 @@ export async function PUT(
 ) {
   try {
     const s = await requireSession();
+    const role = deriveRole(s.user.groups);
+    if (!role.isManager && !role.isOffice && !s.user.isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const { id: idStr } = await params;
     const id = parseInt(idStr, 10);
     const raw = (await req.json()) as Record<string, unknown>;

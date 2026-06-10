@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
+import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,14 @@ export async function POST(
 ) {
   try {
     const s = await requireSession();
+    const role = deriveRole(s.user.groups);
+    // Sub-status writes (cancel/restore/done timestamps) are an
+    // office/manager-only action. Specialists (CNC, Paint, Install)
+    // mark their step via the wizard flow which has its own ACL on
+    // the Odoo side.
+    if (!role.isManager && !role.isOffice && !s.user.isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const { id: idStr } = await context.params;
     const orderId = Number(idStr);
     if (!Number.isFinite(orderId)) {

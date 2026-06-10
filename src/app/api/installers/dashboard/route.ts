@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
+import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
 
@@ -34,6 +35,13 @@ function ymd(d: Date): string {
 export async function GET(req: NextRequest) {
   try {
     const s = await requireSession();
+    const role = deriveRole(s.user.groups);
+    // The dashboard exposes payment-due figures across installers —
+    // restricted to managers/office so specialists can't see each
+    // others' compensation.
+    if (!role.isManager && !role.isOffice && !s.user.isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const sp = req.nextUrl.searchParams;
     const weekParam = sp.get("week");
     const monday = weekParam ? startOfWeek(new Date(weekParam)) : startOfWeek(new Date());
