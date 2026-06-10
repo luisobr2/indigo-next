@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { fmtMoney, fmtNum, fmtDate, cn } from "@/lib/utils";
+import { AddInstallerModal } from "@/components/add-installer-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -118,6 +119,7 @@ export default function InstallationsPage() {
   const [week, setWeek] = useState(() => ymd(startOfWeek(new Date())));
   const [q, setQ] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | number>("all");
+  const [addInstallerOpen, setAddInstallerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
 
   const { data, isLoading } = useQuery<DashboardData>({
@@ -200,16 +202,16 @@ export default function InstallationsPage() {
           <Button variant="outline" size="lg">
             <Printer size={14} /> Print / PDF
           </Button>
-          <Button
-            size="lg"
-            onClick={() =>
-              toast.info("Coming soon — for now create installers from Settings.")
-            }
-          >
+          <Button size="lg" onClick={() => setAddInstallerOpen(true)}>
             <Plus size={14} /> Add Installer
           </Button>
         </div>
       </header>
+
+      <AddInstallerModal
+        open={addInstallerOpen}
+        onClose={() => setAddInstallerOpen(false)}
+      />
 
       {/* KPI tiles */}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">

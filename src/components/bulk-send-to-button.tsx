@@ -9,7 +9,9 @@ import {
   Check,
   AlertTriangle,
   ChevronDown,
+  Wand2,
 } from "lucide-react";
+import { STAGE_WIZARDS } from "./stage-wizard-modal";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -223,10 +225,17 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
 
   if (!count || !stages.length) return null;
 
+  // Stages with a wizard config capture business data (SQF / photo /
+  // signature / amount) BEFORE the stage move can fire. We can't open
+  // N wizards from a single bulk action, so we hard-block bulk moves
+  // INTO those stages and tell the user to do them one by one.
+  const targetWizard = target ? STAGE_WIZARDS[target.code] : undefined;
+
   const confirmDisabled =
     !target ||
     busy ||
     ordersQ.isLoading ||
+    !!targetWizard ||
     // Backwards moves require an explicit override to unlock.
     (counts.backward > 0 && !overrideBackwards) ||
     // If EVERY order is already in the target stage we have nothing to do.
@@ -390,6 +399,29 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
                 <span className="text-slate-500"> to </span>
                 <strong className="text-indigo-800">{target.name}</strong>
               </div>
+
+              {/* Wizard stages need per-order data capture (SQF, photo,
+                  signature, amount). Bulk move can't surface N wizard
+                  modals — the user has to do them individually so the
+                  contractor payouts and per-piece data stay intact. */}
+              {targetWizard && (
+                <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <div className="flex items-start gap-2">
+                    <Wand2
+                      size={14}
+                      className="mt-0.5 flex-none text-amber-700"
+                    />
+                    <div>
+                      <strong>{target.name}</strong> needs per-order data
+                      capture ({targetWizard.title.toLowerCase()}). Bulk move
+                      is blocked for this stage — open each order from the
+                      list and use its own &quot;{targetWizard.submitLabel}
+                      &quot; button so the wizard records the data and
+                      creates the contractor payout.
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Coherence analysis */}
               {ordersQ.isLoading && (
