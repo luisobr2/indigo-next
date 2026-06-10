@@ -254,16 +254,57 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/**
+ * Allow-list for POST. Same idea as PUT: only the fields the UI is
+ * expected to set on creation. Stage / is_stock / cancelled_at / etc.
+ * have dedicated endpoints.
+ */
+const CREATABLE_ORDER_FIELDS = [
+  "dealer_id",
+  "dealer_ref",
+  "client_name",
+  "client_phone",
+  "client_email",
+  "client_address",
+  "notes",
+  "installation_date",
+  "expected_completion_date",
+  "priv_ref",
+  // Nested line creation via Odoo's (0, 0, {...}) syntax.
+  "line_ids",
+] as const;
+
 /** POST /api/orders — create a new order. */
 export async function POST(req: NextRequest) {
   try {
     const s = await requireSession();
-    const body = await req.json();
+    const { deriveRole } = await import("@/lib/odoo/types");
+    const role = deriveRole(s.user.groups);
+    if (!role.isManager && !role.isOffice && !s.user.isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const raw = (await req.json()) as Record<string, unknown>;
+    const vals: Record<string, unknown> = {};
+    for (const k of CREATABLE_ORDER_FIELDS) {
+      if (k in raw) vals[k] = raw[k];
+    }
+    if (!vals.client_name) {
+      return NextResponse.json(
+        { error: "client_name is required" },
+        { status: 400 },
+      );
+    }
+    if (!vals.dealer_id) {
+      return NextResponse.json(
+        { error: "dealer_id is required" },
+        { status: 400 },
+      );
+    }
     const id = await call<number>({
       session: s.session,
       model: "indigo.order",
       method: "create",
-      args: [body],
+      args: [vals],
       kwargs: {},
     });
     return NextResponse.json({ id });

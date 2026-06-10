@@ -1,355 +1,780 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
-  Boxes,
-  Building2,
-  Pencil,
-  Plus,
   Search,
-  Tag,
+  Download,
+  Printer,
+  Heart,
+  LayoutGrid,
+  List,
+  Boxes,
+  Palette,
+  DoorOpen,
+  Grid3x3,
   ChevronRight,
+  Info,
 } from "lucide-react";
-import { fmtMoney } from "@/lib/utils";
+import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn, fmtNum } from "@/lib/utils";
+import { NewOrderFromDesignModal } from "@/components/new-order-from-design-modal";
 
-interface Design {
+interface FamilyVariant {
   id: number;
   code: string;
-  name: string;
-  description?: string;
-  door_type?: string;
-  active?: boolean;
+  door_type: string;
+  hasImage: boolean;
+  favorite: boolean;
 }
 
-interface Dealer {
-  id: number;
-  name: string;
-  indigo_default_price_per_sqf?: number;
-  active?: boolean;
+interface FamilyOut {
+  family: string;
+  variants: FamilyVariant[];
+  colors: string[];
+  favorite: boolean;
 }
 
-interface Brand {
-  id: number;
-  name: string;
-  code?: string | false;
-  active?: boolean;
+interface CatalogResponse {
+  families: FamilyOut[];
+  summary: {
+    totalDesigns: number;
+    totalVariations: number;
+    availableColors: string[];
+    availableConfigs: string[];
+  };
 }
 
-const DOOR_TYPE_LABEL: Record<string, string> = {
-  SD: "Single",
-  DD: "Double",
-  sidelite: "Sidelite",
+const COLOR_LABEL: Record<string, { label: string; dot: string }> = {
+  white: { label: "White", dot: "#fff" },
+  bronze: { label: "Bronze", dot: "#a16207" },
+  bronze_eco: { label: "Bronze ECO", dot: "#854d0e" },
+  black: { label: "Black", dot: "#111" },
+  custom: { label: "Custom", dot: "#a78bfa" },
 };
 
-/**
- * Derives a "family" code from a design code. Examples:
- *   ID01-SD  → ID01
- *   ID01-DD  → ID01
- *   TD-SD-W06 → TD-W06
- *   TD-DED-B01 → TD-DED-B01
- *
- * Heuristic: strip the door-type token (SD|DD|sidelite) when it appears
- * surrounded by hyphens, keeping the rest. If the code doesn't match a
- * known pattern, the family equals the code itself (a singleton family).
- */
-function familyOf(code: string): string {
-  return code
-    .replace(/-(SD|DD|sidelite)(?=-|$)/i, "")
-    .toUpperCase();
-}
+const DOOR_TYPE_LABEL: Record<string, string> = {
+  SD: "Single Door",
+  DD: "Double Door",
+  sidelite: "Door with Sidelites",
+};
 
 export default function CatalogPage() {
+  const qc = useQueryClient();
+  const [tab, setTab] = useState<"all" | "favorites">("all");
+  const [view, setView] = useState<"grid" | "list">("grid");
   const [q, setQ] = useState("");
-  const [debouncedQ, setDebouncedQ] = useState("");
+  const [doorTypeFilter, setDoorTypeFilter] = useState<"all" | "SD" | "DD">("all");
+  const [colorFilter, setColorFilter] = useState<"all" | string>("all");
+  const [selectedFamily, setSelectedFamily] = useState<FamilyOut | null>(null);
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(q), 250);
-    return () => clearTimeout(t);
-  }, [q]);
-
-  // Pull ALL designs in one shot so we can group by family client-side.
-  // 200 is a safe cap (the catalog has 33 today).
-  const designs = useQuery<{ records: Design[]; total: number }>({
-    queryKey: ["catalog-designs", debouncedQ],
-    queryFn: () => {
-      const url = new URL("/api/catalog/designs", window.location.origin);
-      if (debouncedQ) url.searchParams.set("q", debouncedQ);
-      url.searchParams.set("limit", "500");
-      return fetch(url).then((r) => r.json());
-    },
+  const { data, isLoading } = useQuery<CatalogResponse>({
+    queryKey: ["catalog-families"],
+    queryFn: () =>
+      fetch("/api/catalog/designs/families").then((r) => r.json()),
+    staleTime: 60_000,
   });
 
-  const dealers = useQuery<{ records: Dealer[] }>({
-    queryKey: ["catalog-dealers"],
-    queryFn: () => fetch("/api/catalog/dealers").then((r) => r.json()),
-  });
+  const families = data?.families ?? [];
+  const summary = data?.summary;
 
-  const brands = useQuery<{ records: Brand[] }>({
-    queryKey: ["catalog-brands"],
-    queryFn: () => fetch("/api/catalog/brands?archived=1").then((r) => r.json()),
-  });
-
-  // Group designs by family.
-  const families = useMemo(() => {
-    const map = new Map<string, Design[]>();
-    for (const d of designs.data?.records ?? []) {
-      const f = familyOf(d.code);
-      if (!map.has(f)) map.set(f, []);
-      map.get(f)!.push(d);
+  const filtered = useMemo(() => {
+    let out = families;
+    if (tab === "favorites") out = out.filter((f) => f.favorite);
+    if (doorTypeFilter !== "all") {
+      out = out.filter((f) =>
+        f.variants.some((v) => v.door_type === doorTypeFilter),
+      );
     }
-    return [...map.entries()]
-      .map(([family, variants]) => ({
-        family,
-        variants: variants.sort((a, b) => a.code.localeCompare(b.code)),
-      }))
-      .sort((a, b) => a.family.localeCompare(b.family));
-  }, [designs.data]);
+    if (colorFilter !== "all") {
+      out = out.filter((f) => f.colors.includes(colorFilter));
+    }
+    if (q.trim()) {
+      const needle = q.toLowerCase().trim();
+      out = out.filter(
+        (f) =>
+          f.family.toLowerCase().includes(needle) ||
+          f.variants.some((v) => v.code.toLowerCase().includes(needle)),
+      );
+    }
+    return out;
+  }, [families, tab, doorTypeFilter, colorFilter, q]);
+
+  const favoritesCount = families.filter((f) => f.favorite).length;
+
+  async function toggleFavorite(family: FamilyOut) {
+    // We toggle ALL variants in the family at once. Optimistic flip on
+    // the cached payload so the heart fills/empties immediately.
+    const willBeFav = !family.favorite;
+    qc.setQueryData<CatalogResponse>(["catalog-families"], (prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        families: prev.families.map((f) =>
+          f.family === family.family
+            ? {
+                ...f,
+                favorite: willBeFav,
+                variants: f.variants.map((v) => ({ ...v, favorite: willBeFav })),
+              }
+            : f,
+        ),
+      };
+    });
+    try {
+      await Promise.all(
+        family.variants.map((v) =>
+          fetch(`/api/catalog/designs/${v.id}/favorite`, {
+            method: willBeFav ? "POST" : "DELETE",
+          }).then((r) => {
+            if (!r.ok) throw new Error("favorite write failed");
+          }),
+        ),
+      );
+    } catch {
+      // Roll back the cache on failure.
+      qc.invalidateQueries({ queryKey: ["catalog-families"] });
+      toast.error("Could not update favourite");
+    }
+  }
+
+  function exportCatalog() {
+    if (!families.length) return toast.warning("Nothing to export");
+    const lines = ["family,code,door_type,colors,favorite"];
+    for (const f of families) {
+      for (const v of f.variants) {
+        lines.push(
+          [
+            f.family,
+            v.code,
+            v.door_type,
+            f.colors.join("|"),
+            v.favorite ? "1" : "0",
+          ].join(","),
+        );
+      }
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `catalog-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-6">
+    <div className="mx-auto max-w-[1700px] space-y-4">
+      {/* Header */}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          <nav className="text-xs text-slate-500">
+            <Link href="/dashboard" className="hover:text-slate-700">
+              Home
+            </Link>
+            <span className="mx-1.5">›</span>
+            <span className="font-medium text-slate-800">Catalog</span>
+          </nav>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
             Catalog
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Dealers, brands and the catalog of door designs.
+            Browse our door designs. Click <strong>Select Design</strong> on
+            any card to start a new order pre-filled with that design.
           </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-72">
+            <Search
+              size={16}
+              className="absolute top-1/2 left-3 -translate-y-1/2 text-slate-400"
+            />
+            <Input
+              placeholder="Search by design code or name…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="h-10 pl-10"
+            />
+          </div>
+          <Button variant="outline" size="lg" onClick={exportCatalog}>
+            <Download size={14} /> Export Catalog
+          </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => toast.info("Catalog PDF coming soon.")}
+          >
+            <Printer size={14} /> Print / PDF
+          </Button>
         </div>
       </header>
 
-      {/* ---------- Dealers ---------- */}
-      <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Building2 size={18} className="text-indigo-700" />
-            <h2 className="font-semibold text-slate-800">
-              Dealers ({dealers.data?.records.length ?? 0})
-            </h2>
-          </div>
-          <Link
-            href="/catalog/dealers/new"
-            className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-indigo-700 px-4 text-sm font-semibold text-white shadow shadow-indigo-700/30 transition hover:bg-indigo-800"
-          >
-            <Plus size={14} />
-            New dealer
-          </Link>
-        </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {(dealers.data?.records ?? []).map((d) => (
-            <Link
-              key={d.id}
-              href={`/catalog/dealers/${d.id}`}
-              className="flex items-center justify-between rounded-xl border border-slate-100 p-4 transition hover:border-indigo-200 hover:bg-indigo-50/30"
-            >
-              <div>
-                <div className="font-bold uppercase text-indigo-700">{d.name}</div>
-                <div className="text-xs text-slate-500">
-                  Default: {fmtMoney(d.indigo_default_price_per_sqf)} / SQF
-                </div>
-              </div>
-              <Pencil size={14} className="text-slate-400" />
-            </Link>
-          ))}
-        </div>
+      {/* KPI tiles */}
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <KpiTile
+          label="Total Designs"
+          value={fmtNum(summary?.totalDesigns ?? 0)}
+          hint="Active families"
+          icon={Grid3x3}
+          iconBg="bg-indigo-50"
+          iconColor="text-indigo-700"
+        />
+        <KpiTile
+          label="Colors"
+          value={fmtNum(summary?.availableColors?.length ?? 0)}
+          hint={summary?.availableColors?.map((c) => COLOR_LABEL[c]?.label ?? c).join(", ") || "—"}
+          icon={Palette}
+          iconBg="bg-orange-50"
+          iconColor="text-orange-600"
+        />
+        <KpiTile
+          label="Configurations"
+          value={fmtNum(summary?.availableConfigs?.length ?? 0)}
+          hint={summary?.availableConfigs?.map((c) => DOOR_TYPE_LABEL[c] ?? c).join(", ") || "—"}
+          icon={DoorOpen}
+          iconBg="bg-emerald-50"
+          iconColor="text-emerald-600"
+        />
+        <KpiTile
+          label="Total Variations"
+          value={fmtNum(summary?.totalVariations ?? 0)}
+          hint={`${summary?.totalDesigns ?? 0} families × ${summary?.availableColors?.length ?? 0} colors × ${summary?.availableConfigs?.length ?? 0} configs`}
+          icon={Boxes}
+          iconBg="bg-violet-50"
+          iconColor="text-violet-600"
+        />
       </section>
 
-      {/* ---------- Brands ---------- */}
-      <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Tag size={18} className="text-indigo-700" />
-            <h2 className="font-semibold text-slate-800">
-              Brands ({brands.data?.records.length ?? 0})
-            </h2>
-          </div>
-          <Link
-            href="/catalog/brands/new"
-            className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-indigo-700 px-4 text-sm font-semibold text-white shadow shadow-indigo-700/30 transition hover:bg-indigo-800"
-          >
-            <Plus size={14} />
-            New brand
-          </Link>
-        </div>
-        <p className="-mt-2 mb-3 text-xs text-slate-500">
-          Window / door brands that interfere with the paint type. Mario picks
-          the brand when entering measurements.
-        </p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-          {(brands.data?.records ?? []).map((b) => (
-            <Link
-              key={b.id}
-              href={`/catalog/brands/${b.id}`}
-              className="flex items-center justify-between rounded-xl border border-slate-100 p-3 transition hover:border-indigo-200 hover:bg-indigo-50/30"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-slate-800">
-                  {b.name}
-                </div>
-                {b.code && (
-                  <div className="text-[10px] font-mono uppercase text-slate-400">
-                    {b.code}
-                  </div>
-                )}
-              </div>
-              {b.active === false && (
-                <Badge variant="secondary" className="bg-amber-50 text-amber-700">
-                  Archived
-                </Badge>
-              )}
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      {/* ---------- Designs grouped by family ---------- */}
-      <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Boxes size={18} className="text-indigo-700" />
-            <h2 className="font-semibold text-slate-800">
-              Designs ({designs.data?.records?.length ?? 0})
-              <span className="ml-1.5 text-xs font-normal text-slate-400">
-                · {families.length} {families.length === 1 ? "family" : "families"}
-              </span>
-            </h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative w-full sm:w-64">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+      {/* Body */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        {/* MAIN */}
+        <div className="lg:col-span-9">
+          {/* Tabs + view toggle */}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-2 shadow-sm ring-1 ring-slate-100">
+            <div className="flex items-center gap-1">
+              <TabChip
+                label="All Designs"
+                active={tab === "all"}
+                onClick={() => setTab("all")}
               />
-              <Input
-                type="search"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Filter by code or name…"
-                className="pl-9"
+              <TabChip
+                label={`My Favorites (${favoritesCount})`}
+                active={tab === "favorites"}
+                onClick={() => setTab("favorites")}
               />
             </div>
-            <Link
-              href="/catalog/designs/new"
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-indigo-700 px-4 text-sm font-semibold text-white shadow shadow-indigo-700/30 transition hover:bg-indigo-800"
-            >
-              <Plus size={14} />
-              New design
-            </Link>
+            <div className="flex overflow-hidden rounded-lg border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setView("grid")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition",
+                  view === "grid"
+                    ? "bg-indigo-700 text-white"
+                    : "bg-white text-slate-600 hover:bg-slate-50",
+                )}
+              >
+                <LayoutGrid size={12} /> Grid View
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("list")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition",
+                  view === "list"
+                    ? "bg-indigo-700 text-white"
+                    : "bg-white text-slate-600 hover:bg-slate-50",
+                )}
+              >
+                <List size={12} /> List View
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Family list */}
-        <div className="space-y-2">
-          {families.map(({ family, variants }) => (
-            <FamilyRow key={family} family={family} variants={variants} />
-          ))}
-          {families.length === 0 && (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/40 p-8 text-center text-sm text-slate-400">
-              No designs match the filter.
+          {isLoading && (
+            <div className="rounded-2xl bg-white p-10 text-center text-sm text-slate-400 shadow-sm ring-1 ring-slate-100">
+              Loading catalog…
+            </div>
+          )}
+          {!isLoading && filtered.length === 0 && (
+            <div className="rounded-2xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-100">
+              <Heart size={28} className="mx-auto mb-2 text-slate-300" />
+              <p className="text-sm font-semibold text-slate-700">
+                No designs match your filters
+              </p>
+              <p className="text-xs text-slate-500">
+                Reset filters or switch to All Designs.
+              </p>
+            </div>
+          )}
+
+          {view === "grid" ? (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {filtered.map((f) => (
+                <DesignCard
+                  key={f.family}
+                  family={f}
+                  onSelect={() => setSelectedFamily(f)}
+                  onToggleFavorite={() => toggleFavorite(f)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
+              <ul className="divide-y divide-slate-100">
+                {filtered.map((f) => (
+                  <DesignRow
+                    key={f.family}
+                    family={f}
+                    onSelect={() => setSelectedFamily(f)}
+                    onToggleFavorite={() => toggleFavorite(f)}
+                  />
+                ))}
+              </ul>
             </div>
           )}
         </div>
-      </section>
+
+        {/* SIDEBAR — filters */}
+        <aside className="space-y-3 lg:col-span-3">
+          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-semibold text-slate-800">Filters</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setQ("");
+                  setDoorTypeFilter("all");
+                  setColorFilter("all");
+                }}
+                className="text-[10px] font-medium text-indigo-700 hover:underline"
+              >
+                Clear All
+              </button>
+            </div>
+
+            <FilterSection label="Door Type">
+              <div className="flex flex-wrap gap-1.5">
+                <SegBtn
+                  label="All"
+                  active={doorTypeFilter === "all"}
+                  onClick={() => setDoorTypeFilter("all")}
+                />
+                <SegBtn
+                  label="Single Door"
+                  active={doorTypeFilter === "SD"}
+                  onClick={() => setDoorTypeFilter("SD")}
+                />
+                <SegBtn
+                  label="Double Door"
+                  active={doorTypeFilter === "DD"}
+                  onClick={() => setDoorTypeFilter("DD")}
+                />
+              </div>
+            </FilterSection>
+
+            <FilterSection label="Color">
+              <div className="space-y-1">
+                <SegBtn
+                  label="All"
+                  active={colorFilter === "all"}
+                  onClick={() => setColorFilter("all")}
+                  full
+                />
+                {(summary?.availableColors ?? []).map((c) => {
+                  const cfg = COLOR_LABEL[c] ?? { label: c, dot: "#cbd5e1" };
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setColorFilter(c)}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition",
+                        colorFilter === c
+                          ? "border-indigo-300 bg-indigo-50 text-indigo-800 ring-2 ring-indigo-200"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-indigo-200",
+                      )}
+                    >
+                      <span
+                        className="inline-block h-3 w-3 rounded-full border border-slate-300"
+                        style={{ background: cfg.dot }}
+                      />
+                      {cfg.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </FilterSection>
+
+            <div className="border-t border-slate-100 pt-3 text-[10px] text-slate-500">
+              Showing <strong>{filtered.length}</strong> of{" "}
+              <strong>{families.length}</strong> designs
+            </div>
+          </div>
+
+          {/* Quick links */}
+          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+            <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+              More catalog
+            </h3>
+            <ul className="space-y-1.5 text-xs">
+              <li>
+                <Link
+                  href="/inventory/available-stock"
+                  className="flex items-center justify-between rounded-md px-2 py-1.5 text-slate-700 hover:bg-slate-50"
+                >
+                  Available Stock
+                  <ChevronRight size={12} className="text-slate-400" />
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/catalog/dealers/new"
+                  className="flex items-center justify-between rounded-md px-2 py-1.5 text-slate-700 hover:bg-slate-50"
+                >
+                  Add a dealer
+                  <ChevronRight size={12} className="text-slate-400" />
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/catalog/brands/new"
+                  className="flex items-center justify-between rounded-md px-2 py-1.5 text-slate-700 hover:bg-slate-50"
+                >
+                  Add a brand
+                  <ChevronRight size={12} className="text-slate-400" />
+                </Link>
+              </li>
+            </ul>
+          </div>
+        </aside>
+      </div>
+
+      {/* Bottom info bar */}
+      <div className="flex items-start gap-2 rounded-2xl bg-indigo-50/40 px-4 py-2.5 text-xs text-indigo-900 ring-1 ring-indigo-100">
+        <Info size={14} className="mt-0.5 flex-none text-indigo-600" />
+        <div>
+          Each design is available in{" "}
+          {summary?.availableColors?.length ?? 0} colors and{" "}
+          {summary?.availableConfigs?.length ?? 0} configurations.
+          <br />
+          <span className="text-indigo-700/70">
+            Colors:{" "}
+            {summary?.availableColors
+              ?.map((c) => COLOR_LABEL[c]?.label ?? c)
+              .join(", ") || "—"}{" "}
+            · Configurations:{" "}
+            {summary?.availableConfigs
+              ?.map((c) => DOOR_TYPE_LABEL[c] ?? c)
+              .join(", ") || "—"}
+          </span>
+        </div>
+      </div>
+
+      {selectedFamily && (
+        <NewOrderFromDesignModal
+          open={!!selectedFamily}
+          onClose={() => setSelectedFamily(null)}
+          family={selectedFamily.family}
+          variants={selectedFamily.variants.map((v) => ({
+            id: v.id,
+            code: v.code,
+            door_type: v.door_type,
+          }))}
+          colors={selectedFamily.colors}
+        />
+      )}
     </div>
   );
 }
 
-/**
- * Collapsible family row that lists all variants underneath.
- *
- * "Variant" = a concrete `indigo.design` record with its own door_type and
- * therefore its own production specs. A family like ID01 may have ID01-SD
- * and ID01-DD as variants. Each variant has its own image too.
- */
-function FamilyRow({
+function DesignCard({
   family,
-  variants,
+  onSelect,
+  onToggleFavorite,
 }: {
-  family: string;
-  variants: Design[];
+  family: FamilyOut;
+  onSelect: () => void;
+  onToggleFavorite: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  // Auto-open singletons (families with a single variant) — there's nothing
-  // to expand, so showing the variant directly avoids a useless click.
-  const isSingleton = variants.length === 1;
-  const shouldShow = open || isSingleton;
-  const types = [...new Set(variants.map((v) => v.door_type).filter(Boolean))];
-
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-100">
+    <article className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100 transition hover:shadow-md hover:ring-indigo-200">
+      <header className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2.5">
+        <h3 className="font-mono text-sm font-bold text-slate-800">
+          {family.family}
+        </h3>
+        <span className="rounded-md bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 ring-1 ring-slate-200">
+          {family.variants.length} config{family.variants.length === 1 ? "" : "s"}
+        </span>
+        <button
+          type="button"
+          onClick={onToggleFavorite}
+          aria-label="Toggle favourite"
+          className={cn(
+            "rounded-full p-1.5 transition",
+            family.favorite
+              ? "text-rose-500 hover:bg-rose-50"
+              : "text-slate-400 hover:bg-slate-100",
+          )}
+        >
+          <Heart
+            size={14}
+            fill={family.favorite ? "currentColor" : "none"}
+            strokeWidth={2}
+          />
+        </button>
+      </header>
+      <div className="grid grid-cols-2 gap-px bg-slate-100">
+        {family.variants.slice(0, 2).map((v) => (
+          <div
+            key={v.id}
+            className="relative aspect-[4/5] bg-slate-50"
+            title={DOOR_TYPE_LABEL[v.door_type] ?? v.door_type}
+          >
+            {v.hasImage ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={`/api/catalog/designs/${v.id}/image`}
+                alt={`${family.family} ${DOOR_TYPE_LABEL[v.door_type] ?? v.door_type}`}
+                className="h-full w-full object-contain"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-[10px] text-slate-300">
+                No image
+              </div>
+            )}
+            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-semibold text-slate-700 shadow ring-1 ring-slate-200">
+              {DOOR_TYPE_LABEL[v.door_type] ?? v.door_type}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="space-y-2 p-3">
+        {family.colors.length > 0 && (
+          <div>
+            <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Available Colors
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {family.colors.map((c) => {
+                const cfg = COLOR_LABEL[c] ?? { label: c, dot: "#cbd5e1" };
+                return (
+                  <span
+                    key={c}
+                    className="inline-flex items-center gap-1 rounded-md bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200"
+                  >
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full border border-slate-300"
+                      style={{ background: cfg.dot }}
+                    />
+                    {cfg.label}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-1.5 pt-1">
+          <Link
+            href={`/catalog/designs/${family.variants[0]?.id}`}
+            className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700"
+          >
+            View Details
+          </Link>
+          <button
+            type="button"
+            onClick={onSelect}
+            className="inline-flex h-9 items-center justify-center gap-1 rounded-lg bg-indigo-700 text-xs font-semibold text-white shadow shadow-indigo-700/20 transition hover:bg-indigo-800"
+          >
+            Select Design
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function DesignRow({
+  family,
+  onSelect,
+  onToggleFavorite,
+}: {
+  family: FamilyOut;
+  onSelect: () => void;
+  onToggleFavorite: () => void;
+}) {
+  return (
+    <li className="flex items-center gap-3 px-4 py-3">
       <button
         type="button"
-        onClick={() => !isSingleton && setOpen((v) => !v)}
-        className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${
-          isSingleton ? "cursor-default" : "hover:bg-slate-50"
-        }`}
-      >
-        {!isSingleton && (
-          <ChevronRight
-            size={14}
-            className={`text-slate-400 transition-transform ${open ? "rotate-90" : ""}`}
-          />
+        onClick={onToggleFavorite}
+        className={cn(
+          "rounded-full p-1.5 transition",
+          family.favorite
+            ? "text-rose-500 hover:bg-rose-50"
+            : "text-slate-400 hover:bg-slate-100",
         )}
-        <div className="flex flex-1 items-baseline gap-3">
-          <span className="font-mono font-bold text-indigo-700">{family}</span>
-          <span className="text-xs text-slate-400">
-            {variants.length} {variants.length === 1 ? "variant" : "variants"}
-          </span>
-          {types.length > 0 && (
-            <span className="flex gap-1">
-              {types.map((t) => (
-                <Badge
-                  key={t}
-                  variant="secondary"
-                  className="bg-indigo-50 text-[10px] uppercase text-indigo-700"
-                >
-                  {DOOR_TYPE_LABEL[t as string] ?? t}
-                </Badge>
-              ))}
-            </span>
-          )}
-        </div>
+        aria-label="Toggle favourite"
+      >
+        <Heart
+          size={14}
+          fill={family.favorite ? "currentColor" : "none"}
+          strokeWidth={2}
+        />
       </button>
-
-      {shouldShow && (
-        <div
-          className={`divide-y divide-slate-100 border-t border-slate-100 bg-slate-50/30 ${
-            isSingleton ? "" : ""
-          }`}
-        >
-          {variants.map((v) => (
-            <Link
-              key={v.id}
-              href={`/catalog/designs/${v.id}`}
-              className="flex items-center gap-3 px-6 py-2.5 text-sm transition hover:bg-indigo-50/30"
-            >
-              <span className="font-mono font-bold text-indigo-700">
-                {v.code}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-slate-700">
-                {v.name}
-              </span>
-              {v.door_type && (
-                <Badge
-                  variant="secondary"
-                  className="bg-white text-slate-600"
-                >
-                  {DOOR_TYPE_LABEL[v.door_type] ?? v.door_type}
-                </Badge>
-              )}
-              {v.active === false && (
-                <Badge variant="secondary" className="bg-amber-50 text-amber-700">
-                  Archived
-                </Badge>
-              )}
-            </Link>
-          ))}
+      <div className="flex gap-1">
+        {family.variants.slice(0, 2).map((v) => (
+          <div
+            key={v.id}
+            className="h-12 w-12 flex-none overflow-hidden rounded-md bg-slate-50 ring-1 ring-slate-200"
+            title={DOOR_TYPE_LABEL[v.door_type] ?? v.door_type}
+          >
+            {v.hasImage ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={`/api/catalog/designs/${v.id}/image`}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : null}
+          </div>
+        ))}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="font-mono text-sm font-bold text-slate-800">
+          {family.family}
         </div>
+        <div className="flex flex-wrap gap-1 text-[10px] text-slate-500">
+          {family.variants.length} configs · {family.colors.length} colors
+        </div>
+      </div>
+      <Link
+        href={`/catalog/designs/${family.variants[0]?.id}`}
+        className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-indigo-300"
+      >
+        View Details
+      </Link>
+      <button
+        type="button"
+        onClick={onSelect}
+        className="inline-flex h-9 items-center justify-center gap-1 rounded-lg bg-indigo-700 px-3 text-xs font-semibold text-white shadow shadow-indigo-700/20 transition hover:bg-indigo-800"
+      >
+        Select Design
+      </button>
+    </li>
+  );
+}
+
+function TabChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-md px-3 py-1.5 text-xs font-semibold transition",
+        active
+          ? "border-b-2 border-indigo-700 text-indigo-700"
+          : "text-slate-500 hover:text-slate-700",
       )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function FilterSection({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mb-3 space-y-1.5">
+      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SegBtn({
+  label,
+  active,
+  onClick,
+  full,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  full?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-md border px-2.5 py-1 text-[11px] font-medium transition",
+        full && "w-full",
+        active
+          ? "border-indigo-300 bg-indigo-700 text-white"
+          : "border-slate-200 bg-white text-slate-700 hover:border-indigo-200",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function KpiTile({
+  label,
+  value,
+  hint,
+  icon: Icon,
+  iconBg,
+  iconColor,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  icon: React.ElementType;
+  iconBg: string;
+  iconColor: string;
+}) {
+  return (
+    <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+      <div className="flex items-start gap-3">
+        <span
+          className={cn(
+            "flex h-11 w-11 flex-none items-center justify-center rounded-xl",
+            iconBg,
+          )}
+        >
+          <Icon size={18} className={iconColor} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-slate-500">{label}</div>
+          <div className="mt-0.5 text-2xl font-bold leading-tight text-slate-900">
+            {value}
+          </div>
+          <div className="truncate text-[10px] text-slate-400">{hint}</div>
+        </div>
+      </div>
     </div>
   );
 }
