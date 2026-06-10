@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Pagination } from "@/components/pagination";
+import { BulkSendToButton } from "@/components/bulk-send-to-button";
 
 interface Dealer {
   id: number;
@@ -125,6 +126,17 @@ function OrdersInner() {
     staleTime: 5 * 60_000,
   });
 
+  // Stage list for the bulk "Move Selected To" picker. Cached widely.
+  const stagesQ = useQuery<{
+    records: Array<{ id: number; name: string; code: string; sequence: number }>;
+  }>({
+    queryKey: ["stages-list"],
+    queryFn: () => fetch("/api/stages").then((r) => r.json()),
+    staleTime: 10 * 60_000,
+  });
+
+  const qc = useQueryClient();
+
   // Debounce the search so typing doesn't fire a request per keystroke.
   useEffect(() => {
     const t = setTimeout(() => {
@@ -213,20 +225,30 @@ function OrdersInner() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {selected.size > 0 && (
-            <Badge
-              variant="secondary"
-              className="bg-indigo-50 text-xs font-bold uppercase tracking-wide text-indigo-700"
-            >
-              {selected.size} selected
-              <button
-                type="button"
-                onClick={clearSelection}
-                aria-label="Clear selection"
-                className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-indigo-100"
+            <>
+              <Badge
+                variant="secondary"
+                className="bg-indigo-50 text-xs font-bold uppercase tracking-wide text-indigo-700"
               >
-                <X size={10} />
-              </button>
-            </Badge>
+                {selected.size} selected
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  aria-label="Clear selection"
+                  className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-indigo-100"
+                >
+                  <X size={10} />
+                </button>
+              </Badge>
+              <BulkSendToButton
+                orderIds={Array.from(selected)}
+                stages={stagesQ.data?.records ?? []}
+                onSuccess={() => {
+                  clearSelection();
+                  qc.invalidateQueries({ queryKey: ["orders"] });
+                }}
+              />
+            </>
           )}
           <Button
             variant="outline"

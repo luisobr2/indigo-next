@@ -197,6 +197,24 @@ export async function GET(
   }
 }
 
+/**
+ * Allow-list of indigo.order fields the panel UI may edit through the
+ * PUT endpoint. Excludes anything that should only move through a
+ * dedicated action: stage_id (go through /stage), is_stock /
+ * cancelled_at (Cancel modal), payment_state (Billing), etc.
+ */
+const EDITABLE_ORDER_FIELDS = [
+  "client_name",
+  "client_phone",
+  "client_email",
+  "client_address",
+  "dealer_ref",
+  "priv_ref",
+  "notes",
+  "installation_date",
+  "expected_completion_date",
+] as const;
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -205,12 +223,22 @@ export async function PUT(
     const s = await requireSession();
     const { id: idStr } = await params;
     const id = parseInt(idStr, 10);
-    const body = await req.json();
+    const raw = (await req.json()) as Record<string, unknown>;
+    const vals: Record<string, unknown> = {};
+    for (const k of EDITABLE_ORDER_FIELDS) {
+      if (k in raw) vals[k] = raw[k];
+    }
+    if (Object.keys(vals).length === 0) {
+      return NextResponse.json(
+        { error: "No editable fields provided" },
+        { status: 400 },
+      );
+    }
     const ok = await call<boolean>({
       session: s.session,
       model: "indigo.order",
       method: "write",
-      args: [[id], body],
+      args: [[id], vals],
       kwargs: {},
     });
     return NextResponse.json({ ok });

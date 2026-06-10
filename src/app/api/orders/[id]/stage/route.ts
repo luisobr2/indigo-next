@@ -27,12 +27,33 @@ export async function POST(
       return NextResponse.json({ error: "Invalid order id" }, { status: 400 });
     }
 
-    const body = (await req.json()) as { stage_id?: number };
+    const body = (await req.json()) as {
+      stage_id?: number;
+      note?: string;
+      source?: string;
+    };
     const stageId = Number(body.stage_id);
     if (!Number.isFinite(stageId)) {
       return NextResponse.json(
         { error: "stage_id required" },
         { status: 400 },
+      );
+    }
+
+    // Verify the stage exists before writing — Odoo's write would silently
+    // store a dangling id otherwise.
+    const stages = await call<Array<{ id: number; name: string; code: string }>>({
+      session: s.session,
+      model: "indigo.stage",
+      method: "search_read",
+      args: [[["id", "=", stageId]], ["id", "name", "code"]],
+      kwargs: { limit: 1 },
+    });
+    const stage = stages[0];
+    if (!stage) {
+      return NextResponse.json(
+        { error: `Stage ${stageId} not found` },
+        { status: 404 },
       );
     }
 
@@ -44,14 +65,27 @@ export async function POST(
       kwargs: {},
     });
 
-    // Manual chatter so the move is easy to spot in the timeline.
+    // Chatter line. Escape user-controlled bits so a note containing
+    // `<script>` or a stage name with `<>` can't break out into HTML.
+    const escapeHtml = (s: string) =>
+      s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const stageName = escapeHtml(stage?.name ?? "stage");
+    const sourceLabel = body.source ? ` (${escapeHtml(body.source)})` : "";
+    const baseLine = `Sent to <b>${stageName}</b>${sourceLabel}.`;
+    const chatterBody = body.note
+      ? `${baseLine} <br/><i>${escapeHtml(body.note)}</i>`
+      : baseLine;
     await call({
       session: s.session,
       model: "indigo.order",
       method: "message_post",
       args: [[orderId]],
       kwargs: {
-        body: "Stage changed from Kanban drag-drop.",
+        body: chatterBody,
         message_type: "comment",
       },
     }).catch(() => undefined);

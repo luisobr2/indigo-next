@@ -31,6 +31,9 @@ import { cn, fmtDate, fmtNum, m2o } from "@/lib/utils";
 import { StageWizardModal, STAGE_WIZARDS } from "./stage-wizard-modal";
 import { HoldModal } from "./hold-modal";
 import { CancelModal } from "./cancel-modal";
+import { SendToDropdown } from "./send-to-dropdown";
+import { BulkSendToButton } from "./bulk-send-to-button";
+import { QuickPhotoUpload } from "./quick-photo-upload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -144,6 +147,36 @@ export const STATUS_PILLS: Record<SubStatusKey, { bg: string; text: string; labe
   cancelled: { bg: "bg-rose-50", text: "text-rose-700", label: "Cancelled" },
 };
 
+/** What stage code each sub-status screen feeds into on "complete". */
+const NEXT_STAGE_BY_PREFIX: Record<"digi" | "cnc" | "paint", string> = {
+  digi: "cnc",
+  cnc: "painting",
+  paint: "ready_install",
+};
+
+/** Button copy + chatter source per sub-status. Keeps the language
+    consistent with how the shop floor talks. */
+const COMPLETE_LABEL: Record<
+  "digi" | "cnc" | "paint",
+  { button: string; verb: string; source: string }
+> = {
+  digi: {
+    button: "Digitalized → CNC",
+    verb: "Sending to CNC",
+    source: "Digitalized",
+  },
+  cnc: {
+    button: "Cut Complete → Painting",
+    verb: "Sending to Painting",
+    source: "Cut complete",
+  },
+  paint: {
+    button: "Painted → Ready for Install",
+    verb: "Sending to Ready for Installation",
+    source: "Painted",
+  },
+};
+
 /** Derive a sub-status from the order timestamps. */
 export function deriveSubStatus(
   row: StageOrderV2,
@@ -239,6 +272,17 @@ export function StageScreenV2({
   const records = data?.records ?? [];
   const total = data?.total ?? 0;
 
+  // Cached stage list for the SendTo picker. We share this between all
+  // open side panels via the shared queryKey + staleTime so it doesn't
+  // refetch every time the user opens a different row.
+  const stagesQuery = useQuery<{
+    records: Array<{ id: number; name: string; code: string; sequence: number }>;
+  }>({
+    queryKey: ["stages-list"],
+    queryFn: () => fetch("/api/stages").then((r) => r.json()),
+    staleTime: 10 * 60 * 1000,
+  });
+
   // Stat counts — one search_count per tab. Run in parallel.
   const statsQ = useQuery<Record<SubStatusKey | "all", number>>({
     queryKey: ["stage-v2-stats", stageParam, debouncedQ],
@@ -299,55 +343,95 @@ export function StageScreenV2({
 
   /* ---------------------- Side panel actions ---------------------- */
 
-  async function startStage() {
-    if (!selected || !subStatusPrefix) return;
-    const promise = fetch(`/api/orders/${selected.id}/substatus`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stage: subStatusPrefix, action: "start" }),
-    }).then(async (r) => {
-      const j = await r.json();
-      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
-      qc.invalidateQueries({ queryKey: ["stage-v2"] });
-      qc.invalidateQueries({ queryKey: ["stage-v2-stats"] });
-      return j;
-    });
-    toast.promise(promise, {
-      loading: "Starting…",
-      success: `${selected.name} marked in-progress`,
-      error: (e) => (e instanceof Error ? e.message : "Failed"),
-    });
-  }
-
   /**
-   * "Mark done & advance" — sets the `<prefix>_done_at` timestamp and then
-   * opens the stage wizard so the user can confirm the move to the next
-   * Odoo stage. When there is no wizard config for this stage we just set
-   * done_at and surface success; the next stage move will be handled by
-   * the existing Odoo automation.
+   * One-click "the work is done, ship it" action for sub-status screens.
+   *
+   * Two cases:
+   *
+   * 1. The current stage has a wizard config (digitalization captures
+   *    SQF, painting captures a photo, install captures the signature,
+   *    invoicing captures the amount). Opening the wizard is REQUIRED —
+   *    it persists the business data and triggers Odoo's wizard action
+   *    which advances the stage AND creates the painter/installer
+   *    payouts. We open the wizard; on submit it advances by itself.
+   *
+   * 2. No wizard config (rare for sub-status screens but possible for
+   *    custom stages). We do a manual one-click:
+   *      - stamp `<prefix>_done_at`,
+   *      - advance `stage_id` to the next Odoo stage.
    */
-  async function markDone() {
-    if (!selected || !subStatusPrefix) return;
+  async function completeAndAdvance() {
+    if (!selected) return;
+
     const wizardConfig = STAGE_WIZARDS[selected.stage_code];
-    const promise = fetch(`/api/orders/${selected.id}/substatus`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stage: subStatusPrefix, action: "done" }),
-    }).then(async (r) => {
-      const j = await r.json();
-      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+    if (wizardConfig) {
+      // Open the data-capture wizard. It writes the business data,
+      // stamps done_at, advances the stage, and creates the contractor
+      // payouts. Works for BOTH sub-status (digi/cnc/paint) and
+      // stage-based (measure_pending, install_scheduled, installed)
+      // screens.
+      setWizardOpen(true);
+      return;
+    }
+
+    if (!subStatusPrefix) {
+      // Stage-based screen without a wizard (e.g. design_pending,
+      // design_confirmed, ready_install). Tell the user to use Send To
+      // since there's no canonical "next" we can pick safely.
+      toast.info(
+        "Pick a destination with 'Send to…' — this stage doesn't have a default next step.",
+      );
+      return;
+    }
+
+    // No wizard, but sub-status screen with a known next stage —
+    // direct done_at + stage move.
+    const nextCode = NEXT_STAGE_BY_PREFIX[subStatusPrefix];
+    const nextStage = stagesQuery.data?.records?.find((s) => s.code === nextCode);
+    if (!nextStage) {
+      toast.error(
+        `Next stage (${nextCode}) not configured in Odoo. Use 'Send to…' to pick a destination.`,
+      );
+      return;
+    }
+    const promise = (async () => {
+      const r1 = await fetch(`/api/orders/${selected.id}/substatus`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: subStatusPrefix, action: "done" }),
+      });
+      const j1 = await r1.json();
+      if (!r1.ok || !j1.ok) throw new Error(j1.error || "substatus failed");
+
+      const r2 = await fetch(`/api/orders/${selected.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stage_id: nextStage.id,
+          source: COMPLETE_LABEL[subStatusPrefix].source,
+        }),
+      });
+      const j2 = await r2.json();
+      if (!r2.ok || !j2.ok) throw new Error(j2.error || "stage move failed");
+
       qc.invalidateQueries({ queryKey: ["stage-v2"] });
       qc.invalidateQueries({ queryKey: ["stage-v2-stats"] });
-      return j;
-    });
+      qc.invalidateQueries({ queryKey: ["order-timeline", selected.id] });
+      qc.invalidateQueries({ queryKey: ["order-activity", selected.id] });
+      return j2;
+    })();
+
     toast.promise(promise, {
-      loading: "Marking done…",
-      success: `${selected.name} marked completed`,
+      loading: `${COMPLETE_LABEL[subStatusPrefix].verb}…`,
+      success: `${selected.dealer_ref || selected.name} → ${nextStage.name}`,
       error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
-    await promise;
-    // Then open the wizard (if any) to move the order to the next stage.
-    if (wizardConfig) setWizardOpen(true);
+    try {
+      await promise;
+      setSelected(null);
+    } catch {
+      // toast.promise surfaced the error; keep panel open for retry.
+    }
   }
 
   /* ---------------------- Render ---------------------- */
@@ -381,20 +465,31 @@ export function StageScreenV2({
             />
           </div>
           {bulk.size > 0 && (
-            <Badge
-              variant="secondary"
-              className="bg-indigo-50 text-xs font-bold uppercase tracking-wide text-indigo-700"
-            >
-              {bulk.size} selected
-              <button
-                type="button"
-                onClick={() => setBulk(new Set())}
-                aria-label="Clear selection"
-                className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-indigo-100"
+            <>
+              <Badge
+                variant="secondary"
+                className="bg-indigo-50 text-xs font-bold uppercase tracking-wide text-indigo-700"
               >
-                <X size={10} />
-              </button>
-            </Badge>
+                {bulk.size} selected
+                <button
+                  type="button"
+                  onClick={() => setBulk(new Set())}
+                  aria-label="Clear selection"
+                  className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-indigo-100"
+                >
+                  <X size={10} />
+                </button>
+              </Badge>
+              <BulkSendToButton
+                orderIds={Array.from(bulk)}
+                stages={stagesQuery.data?.records ?? []}
+                onSuccess={() => {
+                  setBulk(new Set());
+                  qc.invalidateQueries({ queryKey: ["stage-v2"] });
+                  qc.invalidateQueries({ queryKey: ["stage-v2-stats"] });
+                }}
+              />
+            </>
           )}
           <Button
             variant="outline"
@@ -683,19 +778,25 @@ export function StageScreenV2({
               order={selected}
               prefix={subStatusPrefix}
               onClose={() => setSelected(null)}
-              onStart={startStage}
+              onComplete={completeAndAdvance}
               onHold={() => setHoldOpen(true)}
-              onAdvance={() =>
-                subStatusPrefix ? markDone() : setWizardOpen(true)
-              }
               onCancel={() => setCancelOpen(true)}
+              onAfterAction={() => {
+                qc.invalidateQueries({ queryKey: ["stage-v2"] });
+                qc.invalidateQueries({ queryKey: ["stage-v2-stats"] });
+                setSelected(null);
+              }}
+              stages={stagesQuery.data?.records ?? []}
               startActionLabel={startActionLabel}
             />
           </aside>
         )}
       </div>
 
-      {/* Wizard + Hold modals */}
+      {/* Wizard for stages that need data-capture before advance
+          (digitalization → SQF, painting → photo, install → signature,
+          invoicing → amount). The one-click button opens this when a
+          config exists for the current stage. */}
       {selected && STAGE_WIZARDS[selected.stage_code] && (
         <StageWizardModal
           open={wizardOpen}
@@ -703,10 +804,12 @@ export function StageScreenV2({
           onSuccess={() => {
             qc.invalidateQueries({ queryKey: ["stage-v2"] });
             qc.invalidateQueries({ queryKey: ["stage-v2-stats"] });
+            qc.invalidateQueries({ queryKey: ["order-timeline", selected.id] });
+            qc.invalidateQueries({ queryKey: ["order-activity", selected.id] });
             setSelected(null);
           }}
           orderId={selected.id}
-          orderName={selected.name}
+          orderName={selected.dealer_ref || selected.name}
           config={STAGE_WIZARDS[selected.stage_code]}
         />
       )}
@@ -1167,20 +1270,24 @@ function SidePanel({
   order,
   prefix,
   onClose,
-  onStart,
+  onComplete,
   onHold,
-  onAdvance,
   onCancel,
+  onAfterAction,
   startActionLabel,
+  stages,
 }: {
   order: StageOrderV2;
   prefix?: "digi" | "cnc" | "paint";
   onClose: () => void;
-  onStart: () => void;
+  /** One-click "work done + advance" — only used when prefix is set. */
+  onComplete: () => void;
   onHold: () => void;
-  onAdvance: () => void;
   onCancel: () => void;
+  /** Fired after a SendTo action so the parent can refresh + close panel. */
+  onAfterAction: () => void;
   startActionLabel?: string;
+  stages: Array<{ id: number; name: string; code: string; sequence: number }>;
 }) {
   const sub = deriveSubStatus(order, prefix);
   const pill = STATUS_PILLS[sub];
@@ -1341,49 +1448,77 @@ function SidePanel({
           />
         </dl>
 
+        {/* Quick photo upload — designed for the on-site flow: the
+            measurer / installer opens the order on their phone and
+            shoots a photo without leaving the side panel. The
+            `capture="environment"` attribute opens the rear camera
+            directly on mobile. */}
+        <QuickPhotoUpload
+          orderId={order.id}
+          context={
+            ["measure_pending", "measured"].includes(order.stage_code)
+              ? "measurement"
+              : order.stage_code === "cnc"
+                ? "cut"
+                : order.stage_code === "painting"
+                  ? "paint"
+                  : ["ready_install", "install_scheduled", "installed"].includes(
+                        order.stage_code,
+                      )
+                    ? "install"
+                    : "order"
+          }
+        />
+
         <div className="border-t border-slate-100 pt-3">
           <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">
             Actions
           </h3>
           <div className="space-y-2">
-            {prefix && sub === "ready" && (
+            {/* Primary "advance" action.
+                Two paths:
+                  - When the order's stage has a STAGE_WIZARDS entry
+                    (digi → SQF, painting → photo, install → signature,
+                    invoicing → amount), the button opens that wizard.
+                    Required to keep Odoo's business logic intact
+                    (contractor payouts, persisted measurements, etc.).
+                  - When no wizard but the screen has a sub-status
+                    prefix (we know the canonical next stage), it does
+                    a one-click done_at + stage move directly.
+                Stage-based screens without a wizard (design_pending,
+                ready_install, etc.) show only Send To. */}
+            {(STAGE_WIZARDS[order.stage_code] || prefix) && (
               <Button
-                onClick={onStart}
+                onClick={onComplete}
                 size="lg"
-                className="h-11 w-full justify-between"
-              >
-                <span className="flex items-center gap-2">
-                  <Play size={14} />
-                  {startActionLabel ?? `Start ${prefix}`}
-                </span>
-                <ChevronRight size={14} />
-              </Button>
-            )}
-            {prefix && sub === "in_progress" && (
-              <Button
-                onClick={onAdvance}
-                size="lg"
-                className="h-11 w-full justify-between bg-emerald-600 text-white hover:bg-emerald-700"
+                disabled={stages.length === 0}
+                className="h-11 w-full justify-between bg-emerald-600 text-white hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
               >
                 <span className="flex items-center gap-2">
                   <CheckCircle2 size={14} />
-                  Mark done & advance stage
+                  {startActionLabel ??
+                    STAGE_WIZARDS[order.stage_code]?.submitLabel ??
+                    (prefix && COMPLETE_LABEL[prefix].button) ??
+                    "Mark complete"}
                 </span>
                 <ChevronRight size={14} />
               </Button>
             )}
-            {!prefix && (
-              <Button
-                onClick={onAdvance}
-                size="lg"
-                className="h-11 w-full justify-between"
-              >
-                <span className="flex items-center gap-2">
-                  <Play size={14} />
-                  {startActionLabel ?? "Advance stage"}
-                </span>
-                <ChevronRight size={14} />
-              </Button>
+            {/* SendTo lives in the actions column for every stage screen.
+                On stage-based screens (no prefix) it replaces the linear
+                "Advance stage" button — Majela's request: let the user
+                decide where the order goes next. On sub-status screens
+                (CNC/Digi/Paint) it sits below Start/Mark-done as a
+                secondary option for non-linear jumps. */}
+            {stages.length > 0 && (
+              <SendToDropdown
+                orderId={order.id}
+                orderName={order.dealer_ref || order.name}
+                currentStageCode={order.stage_code}
+                stages={stages}
+                onSuccess={onAfterAction}
+                variant="panel"
+              />
             )}
             <Button
               onClick={onHold}

@@ -33,7 +33,6 @@ export default function CncProductionPage() {
       subtitle="Orders ready for CNC cutting and orders that have been completed."
       stageCode="cnc"
       subStatusPrefix="cnc"
-      startActionLabel="Start CNC Cutting"
       includeLines
       tabs={[
         {

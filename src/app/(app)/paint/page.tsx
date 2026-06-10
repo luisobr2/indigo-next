@@ -1,12 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { Download, Printer, Filter, Search, Settings, Info } from "lucide-react";
+import {
+  Download,
+  Printer,
+  Filter,
+  Search,
+  Settings,
+  Info,
+  X,
+  CheckSquare,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BulkSendToButton } from "@/components/bulk-send-to-button";
 import { fmtMoney, fmtNum } from "@/lib/utils";
 import { toCsv, downloadCsv } from "@/lib/csv";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
@@ -30,6 +42,13 @@ interface PaintRow {
   } | null;
 }
 
+interface Stage {
+  id: number;
+  name: string;
+  code: string;
+  sequence: number;
+}
+
 const COLOR_LABEL: Record<string, string> = {
   white: "white",
   bronze: "bronze",
@@ -44,7 +63,10 @@ const DOOR_TYPE_LABEL: Record<string, string> = {
 };
 
 export default function PaintPage() {
+  const qc = useQueryClient();
   const [q, setQ] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+
   const { data, isLoading } = useQuery<{ records: PaintRow[]; total: number }>({
     queryKey: ["paint", q],
     queryFn: () => {
@@ -57,9 +79,81 @@ export default function PaintPage() {
     },
   });
 
+  const stagesQ = useQuery<{ records: Stage[] }>({
+    queryKey: ["stages-list"],
+    queryFn: () => fetch("/api/stages").then((r) => r.json()),
+    staleTime: 10 * 60_000,
+  });
+
   const rows = data?.records ?? [];
   const totalSqf = rows.reduce((s, r) => s + (r.total_sqf || 0), 0);
   const totalAmount = totalSqf * PAINT_RATE;
+
+  function toggleOne(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    if (selected.size === rows.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(rows.map((r) => r.id)));
+    }
+  }
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  async function markReceived() {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    const readyStage = stagesQ.data?.records?.find(
+      (s) => s.code === "ready_install",
+    );
+    if (!readyStage) {
+      toast.error(
+        "Stage 'Ready for Installation' not found. Reload the page and try again.",
+      );
+      return;
+    }
+    const results = await Promise.allSettled(
+      ids.map((id) =>
+        fetch(`/api/orders/${id}/stage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            stage_id: readyStage.id,
+            note: "Picked up from paint shop",
+            source: `Mark received (${ids.length})`,
+          }),
+        }).then(async (r) => {
+          const j = await r.json();
+          if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+          return j;
+        }),
+      ),
+    );
+    qc.invalidateQueries({ queryKey: ["paint"] });
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed === 0) {
+      toast.success(`${ids.length} order${ids.length === 1 ? "" : "s"} marked received — moved to Ready for Installation`);
+      clearSelection();
+      return;
+    }
+    if (failed === ids.length) {
+      toast.error(`All ${ids.length} updates failed.`);
+      return;
+    }
+    toast.warning(
+      `${ids.length - failed} of ${ids.length} moved. ${failed} failed — check their chatter.`,
+      { duration: 8000 },
+    );
+    clearSelection();
+  }
 
   return (
     <div className="mx-auto max-w-[1700px] space-y-4">
@@ -145,9 +239,45 @@ export default function PaintPage() {
 
       {/* Stats bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white px-5 py-3 shadow-sm">
-        <span className="inline-block rounded-xl bg-indigo-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-indigo-800">
-          Paint price: ${PAINT_RATE.toFixed(2)} per SQF
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="inline-block rounded-xl bg-indigo-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-indigo-800">
+            Paint price: ${PAINT_RATE.toFixed(2)} per SQF
+          </span>
+          {selected.size > 0 && (
+            <>
+              <Badge
+                variant="secondary"
+                className="bg-indigo-50 text-xs font-bold uppercase tracking-wide text-indigo-700"
+              >
+                {selected.size} selected
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  aria-label="Clear selection"
+                  className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-indigo-100"
+                >
+                  <X size={10} />
+                </button>
+              </Badge>
+              <Button
+                size="sm"
+                onClick={markReceived}
+                className="bg-emerald-600 text-white shadow shadow-emerald-600/30 hover:bg-emerald-700"
+              >
+                <CheckSquare size={12} />
+                Mark Received → Ready for Install
+              </Button>
+              <BulkSendToButton
+                orderIds={Array.from(selected)}
+                stages={stagesQ.data?.records ?? []}
+                onSuccess={() => {
+                  clearSelection();
+                  qc.invalidateQueries({ queryKey: ["paint"] });
+                }}
+              />
+            </>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
           <span>
             <span className="text-slate-500">Total Orders: </span>
@@ -169,7 +299,16 @@ export default function PaintPage() {
           <table className="w-full min-w-[1200px] text-sm">
             <thead className="bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-3 w-10">#</th>
+                <th className="px-3 py-3 w-10">
+                  <Checkbox
+                    checked={
+                      rows.length > 0 && selected.size === rows.length
+                    }
+                    onCheckedChange={toggleAll}
+                    aria-label="Select all"
+                  />
+                </th>
+                <th className="px-3 py-3 w-8">#</th>
                 <th className="px-4 py-3">Company</th>
                 <th className="px-4 py-3">Order Number</th>
                 <th className="px-4 py-3">Client Name</th>
@@ -185,14 +324,14 @@ export default function PaintPage() {
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={11} className="p-12 text-center text-slate-400">
+                  <td colSpan={12} className="p-12 text-center text-slate-400">
                     Loading...
                   </td>
                 </tr>
               )}
               {!isLoading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="p-12 text-center text-slate-400">
+                  <td colSpan={12} className="p-12 text-center text-slate-400">
                     No orders in painting stage
                   </td>
                 </tr>
@@ -213,12 +352,22 @@ export default function PaintPage() {
                   DOOR_TYPE_LABEL[doorType] ?? doorType;
                 const sides = r.first_line?.paint_sides ?? 2;
                 const total = (r.total_sqf || 0) * PAINT_RATE;
+                const isSelected = selected.has(r.id);
                 return (
                   <tr
                     key={r.id}
-                    className="border-t border-slate-100 transition hover:bg-slate-50"
+                    className={`border-t border-slate-100 transition hover:bg-slate-50 ${
+                      isSelected ? "bg-indigo-50/40" : ""
+                    }`}
                   >
-                    <td className="px-4 py-3 text-slate-400">{i + 1}</td>
+                    <td className="px-3 py-3">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleOne(r.id)}
+                        aria-label={`Select ${r.dealer_ref || r.name}`}
+                      />
+                    </td>
+                    <td className="px-3 py-3 text-slate-400">{i + 1}</td>
                     <td className="px-4 py-3 font-semibold uppercase tracking-wide text-slate-700">
                       {company}
                     </td>

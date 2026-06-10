@@ -10,7 +10,6 @@ export default function DigitalizationPage() {
       subtitle="Confirmed orders ready to be digitalized and prepared for CNC production."
       stageCode="ready_digitalization"
       subStatusPrefix="digi"
-      startActionLabel="Start Digitalization"
       tabs={[
         {
           key: "ready",

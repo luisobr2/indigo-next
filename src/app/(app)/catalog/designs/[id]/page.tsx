@@ -202,15 +202,7 @@ export default function DesignEditorPage({
     }
   }
 
-  async function uploadImage(file: File) {
-    // eslint-disable-next-line no-console
-    console.log("[design-image] uploadImage called", {
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type,
-      designId: id,
-      isNew,
-    });
+  async function uploadImage(file: File, color: string, makeCover: boolean) {
     if (isNew) {
       toast.warning("Save the design first, then add the image");
       return;
@@ -218,29 +210,60 @@ export default function DesignEditorPage({
     setUploadingImage(true);
     const fd = new FormData();
     fd.append("file", file);
+    if (color) fd.append("color", color);
+    if (makeCover) fd.append("makeCover", "1");
     const promise = fetch(`/api/catalog/designs/${id}/image`, {
       method: "POST",
       body: fd,
     })
       .then(async (r) => {
-        // eslint-disable-next-line no-console
-        console.log("[design-image] upload response", { status: r.status });
         const j = await r.json();
-        // eslint-disable-next-line no-console
-        console.log("[design-image] upload body", j);
         if (!r.ok || !j.ok) throw new Error(j.error || "Upload failed");
         qc.invalidateQueries({ queryKey: ["design", idStr] });
+        qc.invalidateQueries({ queryKey: ["design-images", Number(id)] });
         return j;
-      })
-      .catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error("[design-image] upload failed", err);
-        throw err;
       })
       .finally(() => setUploadingImage(false));
     toast.promise(promise, {
       loading: "Uploading…",
-      success: "Image updated",
+      success: color ? `Added ${color} variant` : "Image added",
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
+    });
+  }
+
+  async function patchImage(attId: number, color: string, makeCover = false) {
+    const promise = fetch(`/api/catalog/designs/${id}/image`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attId, color, makeCover }),
+    }).then(async (r) => {
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+      qc.invalidateQueries({ queryKey: ["design", idStr] });
+      qc.invalidateQueries({ queryKey: ["design-images", Number(id)] });
+      return j;
+    });
+    toast.promise(promise, {
+      loading: "Updating…",
+      success: makeCover ? "Cover updated" : "Tag updated",
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
+    });
+  }
+
+  async function deleteOneImage(attId: number) {
+    if (!confirm("Delete this image?")) return;
+    const promise = fetch(`/api/catalog/designs/${id}/image?att=${attId}`, {
+      method: "DELETE",
+    }).then(async (r) => {
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+      qc.invalidateQueries({ queryKey: ["design", idStr] });
+      qc.invalidateQueries({ queryKey: ["design-images", Number(id)] });
+      return j;
+    });
+    toast.promise(promise, {
+      loading: "Removing…",
+      success: "Image removed",
       error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }
@@ -257,7 +280,7 @@ export default function DesignEditorPage({
     ) {
       return;
     }
-    const promise = fetch(`/api/catalog/designs/${id}/image`, {
+    const promise = fetch(`/api/catalog/designs/${id}/image?all=1`, {
       method: "DELETE",
     }).then(async (r) => {
       const j = await r.json();
@@ -582,114 +605,47 @@ export default function DesignEditorPage({
           )}
         </section>
 
-        {/* ---------- Image ---------- */}
+        {/* ---------- Images (gallery) ---------- */}
         <section className="space-y-3 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-            Image
-          </h2>
-          <p className="text-xs text-slate-500">
-            The photo that shows up on the order card, the catalog and the
-            dealer-facing page.
-          </p>
-
-          <div className="overflow-hidden rounded-xl border border-dashed border-slate-200 bg-slate-50/60">
-            {imageUrl ? (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={imageUrl}
-                alt={`Design ${code}`}
-                className="h-56 w-full object-cover"
-              />
-            ) : (
-              <div className="flex h-56 flex-col items-center justify-center gap-2 text-slate-400">
-                <ImageIcon size={32} />
-                <p className="text-xs">No image yet</p>
-              </div>
-            )}
-          </div>
-
-          {/*
-            File picker pattern that works EVERYWHERE:
-            - Native <input type="file"> positioned absolutely and styled
-              visually invisible (sr-only-like). NOT display:none because
-              Safari / Firefox sometimes refuse to programmatically click
-              inputs that aren't in the layout tree.
-            - <label htmlFor> linked to it — clicking the label fires the
-              file picker via the browser's native semantic association.
-            - Extra onClick on the label as belt-and-suspenders: some
-              browsers also need an explicit click handler when the input
-              is inside a parent with pointer-events tweaks.
-          */}
-          <input
-            ref={fileInputRef}
-            id="design-image-input"
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-              // eslint-disable-next-line no-console
-              console.log("[design-image] input onChange fired", {
-                files: e.target.files?.length ?? 0,
-              });
-              const f = e.target.files?.[0];
-              if (f) uploadImage(f);
-              e.target.value = "";
-            }}
-            style={{
-              position: "absolute",
-              width: 1,
-              height: 1,
-              padding: 0,
-              margin: -1,
-              overflow: "hidden",
-              clip: "rect(0,0,0,0)",
-              whiteSpace: "nowrap",
-              border: 0,
-            }}
-          />
-          <div className="flex flex-wrap gap-2">
-            <label
-              htmlFor="design-image-input"
-              onClick={(e) => {
-                // eslint-disable-next-line no-console
-                console.log("[design-image] label clicked", {
-                  isNew,
-                  uploadingImage,
-                });
-                // Block when disabled; otherwise let the native label →
-                // input association open the picker. Don't call .click()
-                // here — that would fire a SECOND file picker.
-                if (isNew) {
-                  e.preventDefault();
-                  toast.warning("Save the design first, then add the image");
-                  return;
-                }
-                if (uploadingImage) {
-                  e.preventDefault();
-                }
-              }}
-              className={`inline-flex h-10 flex-1 cursor-pointer select-none items-center justify-center gap-1.5 rounded-lg border text-sm font-medium transition ${
-                isNew || uploadingImage
-                  ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
-                  : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700"
-              }`}
-            >
-              <Camera size={14} />
-              {uploadingImage
-                ? "Uploading…"
-                : imageUrl
-                  ? "Replace image"
-                  : "Add image"}
-            </label>
-            {imageUrl && (
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+              Images
+            </h2>
+            {!isNew && (
               <button
                 type="button"
                 onClick={deleteImage}
-                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-rose-600 transition hover:bg-rose-50"
+                className="text-[10px] font-medium text-rose-600 hover:underline"
               >
-                <Trash2 size={14} />
+                Wipe all
               </button>
             )}
           </div>
+          <p className="text-xs text-slate-500">
+            Upload one image per color variant. The Order Detail page
+            shows the variant that matches the ordered color (e.g.{" "}
+            <code className="rounded bg-slate-100 px-1">ID15-DD-black.jpg</code>{" "}
+            is used when an order with{" "}
+            <code className="rounded bg-slate-100 px-1">color = black</code>{" "}
+            is opened). Tag the cover so unmatched orders fall back to it.
+          </p>
+
+          <ImageGallery
+            designId={Number(id)}
+            cover={imageUrl}
+            disabled={isNew}
+            onRetag={patchImage}
+            onDelete={deleteOneImage}
+            uploading={uploadingImage}
+          />
+
+          <ImageUploader
+            disabled={isNew || uploadingImage}
+            uploading={uploadingImage}
+            fileInputRef={fileInputRef}
+            onPick={uploadImage}
+          />
+
           {isNew && (
             <p className="text-[11px] text-amber-700">
               Save the design first to enable image upload.
@@ -697,6 +653,253 @@ export default function DesignEditorPage({
           )}
         </section>
       </div>
+    </div>
+  );
+}
+
+const COLOR_PILL_STYLE: Record<string, { bg: string; text: string; dot: string; label: string }> = {
+  white: { bg: "bg-slate-50", text: "text-slate-800", dot: "#fff", label: "White" },
+  bronze: { bg: "bg-amber-50", text: "text-amber-800", dot: "#a16207", label: "Bronze" },
+  bronze_eco: { bg: "bg-amber-100", text: "text-amber-900", dot: "#854d0e", label: "Bronze ECO" },
+  black: { bg: "bg-slate-100", text: "text-slate-900", dot: "#111", label: "Black" },
+  custom: { bg: "bg-violet-50", text: "text-violet-700", dot: "#a78bfa", label: "Custom" },
+};
+
+function detectColorFromName(name: string): string {
+  const lc = (name || "").toLowerCase();
+  if (/(bronze[_ -]?eco)/.test(lc)) return "bronze_eco";
+  if (/[_ -]black([._-]|$)/.test(lc)) return "black";
+  if (/[_ -]white([._-]|$)/.test(lc)) return "white";
+  if (/[_ -]bronze([._-]|$)/.test(lc)) return "bronze";
+  if (/[_ -]custom([._-]|$)/.test(lc)) return "custom";
+  return "";
+}
+
+function ImageGallery({
+  designId,
+  cover,
+  disabled,
+  onRetag,
+  onDelete,
+  uploading,
+}: {
+  designId: number;
+  cover: string | null;
+  disabled: boolean;
+  onRetag: (attId: number, color: string, makeCover?: boolean) => void;
+  onDelete: (attId: number) => void;
+  uploading: boolean;
+}) {
+  const { data, isLoading } = useQuery<{ records: Array<{ id: number; name: string; mimetype: string }> }>({
+    queryKey: ["design-images", designId],
+    queryFn: () => fetch(`/api/catalog/designs/${designId}/images`).then((r) => r.json()),
+    enabled: !disabled,
+    staleTime: 30_000,
+  });
+
+  if (disabled) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center text-xs text-slate-400">
+        Save the design first to upload images.
+      </div>
+    );
+  }
+
+  const records = data?.records ?? [];
+  if (isLoading && records.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center text-xs text-slate-400">
+        Loading images…
+      </div>
+    );
+  }
+  if (records.length === 0) {
+    return (
+      <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-slate-400">
+        <ImageIcon size={24} />
+        <p className="text-xs">No images yet — upload one per color variant below.</p>
+      </div>
+    );
+  }
+
+  // Heuristic: an attachment whose bytes match the design's image_1920
+  // is the cover. Without a flag from the API we just mark the most
+  // recently uploaded one as the assumed cover; users can switch with
+  // "Set as cover".
+  void cover; // reserved for future cover detection
+
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {records.map((img) => {
+        const detected = detectColorFromName(img.name);
+        const pill = COLOR_PILL_STYLE[detected];
+        return (
+          <div
+            key={img.id}
+            className={`group relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition ${uploading ? "opacity-60" : ""}`}
+          >
+            <div className="relative aspect-square overflow-hidden bg-slate-50">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/catalog/designs/${designId}/image?att=${img.id}`}
+                alt={img.name}
+                className="h-full w-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => onDelete(img.id)}
+                className="absolute top-1.5 right-1.5 rounded-md bg-white/95 p-1 text-rose-600 shadow ring-1 ring-slate-200 opacity-0 transition group-hover:opacity-100 hover:bg-rose-50"
+                aria-label="Delete image"
+                title="Delete image"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+            <div className="space-y-1.5 p-2 text-xs">
+              <div className="truncate text-[10px] text-slate-400" title={img.name}>
+                {img.name}
+              </div>
+              <div className="flex flex-wrap items-center gap-1">
+                {pill ? (
+                  <Badge
+                    variant="secondary"
+                    className={`text-[10px] font-bold uppercase ${pill.bg} ${pill.text}`}
+                  >
+                    <span
+                      className="mr-1 inline-block h-2 w-2 rounded-full border border-slate-300"
+                      style={{ background: pill.dot }}
+                    />
+                    {pill.label}
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] font-medium text-slate-500"
+                  >
+                    Untagged
+                  </Badge>
+                )}
+                <select
+                  value={detected}
+                  onChange={(e) => onRetag(img.id, e.target.value)}
+                  className="ml-auto h-6 rounded-md border border-slate-200 bg-white text-[10px] text-slate-700 focus:border-indigo-400 focus:outline-none"
+                  title="Change color tag"
+                >
+                  <option value="">Tag…</option>
+                  {Object.entries(COLOR_PILL_STYLE).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => onRetag(img.id, detected, true)}
+                className="block w-full rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 transition hover:bg-indigo-100"
+                title="Use this image as the catalog cover (image_1920)"
+              >
+                ★ Set as cover
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ImageUploader({
+  disabled,
+  uploading,
+  fileInputRef,
+  onPick,
+}: {
+  disabled: boolean;
+  uploading: boolean;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  onPick: (file: File, color: string, makeCover: boolean) => void;
+}) {
+  const [color, setColor] = useState<string>("");
+  const [makeCover, setMakeCover] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-3">
+      <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+        Upload new image
+      </div>
+      <input
+        ref={fileInputRef}
+        id="design-image-input"
+        type="file"
+        accept="image/*"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) {
+            onPick(f, color, makeCover);
+            setMakeCover(false);
+          }
+          e.target.value = "";
+        }}
+        style={{
+          position: "absolute",
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: "hidden",
+          clip: "rect(0,0,0,0)",
+          whiteSpace: "nowrap",
+          border: 0,
+        }}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={color}
+          onChange={(e) => setColor(e.target.value)}
+          className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
+          disabled={disabled}
+        >
+          <option value="">Color: Any</option>
+          {Object.entries(COLOR_PILL_STYLE).map(([k, v]) => (
+            <option key={k} value={k}>
+              {v.label}
+            </option>
+          ))}
+        </select>
+        <label
+          className={`inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 text-[10px] font-medium ${makeCover ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "text-slate-700"}`}
+        >
+          <input
+            type="checkbox"
+            checked={makeCover}
+            onChange={(e) => setMakeCover(e.target.checked)}
+            className="accent-indigo-600"
+          />
+          Make cover
+        </label>
+        <label
+          htmlFor="design-image-input"
+          onClick={(e) => {
+            if (disabled) {
+              e.preventDefault();
+              return;
+            }
+          }}
+          className={`inline-flex h-9 flex-1 cursor-pointer select-none items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
+            disabled
+              ? "cursor-not-allowed bg-slate-100 text-slate-400"
+              : "bg-indigo-700 text-white shadow shadow-indigo-700/20 hover:bg-indigo-800"
+          }`}
+        >
+          <Camera size={14} />
+          {uploading ? "Uploading…" : "Pick & upload"}
+        </label>
+      </div>
+      <p className="mt-2 text-[10px] text-slate-400">
+        File name gets the color suffix automatically (e.g.{" "}
+        <code className="bg-slate-100 px-1">door-black.jpg</code>).
+      </p>
     </div>
   );
 }

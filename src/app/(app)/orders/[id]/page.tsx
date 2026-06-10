@@ -17,9 +17,11 @@ import {
 } from "lucide-react";
 import { fmtMoney, fmtNum, m2o } from "@/lib/utils";
 import { ActivityFeed } from "@/components/activity-feed";
-import { DesignCarousel } from "@/components/design-carousel";
 import { FilesDocumentsPanel } from "@/components/files-documents-panel";
 import { StockMatchBanner } from "@/components/stock-match-banner";
+import { SendToDropdown } from "@/components/send-to-dropdown";
+import { ProductionTimeline } from "@/components/production-timeline";
+import { EditOrderPanel } from "@/components/edit-order-panel";
 import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal";
 import { OrderDetailSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
@@ -51,6 +53,7 @@ export default function OrderDetailPage({
 }) {
   const { id } = use(params);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [editingOrder, setEditingOrder] = useState(false);
   const qc = useQueryClient();
   const { data, isLoading } = useQuery<OrderDetail>({
     queryKey: ["order", id],
@@ -173,6 +176,43 @@ export default function OrderDetailPage({
             <Printer size={14} />
             Print
           </a>
+          {canAssign && (
+            <EditOrderPanel
+              order={{
+                id: o.id,
+                client_name: o.client_name,
+                client_phone: o.client_phone,
+                client_email: o.client_email,
+                client_address: o.client_address,
+                dealer_ref: o.dealer_ref,
+                priv_ref: o.priv_ref,
+              }}
+              lines={lines.map((l) => ({
+                id: l.id,
+                design_id: l.design_id,
+                door_type: l.door_type,
+                color: l.color,
+                glass_type: l.glass_type,
+                glass_privacy: (l as { glass_privacy?: string }).glass_privacy ?? "",
+                width: l.width,
+                height: l.height,
+                width_label: l.width_label,
+                height_label: l.height_label,
+                qty: l.qty,
+              }))}
+              trigger="header"
+              editing={editingOrder}
+              onEditingChange={setEditingOrder}
+            />
+          )}
+          {canAssign && (
+            <SendToDropdown
+              orderId={o.id}
+              orderName={o.name}
+              currentStageCode={o.stage_code}
+              stages={data.stages}
+            />
+          )}
           {wizardCfg && (
             <Button
               size="lg"
@@ -185,6 +225,37 @@ export default function OrderDetailPage({
           )}
         </div>
       </div>
+
+      {/* Edit panel — appears when "Edit order" is toggled in the header. */}
+      {canAssign && (
+        <EditOrderPanel
+          order={{
+            id: o.id,
+            client_name: o.client_name,
+            client_phone: o.client_phone,
+            client_email: o.client_email,
+            client_address: o.client_address,
+            dealer_ref: o.dealer_ref,
+            priv_ref: o.priv_ref,
+          }}
+          lines={lines.map((l) => ({
+            id: l.id,
+            design_id: l.design_id,
+            door_type: l.door_type,
+            color: l.color,
+            glass_type: l.glass_type,
+            glass_privacy: (l as { glass_privacy?: string }).glass_privacy ?? "",
+            width: l.width,
+            height: l.height,
+            width_label: l.width_label,
+            height_label: l.height_label,
+            qty: l.qty,
+          }))}
+          trigger="inline"
+          editing={editingOrder}
+          onEditingChange={setEditingOrder}
+        />
+      )}
 
       {/* Stock-match banner — only shown when an order in pre-CNC stage
           has finished doors in the stock pool that match its design. */}
@@ -200,15 +271,55 @@ export default function OrderDetailPage({
         {/* LEFT col */}
         <div className="space-y-5 lg:col-span-9">
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            {/* Door image — carousel */}
-            <DesignCarousel
-              designId={
-                lines[0]?.design_id
-                  ? (lines[0].design_id as [number, string])[0]
-                  : null
-              }
-              fallbackUrl={data.designImage}
-            />
+            {/* Door image — single render matching the order's color.
+                The endpoint falls back to the design's cover image if
+                no color-tagged attachment exists. */}
+            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+              <div className="flex h-64 items-center justify-center overflow-hidden rounded-xl bg-slate-50">
+                {lines[0]?.design_id ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={`/api/catalog/designs/${(lines[0].design_id as [number, string])[0]}/image${lines[0]?.color ? `?color=${encodeURIComponent(lines[0].color)}` : ""}`}
+                    alt={`${(lines[0].design_id as [number, string])[1]} — ${lines[0]?.color ?? ""}`}
+                    className="h-full w-auto object-contain"
+                    onError={(e) => {
+                      const el = e.currentTarget;
+                      el.style.display = "none";
+                      const sibling = el.nextElementSibling as HTMLElement | null;
+                      if (sibling) sibling.style.display = "block";
+                    }}
+                  />
+                ) : null}
+                <span
+                  className="text-sm text-slate-300"
+                  style={{ display: lines[0]?.design_id ? "none" : "block" }}
+                >
+                  No design image
+                </span>
+              </div>
+              {lines[0]?.color && (
+                <div className="mt-2 flex items-center justify-center gap-2 text-xs text-slate-500">
+                  <span
+                    className="inline-block h-3 w-3 rounded-full border border-slate-300"
+                    style={{
+                      background:
+                        lines[0].color === "white"
+                          ? "#fff"
+                          : lines[0].color === "bronze"
+                            ? "#a16207"
+                            : lines[0].color === "bronze_eco"
+                              ? "#854d0e"
+                              : lines[0].color === "black"
+                                ? "#111"
+                                : "#cbd5e1",
+                    }}
+                  />
+                  <span className="capitalize">
+                    {lines[0].color.replace("_", " ")}
+                  </span>
+                </div>
+              )}
+            </div>
 
             {/* Order info */}
             <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -425,70 +536,26 @@ export default function OrderDetailPage({
             </div>
           </div>
 
-          {/* Files & Documents */}
-          <FilesDocumentsPanel
-            orderId={parseInt(id, 10)}
-            reports={[
-              { label: "Order Card", icon: "card", url: data.orderCardPdfUrl },
-              { label: "Designer Label", icon: "ticket", url: data.labelPdfUrl },
-              { label: "Painter Sheet", icon: "paint", url: data.paintSheetPdfUrl },
-            ]}
-          />
+          {/* Files & Documents — anchor target for the QuickPhotoUpload
+              "View all" link on stage screens (orders/<id>#files). */}
+          <div id="files">
+            <FilesDocumentsPanel
+              orderId={parseInt(id, 10)}
+              reports={[
+                { label: "Order Card", icon: "card", url: data.orderCardPdfUrl },
+                { label: "Designer Label", icon: "ticket", url: data.labelPdfUrl },
+                { label: "Painter Sheet", icon: "paint", url: data.paintSheetPdfUrl },
+              ]}
+            />
+          </div>
 
           {/* Activity feed (mail.message chatter) */}
           <ActivityFeed orderId={parseInt(id, 10)} />
         </div>
 
-        {/* RIGHT col — Progress + Summary */}
+        {/* RIGHT col — Production timeline + Summary */}
         <div className="space-y-5 lg:col-span-3">
-          <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="mb-4 text-xs font-bold uppercase tracking-wide text-slate-500">
-              Order Progress
-            </div>
-            <ol className="relative space-y-4">
-              {data.stages
-                .filter((s) => !["closed"].includes(s.code))
-                .map((s) => {
-                  const done = s.sequence < currentSeq;
-                  const current = s.sequence === currentSeq;
-                  return (
-                    <li key={s.id} className="flex items-start gap-3">
-                      {done ? (
-                        <CheckCircle2
-                          size={18}
-                          className="mt-0.5 shrink-0 text-emerald-500"
-                        />
-                      ) : current ? (
-                        <span className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-700 ring-4 ring-indigo-100">
-                          <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                        </span>
-                      ) : (
-                        <Circle
-                          size={18}
-                          className="mt-0.5 shrink-0 text-slate-300"
-                        />
-                      )}
-                      <div className="flex-1">
-                        <div
-                          className={`text-sm font-semibold ${
-                            current
-                              ? "text-indigo-700"
-                              : done
-                                ? "text-slate-800"
-                                : "text-slate-400"
-                          }`}
-                        >
-                          {s.name}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {done ? "Completed" : current ? "In Progress" : "Pending"}
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-            </ol>
-          </div>
+          <ProductionTimeline orderId={parseInt(id, 10)} />
 
           <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">

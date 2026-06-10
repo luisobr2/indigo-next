@@ -260,18 +260,50 @@ export async function GET(req: NextRequest) {
     const pendingThisWeek = totalDoors - installedThisWeek;
     const paymentDue = installedThisWeek * INSTALLER_RATE_PER_DOOR;
 
-    // Also: total installers (active workers, even with no assignment this week).
-    const totalInstallersResp = await call<Array<{ id: number }>>({
+    // Total installers = res.users members of the Installer / Instalador
+    // group (mirrors the /api/contractors logic so the count is stable
+    // even when no orders are assigned this week). We use a coarse name
+    // match because the group label is i18n-dependent.
+    interface GroupRow {
+      id: number;
+      name: { en_US?: string } | string;
+    }
+    const groups = await call<GroupRow[]>({
       session: s.session,
-      model: "res.partner",
+      model: "res.groups",
       method: "search_read",
       args: [
-        [["is_indigo_installer", "=", true]],
-        ["id"],
+        [["category_id.name", "=", "Indigo Decors"]],
+        ["id", "name"],
       ],
-      kwargs: { limit: 100 },
-    }).catch(() => [] as Array<{ id: number }>);
-    const totalInstallersCount = totalInstallersResp.length || installerBuckets.filter((b) => b.id !== 0).length;
+      kwargs: { limit: 50 },
+    }).catch(() => [] as GroupRow[]);
+    const norm = (n: GroupRow["name"]) =>
+      typeof n === "string" ? n : (n?.en_US ?? "");
+    const installerGroupIds = groups
+      .filter((g) => {
+        const label = norm(g.name).toLowerCase();
+        return label.includes("instalador") || label.includes("installer");
+      })
+      .map((g) => g.id);
+    let totalInstallersCount = 0;
+    if (installerGroupIds.length) {
+      const totalInstallersResp = await call<Array<{ id: number }>>({
+        session: s.session,
+        model: "res.users",
+        method: "search_read",
+        args: [
+          [["active", "=", true], ["groups_id", "in", installerGroupIds]],
+          ["id"],
+        ],
+        kwargs: { limit: 100 },
+      }).catch(() => [] as Array<{ id: number }>);
+      totalInstallersCount = totalInstallersResp.length;
+    }
+    // Fallback: count whoever has an assignment this week.
+    if (!totalInstallersCount) {
+      totalInstallersCount = installerBuckets.filter((b) => b.id !== 0).length;
+    }
 
     return NextResponse.json({
       weekStart: mondayStr,
