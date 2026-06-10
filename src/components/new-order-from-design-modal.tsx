@@ -73,7 +73,11 @@ export function NewOrderFromDesignModal({
   const [clientEmail, setClientEmail] = useState("");
   const [clientAddress, setClientAddress] = useState("");
   const [variantId, setVariantId] = useState<number>(variants[0]?.id ?? 0);
-  const [color, setColor] = useState<string>(colors[0] ?? "white");
+  // Fall back to the standard catalog palette when the design hasn't
+  // had `allowed_colors` populated yet — otherwise the picker would
+  // not render and the order would default to "white" silently.
+  const effectiveColors = colors.length ? colors : ["white", "bronze", "black"];
+  const [color, setColor] = useState<string>(effectiveColors[0]);
   const [width, setWidth] = useState("36");
   const [height, setHeight] = useState("80");
   const [qty, setQty] = useState("1");
@@ -93,7 +97,7 @@ export function NewOrderFromDesignModal({
     setClientEmail("");
     setClientAddress("");
     setVariantId(variants[0]?.id ?? 0);
-    setColor(colors[0] ?? "white");
+    setColor(effectiveColors[0]);
     setWidth("36");
     setHeight("80");
     setQty("1");
@@ -221,13 +225,17 @@ export function NewOrderFromDesignModal({
           </section>
 
           {/* Color picker */}
-          {colors.length > 0 && (
-            <section>
-              <Label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                Color
-              </Label>
-              <div className="flex flex-wrap gap-2">
-                {colors.map((c) => {
+          <section>
+            <Label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Color
+              {colors.length === 0 && (
+                <span className="ml-2 text-[9px] font-normal text-slate-400 normal-case tracking-normal">
+                  (default palette — design has no specific colors set)
+                </span>
+              )}
+            </Label>
+            <div className="flex flex-wrap gap-2">
+              {effectiveColors.map((c) => {
                   const cfg = COLOR_LABEL[c] ?? { label: c, dot: "#cbd5e1" };
                   return (
                     <button
@@ -248,10 +256,9 @@ export function NewOrderFromDesignModal({
                       {cfg.label}
                     </button>
                   );
-                })}
-              </div>
-            </section>
-          )}
+              })}
+            </div>
+          </section>
 
           {/* Dimensions */}
           <section className="grid grid-cols-3 gap-3">
