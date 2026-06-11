@@ -182,7 +182,9 @@ export async function generateCatalogSheetPdf(
       const thumb = thumbs[idx];
       if (thumb) {
         try {
-          doc.addImage(thumb, "JPEG", x + 2, y + 2, w - 4, imgH - 4, undefined, "FAST");
+          // Format "AUTO" — derive from the data URL prefix so PNG / WEBP
+          // thumbnails don't get mis-tagged as JPEG.
+          doc.addImage(thumb, "AUTO", x + 2, y + 2, w - 4, imgH - 4, undefined, "FAST");
         } catch {
           // Bad image data — draw a placeholder block.
           doc.setFillColor(241, 245, 249);
@@ -271,7 +273,7 @@ export async function generateDesignSheetsPdf(
       try {
         doc.addImage(
           imgDataUrl,
-          "JPEG",
+          "AUTO",
           thumbX + 2,
           thumbY + 2,
           thumbW - 4,
@@ -338,9 +340,11 @@ export async function generateDesignSheetsPdf(
       // QR failure shouldn't break the sheet
     }
 
-    // Bottom note: dimensions / notes placeholder
+    // Bottom note: dimensions / notes placeholder. Separator sits just
+    // above the bottom-note text block at y=206.
+    const noteSepY = 200;
     doc.setDrawColor(226, 232, 240);
-    doc.line(14, pageW > 200 ? 198 : 200, pageW - 14, pageW > 200 ? 198 : 200);
+    doc.line(14, noteSepY, pageW - 14, noteSepY);
     doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
     doc.text(
@@ -429,7 +433,7 @@ export async function generateComparisonSheetPdf(
         try {
           doc.addImage(
             thumb,
-            "JPEG",
+            "AUTO",
             x + imgPad,
             y + imgPad,
             w - imgPad * 2,

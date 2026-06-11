@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
@@ -189,6 +189,17 @@ export default function CatalogPage() {
 
   const [printOpen, setPrintOpen] = useState(false);
   const [printBusy, setPrintBusy] = useState<null | "sheet" | "individual" | "comparison">(null);
+
+  // Close the print dropdown on Escape — standard menu pattern that
+  // also keeps the backdrop click consistent with keyboard users.
+  useEffect(() => {
+    if (!printOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setPrintOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [printOpen]);
 
   async function printCatalogSheet(onlyFavorites: boolean) {
     const scope = onlyFavorites
