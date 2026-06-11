@@ -440,11 +440,18 @@ export default function OrderDetailPage({
               <div className="min-h-[100px] rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
                 {o.notes || "No notes yet."}
               </div>
+              {/* Use `value` (controlled) instead of `defaultValue` so this
+                  display follows the order's computed total_sqf as it
+                  updates (e.g. after the SQF wizard runs, after Edit Order
+                  saves new line dimensions). With `defaultValue` the input
+                  would freeze at whatever total_sqf was on first mount —
+                  which is why this box was showing 0 while the Order
+                  Summary on the right showed the correct figure. */}
               <div className="mt-4 flex items-center gap-2 text-sm">
                 <span className="text-slate-500">SQF</span>
                 <input
                   type="text"
-                  defaultValue={fmtNum(o.total_sqf)}
+                  value={fmtNum(o.total_sqf)}
                   className="w-20 rounded-lg border border-input bg-background px-2 py-1 text-right text-sm shadow-xs"
                   readOnly
                 />

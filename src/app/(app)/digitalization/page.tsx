@@ -1,7 +1,8 @@
 "use client";
-import { Pencil, Settings as Gear, CheckCircle2, Clock } from "lucide-react";
+import { Pencil, Settings as Gear, CheckCircle2, Clock, Tag } from "lucide-react";
 import { StageScreenV2 } from "@/components/stage-screen-v2";
 import { fmtDate, fmtNum } from "@/lib/utils";
+import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 
 export default function DigitalizationPage() {
   return (
@@ -81,6 +82,33 @@ export default function DigitalizationPage() {
           key: "due",
           label: "Due Date",
           render: (r) => fmtDate(r.expected_completion_date as string),
+        },
+        {
+          key: "label",
+          label: "Action",
+          align: "right",
+          // The designer prints the 57x13 mm thermal label and pastes
+          // it on the back of each cut piece. From this stage they
+          // can shoot it directly to the printer with one click —
+          // no need to navigate into the order detail.
+          render: (r) => (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openOdooReport({
+                  report: REPORTS.orderLabel,
+                  ids: r.id,
+                  filename: `label-${r.name || r.id}.pdf`,
+                });
+              }}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+              title="Print designer labels for this order"
+            >
+              <Tag size={12} />
+              Label
+            </button>
+          ),
         },
       ]}
     />
