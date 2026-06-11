@@ -16,7 +16,14 @@ import {
   Grid3x3,
   ChevronRight,
   Info,
+  ChevronDown,
+  FileText,
+  LayoutDashboard,
 } from "lucide-react";
+import {
+  generateCatalogSheetPdf,
+  generateDesignSheetsPdf,
+} from "@/lib/catalog-pdf";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -141,17 +148,26 @@ export default function CatalogPage() {
     }
   }
 
+  // Exports respect the active view (tab + filters + search) so the
+  // CSV mirrors what the operator is looking at — not the whole base.
+  // Use the "All Designs" tab without filters to dump everything.
   function exportCatalog() {
-    if (!families.length) return toast.warning("Nothing to export");
-    const lines = ["family,code,door_type,colors,favorite"];
-    for (const f of families) {
+    const scope = filtered;
+    if (!scope.length) return toast.warning("Nothing to export — try clearing filters");
+    const lines = [
+      "family,code,name,door_type,colors,variants_in_family,has_image,favorite",
+    ];
+    for (const f of scope) {
       for (const v of f.variants) {
         lines.push(
           [
             f.family,
             v.code,
+            `"${(f.family).replace(/"/g, '""')}"`,
             v.door_type,
             f.colors.join("|"),
+            f.variants.length,
+            v.hasImage ? "1" : "0",
             v.favorite ? "1" : "0",
           ].join(","),
         );
@@ -161,9 +177,75 @@ export default function CatalogPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `catalog-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `catalog-${tab === "favorites" ? "favorites-" : ""}${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    const totalRows = scope.reduce((s, f) => s + f.variants.length, 0);
+    toast.success(
+      `Exported ${totalRows} design${totalRows === 1 ? "" : "s"} (${scope.length} famil${scope.length === 1 ? "y" : "ies"})`,
+    );
+  }
+
+  const [printOpen, setPrintOpen] = useState(false);
+  const [printBusy, setPrintBusy] = useState<null | "sheet" | "individual">(null);
+
+  async function printCatalogSheet(onlyFavorites: boolean) {
+    const scope = onlyFavorites
+      ? families.filter((f) => f.favorite)
+      : filtered;
+    if (!scope.length) {
+      toast.warning(
+        onlyFavorites
+          ? "You haven't favourited any designs yet."
+          : "Nothing to print — try clearing filters.",
+      );
+      return;
+    }
+    setPrintBusy("sheet");
+    setPrintOpen(false);
+    const promise = generateCatalogSheetPdf(scope, {
+      subtitle: onlyFavorites
+        ? `${scope.length} favourite designs`
+        : `${scope.length} designs · ${filtered === families ? "Full catalog" : "Current view"}`,
+      filename: `indigo-catalog-${onlyFavorites ? "favorites-" : ""}${new Date().toISOString().slice(0, 10)}.pdf`,
+    }).finally(() => setPrintBusy(null));
+    toast.promise(promise, {
+      loading: `Building PDF for ${scope.length} designs…`,
+      success: "Catalog Sheet ready — check downloads",
+      error: "Failed to generate PDF",
+    });
+  }
+
+  async function printIndividualSheets(onlyFavorites: boolean) {
+    const scope = onlyFavorites
+      ? families.filter((f) => f.favorite)
+      : filtered;
+    if (!scope.length) {
+      toast.warning(
+        onlyFavorites
+          ? "You haven't favourited any designs yet."
+          : "Nothing to print — try clearing filters.",
+      );
+      return;
+    }
+    // Individual sheets can balloon a PDF quickly — gate at 25 to avoid
+    // the browser hanging on huge fetches.
+    if (scope.length > 25) {
+      const ok = confirm(
+        `This will generate ${scope.length} pages (one per design). Continue?`,
+      );
+      if (!ok) return;
+    }
+    setPrintBusy("individual");
+    setPrintOpen(false);
+    const promise = generateDesignSheetsPdf(scope, {
+      filename: `indigo-designs-${onlyFavorites ? "favorites-" : ""}${new Date().toISOString().slice(0, 10)}.pdf`,
+    }).finally(() => setPrintBusy(null));
+    toast.promise(promise, {
+      loading: `Building ${scope.length}-page document…`,
+      success: "Design Sheets ready — check downloads",
+      error: "Failed to generate PDF",
+    });
   }
 
   return (
@@ -200,15 +282,67 @@ export default function CatalogPage() {
             />
           </div>
           <Button variant="outline" size="lg" onClick={exportCatalog}>
-            <Download size={14} /> Export Catalog
+            <Download size={14} /> Export CSV
           </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            onClick={() => toast.info("Catalog PDF coming soon.")}
-          >
-            <Printer size={14} /> Print / PDF
-          </Button>
+          <div className="relative">
+            <Button
+              variant="outline"
+              size="lg"
+              disabled={printBusy !== null}
+              onClick={() => setPrintOpen((v) => !v)}
+            >
+              <Printer size={14} /> Print / PDF
+              <ChevronDown size={12} className="ml-1 opacity-60" />
+            </Button>
+            {printOpen && (
+              <>
+                {/* Backdrop closes the menu on outside click */}
+                <button
+                  type="button"
+                  aria-label="Close menu"
+                  className="fixed inset-0 z-40 cursor-default"
+                  onClick={() => setPrintOpen(false)}
+                />
+                <div
+                  className="absolute right-0 z-50 mt-1 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+                  role="menu"
+                >
+                  <div className="border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Catalog Sheet
+                  </div>
+                  <PrintMenuItem
+                    icon={LayoutDashboard}
+                    title="Catalog Sheet (current view)"
+                    subtitle={`Grid · ${filtered.length} design${filtered.length === 1 ? "" : "s"} · 12 per page`}
+                    onClick={() => printCatalogSheet(false)}
+                  />
+                  <PrintMenuItem
+                    icon={Heart}
+                    title="Catalog Sheet (favorites)"
+                    subtitle={`${favoritesCount} favorite${favoritesCount === 1 ? "" : "s"} · same grid layout`}
+                    onClick={() => printCatalogSheet(true)}
+                    disabled={favoritesCount === 0}
+                  />
+                  <div className="border-y border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    One Page Per Design
+                  </div>
+                  <PrintMenuItem
+                    icon={FileText}
+                    title="Design Sheets (current view)"
+                    subtitle={`Big thumbnail · QR · ${filtered.length} page${filtered.length === 1 ? "" : "s"}`}
+                    onClick={() => printIndividualSheets(false)}
+                  />
+                  <PrintMenuItem
+                    icon={Heart}
+                    title="Design Sheets (favorites)"
+                    subtitle={`${favoritesCount} page${favoritesCount === 1 ? "" : "s"} · for cherry-picked sets`}
+                    onClick={() => printIndividualSheets(true)}
+                    disabled={favoritesCount === 0}
+                  />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -776,5 +910,39 @@ function KpiTile({
         </div>
       </div>
     </div>
+  );
+}
+
+interface PrintMenuItemProps {
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  title: string;
+  subtitle: string;
+  onClick: () => void;
+  disabled?: boolean;
+}
+
+function PrintMenuItem({
+  icon: Icon,
+  title,
+  subtitle,
+  onClick,
+  disabled,
+}: PrintMenuItemProps) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex w-full items-start gap-3 px-3 py-2.5 text-left transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+    >
+      <span className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-indigo-50 text-indigo-700">
+        <Icon size={14} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-slate-800">{title}</span>
+        <span className="block text-xs text-slate-500">{subtitle}</span>
+      </span>
+    </button>
   );
 }
