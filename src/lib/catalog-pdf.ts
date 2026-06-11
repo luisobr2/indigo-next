@@ -355,3 +355,129 @@ export async function generateDesignSheetsPdf(
 
   doc.save(opts.filename || `indigo-designs-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
+
+/**
+ * Comparison Sheet — A4 landscape, up to 4 designs side-by-side per
+ * page so a client can pick from a curated short-list. When more than
+ * 4 designs are passed in, they're paginated in groups of 4 (Majela
+ * can compare-and-page through a longer shortlist).
+ *
+ * Layout per cell: big thumbnail on top, family code in bold, variants
+ * line, colors line. Wider than the Catalog Sheet cells so the visual
+ * detail is bigger — the whole point of "compare" is seeing the
+ * details against each other.
+ */
+export async function generateComparisonSheetPdf(
+  families: PdfFamily[],
+  opts: { filename?: string; subtitle?: string } = {},
+): Promise<void> {
+  if (!families.length) return;
+  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const PER_PAGE = 4;
+  const totalPages = Math.ceil(families.length / PER_PAGE);
+
+  // Pre-fetch all thumbnails in parallel.
+  const thumbs = await Promise.all(
+    families.map(async (f) => {
+      const v = f.variants.find((x) => x.hasImage) ?? f.variants[0];
+      if (!v) return null;
+      return fetchAsDataUrl(`/api/catalog/designs/${v.id}/image`);
+    }),
+  );
+
+  const marginX = 10;
+  const marginTop = 42;
+  const marginBottom = 18;
+  const usableW = pageW - marginX * 2;
+  const usableH = pageH - marginTop - marginBottom;
+  const cellGap = 4;
+  const cellW = (usableW - cellGap * (PER_PAGE - 1)) / PER_PAGE;
+  const cellH = usableH;
+
+  for (let page = 0; page < totalPages; page++) {
+    if (page > 0) doc.addPage();
+    const slice = families.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+    const codes = slice.map((f) => f.family).join(" vs ");
+    brandHeader(
+      doc,
+      `Side-by-Side Comparison`,
+      opts.subtitle || codes,
+    );
+
+    for (let i = 0; i < slice.length; i++) {
+      const f = slice[i];
+      const x = marginX + i * (cellW + cellGap);
+      const y = marginTop;
+      const w = cellW;
+      const h = cellH;
+
+      // Card frame
+      doc.setDrawColor(226, 232, 240);
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(x, y, w, h, 3, 3, "FD");
+
+      // Thumbnail — 70% of card height for visual emphasis
+      const imgPad = 3;
+      const imgH = h * 0.7;
+      const idx = page * PER_PAGE + i;
+      const thumb = thumbs[idx];
+      doc.setFillColor(241, 245, 249);
+      doc.rect(x + imgPad, y + imgPad, w - imgPad * 2, imgH - imgPad * 2, "F");
+      if (thumb) {
+        try {
+          doc.addImage(
+            thumb,
+            "JPEG",
+            x + imgPad,
+            y + imgPad,
+            w - imgPad * 2,
+            imgH - imgPad * 2,
+            undefined,
+            "MEDIUM",
+          );
+        } catch {
+          // placeholder remains
+        }
+      } else {
+        doc.setTextColor(148, 163, 184);
+        doc.setFontSize(8);
+        doc.text("No image", x + w / 2, y + imgH / 2, { align: "center" });
+      }
+
+      // Bottom meta block — separator + content
+      const metaY = y + imgH + 2;
+      doc.setDrawColor(226, 232, 240);
+      doc.line(x + 4, metaY, x + w - 4, metaY);
+
+      // Family code (large, indigo)
+      doc.setTextColor(31, 68, 134);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text(f.family, x + 5, metaY + 7);
+
+      // Variants
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      const variantLine = f.variants
+        .map((v) => DOOR_TYPE_LABEL[v.door_type] || v.door_type)
+        .join(" · ");
+      doc.text(variantLine, x + 5, metaY + 12);
+
+      // Colors with bullet dots
+      const colors = (f.colors.length ? f.colors : ["white", "bronze", "black"])
+        .map((c) => COLOR_LABEL[c] || c);
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Colors: ${colors.join(", ")}`, x + 5, metaY + 17);
+    }
+
+    brandFooter(doc, page + 1, totalPages);
+  }
+
+  doc.save(
+    opts.filename || `indigo-comparison-${new Date().toISOString().slice(0, 10)}.pdf`,
+  );
+}

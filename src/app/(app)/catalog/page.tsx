@@ -23,6 +23,7 @@ import {
 import {
   generateCatalogSheetPdf,
   generateDesignSheetsPdf,
+  generateComparisonSheetPdf,
 } from "@/lib/catalog-pdf";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -187,7 +188,7 @@ export default function CatalogPage() {
   }
 
   const [printOpen, setPrintOpen] = useState(false);
-  const [printBusy, setPrintBusy] = useState<null | "sheet" | "individual">(null);
+  const [printBusy, setPrintBusy] = useState<null | "sheet" | "individual" | "comparison">(null);
 
   async function printCatalogSheet(onlyFavorites: boolean) {
     const scope = onlyFavorites
@@ -212,6 +213,36 @@ export default function CatalogPage() {
     toast.promise(promise, {
       loading: `Building PDF for ${scope.length} designs…`,
       success: "Catalog Sheet ready — check downloads",
+      error: "Failed to generate PDF",
+    });
+  }
+
+  async function printComparison(onlyFavorites: boolean) {
+    const scope = onlyFavorites
+      ? families.filter((f) => f.favorite)
+      : filtered;
+    if (scope.length < 2) {
+      toast.warning(
+        onlyFavorites
+          ? "Favorite at least 2 designs to compare."
+          : "Need at least 2 designs in view to compare.",
+      );
+      return;
+    }
+    if (scope.length > 12) {
+      const ok = confirm(
+        `Side-by-side compares 4 designs per page. ${scope.length} designs → ${Math.ceil(scope.length / 4)} pages. Continue?`,
+      );
+      if (!ok) return;
+    }
+    setPrintBusy("comparison");
+    setPrintOpen(false);
+    const promise = generateComparisonSheetPdf(scope, {
+      filename: `indigo-comparison-${onlyFavorites ? "favorites-" : ""}${new Date().toISOString().slice(0, 10)}.pdf`,
+    }).finally(() => setPrintBusy(null));
+    toast.promise(promise, {
+      loading: `Building comparison sheet for ${scope.length} designs…`,
+      success: "Comparison ready — check downloads",
       error: "Failed to generate PDF",
     });
   }
@@ -322,6 +353,27 @@ export default function CatalogPage() {
                     subtitle={`${favoritesCount} favorite${favoritesCount === 1 ? "" : "s"} · same grid layout`}
                     onClick={() => printCatalogSheet(true)}
                     disabled={favoritesCount === 0}
+                  />
+                  <div className="border-y border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Side-by-Side Comparison
+                  </div>
+                  <PrintMenuItem
+                    icon={Grid3x3}
+                    title="Comparison (current view)"
+                    subtitle={`Landscape · 4 designs per page · ${filtered.length} in view`}
+                    onClick={() => printComparison(false)}
+                    disabled={filtered.length < 2}
+                  />
+                  <PrintMenuItem
+                    icon={Heart}
+                    title="Comparison (favorites)"
+                    subtitle={
+                      favoritesCount < 2
+                        ? "Favorite at least 2 designs to compare"
+                        : `${favoritesCount} favorite${favoritesCount === 1 ? "" : "s"} side-by-side`
+                    }
+                    onClick={() => printComparison(true)}
+                    disabled={favoritesCount < 2}
                   />
                   <div className="border-y border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     One Page Per Design
