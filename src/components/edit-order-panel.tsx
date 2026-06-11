@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { FractionalInchInput } from "@/components/fractional-inch-input";
 import { cn } from "@/lib/utils";
 
 interface LineRow {
@@ -376,34 +377,22 @@ export function EditOrderPanel({
                 options={COLORS}
               />
             </Field>
-            <Field label="Width (in)">
-              <Input
-                type="number"
-                step="0.125"
-                value={line.width === 0 || line.width ? String(line.width) : ""}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setLineField(
-                    idx,
-                    "width",
-                    v === "" ? 0 : parseFloat(v),
-                  );
-                }}
+            <Field label="Width">
+              <FractionalInchInput
+                value={line.width || ""}
+                onChange={(v) =>
+                  setLineField(idx, "width", v === "" ? 0 : v)
+                }
+                showHint={false}
               />
             </Field>
-            <Field label="Height (in)">
-              <Input
-                type="number"
-                step="0.125"
-                value={line.height === 0 || line.height ? String(line.height) : ""}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setLineField(
-                    idx,
-                    "height",
-                    v === "" ? 0 : parseFloat(v),
-                  );
-                }}
+            <Field label="Height">
+              <FractionalInchInput
+                value={line.height || ""}
+                onChange={(v) =>
+                  setLineField(idx, "height", v === "" ? 0 : v)
+                }
+                showHint={false}
               />
             </Field>
             <Field label="Quantity">

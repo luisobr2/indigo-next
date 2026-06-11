@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { FractionalInchInput } from "@/components/fractional-inch-input";
 import { cn } from "@/lib/utils";
 
 interface FamilyVariant {
@@ -78,8 +79,10 @@ export function NewOrderFromDesignModal({
   // not render and the order would default to "white" silently.
   const effectiveColors = colors.length ? colors : ["white", "bronze", "black"];
   const [color, setColor] = useState<string>(effectiveColors[0]);
-  const [width, setWidth] = useState("36");
-  const [height, setHeight] = useState("80");
+  // Width / Height carry decimal inches in state but the input parses
+  // US fractional notation ("23 3/4") and snaps to 1/16" on blur.
+  const [width, setWidth] = useState<number | "">(36);
+  const [height, setHeight] = useState<number | "">(80);
   const [qty, setQty] = useState("1");
   const [busy, setBusy] = useState(false);
 
@@ -98,8 +101,8 @@ export function NewOrderFromDesignModal({
     setClientAddress("");
     setVariantId(variants[0]?.id ?? 0);
     setColor(effectiveColors[0]);
-    setWidth("36");
-    setHeight("80");
+    setWidth(36);
+    setHeight(80);
     setQty("1");
     setBusy(false);
   }
@@ -117,10 +120,10 @@ export function NewOrderFromDesignModal({
       toast.warning("Pick a configuration (Single Door / Double Door).");
       return;
     }
-    const w = parseFloat(width);
-    const h = parseFloat(height);
+    const w = typeof width === "number" ? width : NaN;
+    const h = typeof height === "number" ? height : NaN;
     if (!Number.isFinite(w) || w <= 0 || !Number.isFinite(h) || h <= 0) {
-      toast.warning("Width and Height must be positive numbers.");
+      toast.warning("Width and Height must be positive numbers (e.g. 23 3/4).");
       return;
     }
     const q = parseInt(qty, 10);
@@ -260,26 +263,23 @@ export function NewOrderFromDesignModal({
             </div>
           </section>
 
-          {/* Dimensions */}
+          {/* Dimensions — accepts US fractional inches ("23 3/4") and
+              decimals. Snaps to 1/16" on blur. */}
           <section className="grid grid-cols-3 gap-3">
             <div className="space-y-1">
-              <Label htmlFor="no-w">Width (in)</Label>
-              <Input
+              <Label htmlFor="no-w">Width</Label>
+              <FractionalInchInput
                 id="no-w"
-                type="number"
-                step="0.125"
                 value={width}
-                onChange={(e) => setWidth(e.target.value)}
+                onChange={setWidth}
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="no-h">Height (in)</Label>
-              <Input
+              <Label htmlFor="no-h">Height</Label>
+              <FractionalInchInput
                 id="no-h"
-                type="number"
-                step="0.125"
                 value={height}
-                onChange={(e) => setHeight(e.target.value)}
+                onChange={setHeight}
               />
             </div>
             <div className="space-y-1">
