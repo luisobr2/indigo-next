@@ -203,7 +203,12 @@ export async function destroySession(session: string): Promise<void> {
 }
 
 export function odooReportUrl(report: string, id: number): string {
-  return `${ODOO_URL}/report/pdf/${report}/${id}`;
+  // Route through the same-origin Next.js proxy. Hitting Odoo's
+  // /report/pdf directly fails for end users because the browser
+  // doesn't carry the Odoo session cookie across to port 8069 —
+  // Odoo bounces them to the storefront /shop login. The proxy
+  // attaches the session server-side and streams the PDF back.
+  return `/api/odoo-report?report=${encodeURIComponent(report)}&ids=${id}`;
 }
 
 export function odooImageUrl(
