@@ -29,14 +29,24 @@ const FRACTION_RX = /^(\d+)\s*\/\s*(\d+)$/;
 const DECIMAL_RX = /^\d+(?:\.\d+)?$/;
 
 export function parseInches(raw: string | number): number | null {
-  if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) && raw >= 0 ? raw : null;
+  }
   if (!raw) return null;
+  const src = String(raw);
+  // Negative measurements are physically impossible for a door — reject
+  // explicitly instead of letting the dash-to-space replace below swallow
+  // the sign (was causing "-23" to be parsed as 23).
+  if (/^\s*-/.test(src)) return null;
   // Strip trailing inch markers, normalize separators, collapse spaces.
-  const cleaned = String(raw)
+  // Inch glyphs we accept: ASCII "  curly ”  prime ″  modifier letter ′
+  // The `in`/`inches` suffix is matched WITHOUT a leading word boundary
+  // so "23in" parses (digit → letter has no \b in JS regex).
+  const cleaned = src
     .toLowerCase()
-    .replace(/["”]/g, "")
-    .replace(/\bin(ches)?\b/g, "")
-    .replace(/-/g, " ")
+    .replace(/["”″′]/g, "")
+    .replace(/in(ches)?\b/g, "")
+    .replace(/[-–—]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (!cleaned) return null;
