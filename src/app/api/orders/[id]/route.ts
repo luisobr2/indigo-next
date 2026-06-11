@@ -41,6 +41,7 @@ const ORDER_FIELDS_BASE = [
   "create_date",
   "write_date",
   "priv_ref",
+  "customer_po",
   "line_ids",
   "notes",
 ];
@@ -211,6 +212,7 @@ const EDITABLE_ORDER_FIELDS = [
   "client_address",
   "dealer_ref",
   "priv_ref",
+  "customer_po",
   "notes",
   "installation_date",
   "expected_completion_date",

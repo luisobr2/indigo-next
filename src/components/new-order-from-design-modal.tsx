@@ -3,7 +3,18 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { Sparkles, X, Check, ChevronDown } from "lucide-react";
+import {
+  Sparkles,
+  X,
+  Check,
+  ChevronDown,
+  Info,
+  Upload,
+  Paperclip,
+  FileText,
+  Image as ImageIcon,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -84,6 +95,14 @@ export function NewOrderFromDesignModal({
   const [width, setWidth] = useState<number | "">(36);
   const [height, setHeight] = useState<number | "">(80);
   const [qty, setQty] = useState("1");
+  // Customer / Client PO — the purchase-order number the dealer's
+  // customer issued. Distinct from `dealer_ref` (internal dealer code)
+  // and `priv_ref` (label-only ref). Optional.
+  const [customerPo, setCustomerPo] = useState("");
+  // Queue of files the operator wants to attach to the order. They're
+  // collected before the order exists; we upload them sequentially after
+  // /api/orders returns the new id.
+  const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
 
   const dealersQ = useQuery<{ records: Dealer[] }>({
@@ -104,6 +123,8 @@ export function NewOrderFromDesignModal({
     setWidth(36);
     setHeight(80);
     setQty("1");
+    setCustomerPo("");
+    setFiles([]);
     setBusy(false);
   }
 
@@ -145,6 +166,7 @@ export function NewOrderFromDesignModal({
           client_phone: clientPhone.trim(),
           client_email: clientEmail.trim(),
           client_address: clientAddress.trim(),
+          customer_po: customerPo.trim() || undefined,
           line_ids: [
             [
               0,
@@ -165,6 +187,32 @@ export function NewOrderFromDesignModal({
       if (!r.ok || !j.id) {
         throw new Error(j.error || "Create failed");
       }
+      // Upload attachments sequentially so a single failed file doesn't
+      // abort the rest. We don't fail the whole flow if attachments error
+      // — the order is already saved and the user can retry from the
+      // detail page.
+      if (files.length) {
+        let failed = 0;
+        for (const f of files) {
+          const fd = new FormData();
+          fd.append("file", f);
+          try {
+            const ur = await fetch(`/api/orders/${j.id}/attachments`, {
+              method: "POST",
+              body: fd,
+            });
+            if (!ur.ok) failed++;
+          } catch {
+            failed++;
+          }
+        }
+        if (failed) {
+          toast.warning(
+            `Order created, but ${failed} of ${files.length} attachment${files.length === 1 ? "" : "s"} failed to upload. Retry from the order detail.`,
+            { duration: 8000 },
+          );
+        }
+      }
       qc.invalidateQueries({ queryKey: ["orders"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       toast.success(`Order created — opening detail`);
@@ -176,6 +224,30 @@ export function NewOrderFromDesignModal({
     } finally {
       setBusy(false);
     }
+  }
+
+  function addFiles(list: FileList | null) {
+    if (!list) return;
+    const incoming = Array.from(list);
+    // Cap at 20 MB per file — same limit as the per-order attachment
+    // endpoint enforces server-side.
+    const accepted: File[] = [];
+    let rejected = 0;
+    for (const f of incoming) {
+      if (f.size > 20 * 1024 * 1024) {
+        rejected++;
+      } else {
+        accepted.push(f);
+      }
+    }
+    if (rejected) {
+      toast.warning(`${rejected} file${rejected === 1 ? "" : "s"} skipped — over 20 MB.`);
+    }
+    setFiles((prev) => [...prev, ...accepted]);
+  }
+
+  function removeFile(idx: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
   }
 
   return (
@@ -320,6 +392,25 @@ export function NewOrderFromDesignModal({
             </div>
           </section>
 
+          {/* Customer / Client PO */}
+          <section className="space-y-1">
+            <Label htmlFor="no-po" className="flex items-center gap-1.5">
+              Customer PO / Client PO
+              <span
+                className="cursor-help text-slate-400"
+                title="Purchase order number from the end customer — printed on the invoice and used to reconcile payments."
+              >
+                <Info size={12} />
+              </span>
+            </Label>
+            <Input
+              id="no-po"
+              value={customerPo}
+              onChange={(e) => setCustomerPo(e.target.value)}
+              placeholder="PO-784512"
+            />
+          </section>
+
           {/* Client */}
           <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="space-y-1 md:col-span-2">
@@ -358,6 +449,51 @@ export function NewOrderFromDesignModal({
               />
             </div>
           </section>
+
+          {/* Attachments — files are queued client-side and uploaded
+              after /api/orders returns the new id. */}
+          <section className="space-y-2 rounded-xl border border-dashed border-indigo-200 bg-indigo-50/40 p-3.5">
+            <div>
+              <Label className="text-xs font-bold uppercase tracking-wider text-indigo-700">
+                Attachments
+              </Label>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Upload any relevant documents (PO, contract, photos,
+                measurements, HOA approval, etc.)
+              </p>
+            </div>
+            <FileDrop onFiles={addFiles} />
+            {files.length > 0 && (
+              <ul className="space-y-1.5">
+                {files.map((f, i) => (
+                  <li
+                    key={`${f.name}-${i}`}
+                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                  >
+                    {/^image\//.test(f.type) ? (
+                      <ImageIcon size={14} className="text-emerald-600" />
+                    ) : (
+                      <FileText size={14} className="text-rose-600" />
+                    )}
+                    <span className="flex-1 truncate font-medium text-slate-700">
+                      {f.name}
+                    </span>
+                    <span className="text-[10px] tabular-nums text-slate-400">
+                      {(f.size / 1024).toFixed(0)} KB
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-700"
+                      aria-label={`Remove ${f.name}`}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
 
         <DialogFooter>
@@ -382,5 +518,56 @@ export function NewOrderFromDesignModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Click-to-pick + drag-and-drop file dropzone. Defers all storage
+ * decisions to the parent — just emits `onFiles(list)` and lets the
+ * parent stage, validate, and upload.
+ */
+function FileDrop({ onFiles }: { onFiles: (list: FileList | null) => void }) {
+  const [dragOver, setDragOver] = useState(false);
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-center justify-center gap-3 rounded-lg border-2 border-dashed bg-white px-3 py-4 text-sm transition",
+        dragOver
+          ? "border-indigo-400 bg-indigo-50"
+          : "border-slate-300 hover:border-indigo-300 hover:bg-indigo-50/40",
+      )}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        onFiles(e.dataTransfer?.files ?? null);
+      }}
+    >
+      <Upload size={16} className="text-indigo-600" />
+      <span className="text-slate-700">
+        Drag and drop files here or{" "}
+        <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-indigo-700">
+          <Paperclip size={11} /> Upload file
+        </span>
+      </span>
+      <input
+        type="file"
+        multiple
+        className="hidden"
+        accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.xlsx"
+        onChange={(e) => {
+          onFiles(e.target.files);
+          // Reset so the same file can be re-picked.
+          e.target.value = "";
+        }}
+      />
+      <span className="ml-auto text-[10px] text-slate-400">
+        PDF, JPG, PNG, DOCX, XLSX (Max 20 MB)
+      </span>
+    </label>
   );
 }

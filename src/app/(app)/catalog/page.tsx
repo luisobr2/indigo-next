@@ -19,6 +19,7 @@ import {
   ChevronDown,
   FileText,
   LayoutDashboard,
+  Sparkles,
 } from "lucide-react";
 import {
   generateCatalogSheetPdf,
@@ -108,6 +109,15 @@ export default function CatalogPage() {
           f.variants.some((v) => v.code.toLowerCase().includes(needle)),
       );
     }
+    // Pin the CUSTOM family to the very top of the grid. It's the
+    // "design without a design" — operators reach for it when the dealer
+    // sends a one-off; making them scroll past 30 catalog cards to find
+    // it would be friction. Sort is otherwise stable.
+    out = [...out].sort((a, b) => {
+      const ac = a.family.toUpperCase() === "CUSTOM" ? -1 : 0;
+      const bc = b.family.toUpperCase() === "CUSTOM" ? -1 : 0;
+      return ac - bc;
+    });
     return out;
   }, [families, tab, doorTypeFilter, colorFilter, q]);
 
@@ -697,14 +707,46 @@ function DesignCard({
   onSelect: () => void;
   onToggleFavorite: () => void;
 }) {
+  const isCustom = family.family.toUpperCase() === "CUSTOM";
   return (
-    <article className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100 transition hover:shadow-md hover:ring-indigo-200">
-      <header className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2.5">
-        <h3 className="font-mono text-sm font-bold text-slate-800">
-          {family.family}
-        </h3>
-        <span className="rounded-md bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 ring-1 ring-slate-200">
-          {family.variants.length} config{family.variants.length === 1 ? "" : "s"}
+    <article
+      className={cn(
+        "overflow-hidden rounded-2xl bg-white shadow-sm transition hover:shadow-md",
+        isCustom
+          ? "ring-2 ring-indigo-400 hover:ring-indigo-500"
+          : "ring-1 ring-slate-100 hover:ring-indigo-200",
+      )}
+    >
+      <header
+        className={cn(
+          "flex items-center justify-between gap-2 border-b px-4 py-2.5",
+          isCustom
+            ? "border-indigo-100 bg-gradient-to-r from-indigo-50 via-indigo-50 to-violet-50"
+            : "border-slate-100 bg-slate-50/60",
+        )}
+      >
+        <div className="flex items-center gap-1.5">
+          {isCustom && <Sparkles size={12} className="text-indigo-600" />}
+          <h3
+            className={cn(
+              "font-mono text-sm font-bold",
+              isCustom ? "text-indigo-800" : "text-slate-800",
+            )}
+          >
+            {family.family}
+          </h3>
+        </div>
+        <span
+          className={cn(
+            "rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1",
+            isCustom
+              ? "bg-white text-indigo-700 ring-indigo-200"
+              : "bg-white text-slate-600 ring-slate-200",
+          )}
+        >
+          {isCustom
+            ? "Attach your own"
+            : `${family.variants.length} config${family.variants.length === 1 ? "" : "s"}`}
         </span>
         <button
           type="button"

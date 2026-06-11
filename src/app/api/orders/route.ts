@@ -33,6 +33,7 @@ const ORDER_FIELDS_BASE = [
   "create_date",
   "write_date",
   "priv_ref",
+  "customer_po",
 ];
 
 const ORDER_FIELDS_V2_EXTRA = [
@@ -270,6 +271,7 @@ const CREATABLE_ORDER_FIELDS = [
   "installation_date",
   "expected_completion_date",
   "priv_ref",
+  "customer_po",
   // Nested line creation via Odoo's (0, 0, {...}) syntax.
   "line_ids",
 ] as const;

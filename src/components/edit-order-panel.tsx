@@ -35,6 +35,7 @@ interface OrderRow {
   client_address: string;
   dealer_ref: string;
   priv_ref: string;
+  customer_po: string;
 }
 
 interface DesignRow {
@@ -303,6 +304,15 @@ export function EditOrderPanel({
               value={orderForm.dealer_ref ?? ""}
               onChange={(e) =>
                 setOrderForm({ ...orderForm, dealer_ref: e.target.value })
+              }
+            />
+          </Field>
+          <Field label="Customer PO">
+            <Input
+              value={orderForm.customer_po ?? ""}
+              placeholder="PO-784512"
+              onChange={(e) =>
+                setOrderForm({ ...orderForm, customer_po: e.target.value })
               }
             />
           </Field>

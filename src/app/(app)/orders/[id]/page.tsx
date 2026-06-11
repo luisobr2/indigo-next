@@ -96,6 +96,7 @@ export default function OrderDetailPage({
     create_date: string;
     notes: string;
     priv_ref: string;
+    customer_po: string;
     painter_id: [number, string] | false;
     installer_ids: number[] | Array<[number, string]>;
   };
@@ -186,6 +187,7 @@ export default function OrderDetailPage({
                 client_address: o.client_address,
                 dealer_ref: o.dealer_ref,
                 priv_ref: o.priv_ref,
+                customer_po: o.customer_po,
               }}
               lines={lines.map((l) => ({
                 id: l.id,
@@ -249,6 +251,7 @@ export default function OrderDetailPage({
             client_address: o.client_address,
             dealer_ref: o.dealer_ref,
             priv_ref: o.priv_ref,
+            customer_po: o.customer_po,
           }}
           lines={lines.map((l) => ({
             id: l.id,
@@ -403,6 +406,7 @@ export default function OrderDetailPage({
               </div>
               <dl className="space-y-3">
                 <Row label="Reference" value={o.dealer_ref || "—"} />
+                <Row label="Customer PO" value={o.customer_po || "—"} />
                 <Row label="Name" value={o.client_name} />
                 <Row
                   label="Address"
