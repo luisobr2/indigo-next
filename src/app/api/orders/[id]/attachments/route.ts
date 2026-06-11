@@ -85,6 +85,26 @@ export async function DELETE(
   }
 }
 
+/** Per-file upload cap. Mirrors the client-side check in the order
+ *  modal and the stage QuickPhotoUpload — keeps memory + Odoo payloads
+ *  bounded. */
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Minimal HTML escape for user-controlled strings interpolated into
+ * Odoo chatter bodies. Without this, an attacker (or careless dealer)
+ * could upload a file named like `<img src=x onerror=...>` and inject
+ * markup that runs when other users view the order timeline.
+ */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -101,6 +121,15 @@ export async function POST(
       return NextResponse.json(
         { error: "file field required" },
         { status: 400 },
+      );
+    }
+
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      return NextResponse.json(
+        {
+          error: `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — max ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB per file.`,
+        },
+        { status: 413 },
       );
     }
 
@@ -123,10 +152,15 @@ export async function POST(
       kwargs: {},
     });
 
-    // Post a chatter note so it shows up in the activity feed.
-    const body = note
-      ? `Attachment uploaded: <b>${file.name}</b><br/>${note}`
-      : `Attachment uploaded: <b>${file.name}</b>`;
+    // Post a chatter note so it shows up in the activity feed. Escape
+    // both file.name and the optional note so weird filenames or paste
+    // content can't inject markup into other users' timelines.
+    const safeName = escapeHtml(file.name);
+    const safeNote =
+      typeof note === "string" && note.trim() ? escapeHtml(note) : "";
+    const body = safeNote
+      ? `Attachment uploaded: <b>${safeName}</b><br/>${safeNote}`
+      : `Attachment uploaded: <b>${safeName}</b>`;
     await call({
       session: s.session,
       model: "indigo.order",
