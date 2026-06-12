@@ -31,6 +31,7 @@ interface PaintRow {
   name: string;
   dealer_id: [number, string] | false;
   dealer_ref: string;
+  customer_po: string;
   client_name: string;
   door_count: number;
   total_sqf: number;
@@ -198,7 +199,9 @@ export default function PaintPage() {
                   value: (r) =>
                     (r.dealer_id && Array.isArray(r.dealer_id) && r.dealer_id[1]) || "",
                 },
-                { header: "Order Number", value: (r) => r.dealer_ref || "" },
+                { header: "Dealer Ref", value: (r) => r.dealer_ref || "" },
+                { header: "Indigo Order #", value: (r) => r.name },
+                { header: "Customer PO", value: (r) => r.customer_po || "" },
                 { header: "Client Name", value: (r) => r.client_name },
                 { header: "Color", value: (r) => r.first_line?.color ?? "" },
                 { header: "Door Type", value: (r) => r.first_line?.door_type ?? "" },
@@ -316,7 +319,7 @@ export default function PaintPage() {
                 </th>
                 <th className="px-3 py-3 w-8">#</th>
                 <th className="px-4 py-3">Company</th>
-                <th className="px-4 py-3">Order Number</th>
+                <th className="px-4 py-3">Order Refs</th>
                 <th className="px-4 py-3">Client Name</th>
                 <th className="px-4 py-3">Color</th>
                 <th className="px-4 py-3">Door Type</th>
@@ -379,7 +382,32 @@ export default function PaintPage() {
                       {company}
                     </td>
                     <td className="px-4 py-3 text-slate-600">
-                      {r.dealer_ref || "—"}
+                      {/* Stack the 3 reference codes so the painter can
+                          cross-check whichever the dealer / system / end
+                          customer used. dealer_ref is what Lock Tight (etc.)
+                          assigns; r.name is the canonical Indigo id; PO is
+                          the end customer's purchase order. */}
+                      <div className="space-y-0.5">
+                        {r.dealer_ref ? (
+                          <div className="font-semibold text-slate-800">
+                            {r.dealer_ref}
+                          </div>
+                        ) : null}
+                        <div
+                          className={
+                            r.dealer_ref
+                              ? "text-xs text-slate-400"
+                              : "font-semibold text-slate-800"
+                          }
+                        >
+                          {r.name}
+                        </div>
+                        {r.customer_po ? (
+                          <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                            PO: {r.customer_po}
+                          </div>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-4 py-3 font-medium">
                       <Link
