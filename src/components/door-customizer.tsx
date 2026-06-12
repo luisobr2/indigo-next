@@ -1,15 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import {
   OrbitControls,
   useGLTF,
+  useTexture,
   ContactShadows,
   Environment,
-  Lightformer,
+  MeshReflectorMaterial,
 } from "@react-three/drei";
+import {
+  EffectComposer,
+  Bloom,
+  Vignette,
+  N8AO,
+} from "@react-three/postprocessing";
 import { Check, DoorOpen, Rotate3d } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -108,8 +115,26 @@ MODELS.forEach((m) => useGLTF.preload(m.url));
 
 function Door({ url, finish }: { url: string; finish: Finish }) {
   const { scene } = useGLTF(url);
+  const roughTex = useTexture("/3d/tex/rough.jpg");
+
+  // True frosted glass: physical transmission blurs whatever is behind it
+  // (the wall) — far more believable than a flat translucent plane.
+  const frostedGlass = useMemo(() => {
+    const m = new THREE.MeshPhysicalMaterial({
+      name: "Glass",
+      color: "#eef1f0",
+      transmission: 1,
+      roughness: 0.55,
+      thickness: 0.02,
+      ior: 1.5,
+      metalness: 0,
+    });
+    return m;
+  }, []);
 
   useEffect(() => {
+    roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping;
+    roughTex.repeat.set(2, 2);
     scene.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
       obj.castShadow = true;
@@ -119,24 +144,122 @@ function Door({ url, finish }: { url: string; finish: Finish }) {
         mat.color.set(finish.hex);
         mat.metalness = finish.metalness;
         mat.roughness = finish.roughness;
+        // micro-variation in the highlights — flat roughness reads as CG
+        mat.roughnessMap = roughTex;
         // Dark metals (bronze/black) read as flat black without strong
         // env reflections — crank the env contribution so they show sheen.
         mat.envMapIntensity = 1.8;
+        mat.needsUpdate = true;
       } else if (mat.name === "Glass") {
-        // Frosted glass: keep it translucent and stop it from occluding
-        // the pattern bars behind/in front of it.
-        mat.transparent = true;
-        mat.opacity = 0.32;
-        mat.roughness = 0.65;
-        mat.depthWrite = false;
+        obj.material = frostedGlass;
       }
     });
-  }, [scene, finish]);
+  }, [scene, finish, roughTex, frostedGlass]);
 
   return <primitive object={scene} />;
 }
 
+/** Entryway context: textured stucco wall + baseboard + paver floor with
+ * soft reflections — flat-color planes are the #1 "this is CG" giveaway. */
+function Backdrop() {
+  const [stucco, concrete] = useTexture([
+    "/3d/tex/stucco.jpg",
+    "/3d/tex/concrete.jpg",
+  ]);
+
+  useEffect(() => {
+    stucco.wrapS = stucco.wrapT = THREE.RepeatWrapping;
+    stucco.repeat.set(7, 3.5);
+    concrete.wrapS = concrete.wrapT = THREE.RepeatWrapping;
+    concrete.repeat.set(7, 3.5);
+  }, [stucco, concrete]);
+
+  return (
+    <>
+      <mesh position={[0, 1.8, -0.1]} receiveShadow>
+        <planeGeometry args={[14, 7]} />
+        <meshStandardMaterial
+          map={stucco}
+          bumpMap={stucco}
+          bumpScale={0.4}
+          roughness={0.95}
+          metalness={0}
+        />
+      </mesh>
+      <mesh position={[0, 0.055, -0.085]} receiveShadow>
+        <boxGeometry args={[14, 0.11, 0.025]} />
+        <meshStandardMaterial color="#d8d2c8" roughness={0.9} />
+      </mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0, 2.5]} receiveShadow>
+        <planeGeometry args={[14, 7]} />
+        <MeshReflectorMaterial
+          map={concrete}
+          blur={[280, 60]}
+          resolution={1024}
+          mixBlur={0.85}
+          mixStrength={2.5}
+          roughness={0.75}
+          depthScale={1.1}
+          minDepthThreshold={0.4}
+          maxDepthThreshold={1.3}
+          color="#cfd1d3"
+          metalness={0.05}
+        />
+      </mesh>
+    </>
+  );
+}
+
+/** Warm wall sconce (dark housing + glowing diffuser + real point light) —
+ * mirrors the lanterns in the client's reference photos. */
+function Sconce({ x }: { x: number }) {
+  return (
+    <group position={[x, 1.78, 0.09]}>
+      <mesh castShadow>
+        <boxGeometry args={[0.13, 0.36, 0.13]} />
+        <meshStandardMaterial color="#23211f" metalness={0.85} roughness={0.35} />
+      </mesh>
+      <mesh>
+        <boxGeometry args={[0.085, 0.27, 0.085]} />
+        <meshStandardMaterial
+          color="#ffd9a0"
+          emissive="#ffae54"
+          emissiveIntensity={2.4}
+          toneMapped={false}
+        />
+      </mesh>
+      <pointLight color="#ffb45e" intensity={1.6} distance={3.2} decay={2} />
+    </group>
+  );
+}
+
+/** Simple stylized boxwood in a planter, flanking the entry. */
+function Planter({ x }: { x: number }) {
+  return (
+    <group position={[x, 0, 0.45]}>
+      <mesh castShadow position={[0, 0.21, 0]}>
+        <cylinderGeometry args={[0.16, 0.13, 0.42, 24]} />
+        <meshStandardMaterial color="#55575a" roughness={0.85} />
+      </mesh>
+      <mesh castShadow position={[0, 0.62, 0]} scale={[1, 1.35, 1]}>
+        <icosahedronGeometry args={[0.24, 1]} />
+        <meshStandardMaterial color="#2e4d2a" roughness={0.95} flatShading />
+      </mesh>
+      <mesh castShadow position={[0.07, 0.86, 0.04]} scale={[0.6, 0.8, 0.6]}>
+        <icosahedronGeometry args={[0.18, 1]} />
+        <meshStandardMaterial color="#37592f" roughness={0.95} flatShading />
+      </mesh>
+    </group>
+  );
+}
+
 function Scene({ model, finish }: { model: DoorModel; finish: Finish }) {
+  // Side dressing (sconces/planters) tracks the door width so the SD
+  // model doesn't end up with lights floating a meter away.
+  const half = (model.widthIn * 0.0254) / 2;
+  const sconceX = half + 0.55;
+  const planterX = half + 0.95;
+
   return (
     <Canvas
       shadows
@@ -144,7 +267,7 @@ function Scene({ model, finish }: { model: DoorModel; finish: Finish }) {
       style={{ touchAction: "none" }}
     >
       <color attach="background" args={["#eef1f5"]} />
-      <ambientLight intensity={0.55} />
+      <ambientLight intensity={0.5} />
       <directionalLight
         position={[3, 5, 4]}
         intensity={1.5}
@@ -153,47 +276,27 @@ function Scene({ model, finish }: { model: DoorModel; finish: Finish }) {
         shadow-bias={-0.0004}
       />
       <directionalLight position={[-4, 3, -3]} intensity={0.6} />
-      {/* Procedural environment (no network fetch) so metallic finishes
-          have something to reflect — without it bronze renders black. */}
-      <Environment resolution={256}>
-        <Lightformer
-          intensity={3}
-          position={[0, 4, 6]}
-          scale={[10, 4, 1]}
-          color="#ffffff"
-        />
-        <Lightformer
-          intensity={2}
-          position={[-6, 2, -2]}
-          rotation-y={Math.PI / 2}
-          scale={[8, 3, 1]}
-          color="#dfe8f5"
-        />
-        <Lightformer
-          intensity={1.5}
-          position={[6, 1, 2]}
-          rotation-y={-Math.PI / 2}
-          scale={[8, 3, 1]}
-          color="#fff5e8"
-        />
-      </Environment>
+      {/* Real outdoor HDR (local file, no CDN) — rich reflections on the
+          metal are most of what separates "CG" from "photo". */}
+      <Environment files="/3d/env.hdr" environmentIntensity={0.75} />
       <Door url={model.url} finish={finish} />
-      {/* Entryway context: wall behind the door + floor, like a facade. */}
-      <mesh position={[0, 1.6, -0.09]} receiveShadow>
-        <planeGeometry args={[14, 6]} />
-        <meshStandardMaterial color="#e9e5de" roughness={0.95} metalness={0} />
-      </mesh>
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0, 2.5]} receiveShadow>
-        <planeGeometry args={[14, 7]} />
-        <meshStandardMaterial color="#cfd2d5" roughness={0.9} metalness={0} />
-      </mesh>
+      <Backdrop />
+      <Sconce x={-sconceX} />
+      <Sconce x={sconceX} />
+      <Planter x={-planterX} />
+      <Planter x={planterX} />
       <ContactShadows
         position={[0, 0.002, 0]}
-        opacity={0.4}
+        opacity={0.35}
         scale={6}
         blur={2.2}
         far={3}
       />
+      <EffectComposer>
+        <N8AO aoRadius={0.35} intensity={2} distanceFalloff={1} />
+        <Bloom luminanceThreshold={1.05} intensity={0.45} mipmapBlur />
+        <Vignette eskil={false} offset={0.12} darkness={0.55} />
+      </EffectComposer>
       <OrbitControls
         target={[0, 1.05, 0]}
         minDistance={1.6}
