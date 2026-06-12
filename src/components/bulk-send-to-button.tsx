@@ -225,17 +225,39 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
 
   if (!count || !stages.length) return null;
 
-  // Stages with a wizard config capture business data (SQF / photo /
-  // signature / amount) BEFORE the stage move can fire. We can't open
-  // N wizards from a single bulk action, so we hard-block bulk moves
-  // INTO those stages and tell the user to do them one by one.
-  const targetWizard = target ? STAGE_WIZARDS[target.code] : undefined;
+  // Wizards fire when LEAVING a stage (the data they capture belongs to
+  // the stage being completed, not the next one). So a critical source
+  // wizard means an order can't be bulk-advanced because we'd skip the
+  // capture. Lightweight wizards (just an optional note: CNC, Measurement)
+  // are safe to bulk past.
+  //
+  // Previous logic checked the TARGET stage, which incorrectly blocked
+  // perfectly legal moves like CNC → Painting (the "Mark CNC done"
+  // wizard at CNC only captures a note, no payout / no critical data).
+  const sourceStagesNeedingWizard = ordersLoaded
+    .map((o) => o.stage_code)
+    .filter((code) => {
+      const cfg = STAGE_WIZARDS[code];
+      if (!cfg) return false;
+      // A wizard is "critical" when it captures business data the system
+      // depends on downstream — SQF (pricing), photo evidence, signature,
+      // or the invoice amount. Note-only wizards (CNC done, Measurement
+      // confirmed) are safe to bulk past.
+      return !!(
+        cfg.withSqfTable ||
+        cfg.withPhoto ||
+        cfg.withSignature ||
+        cfg.withAmount
+      );
+    });
+  const blockedSourceStages = Array.from(new Set(sourceStagesNeedingWizard));
+  const hasBlockedSource = blockedSourceStages.length > 0;
 
   const confirmDisabled =
     !target ||
     busy ||
     ordersQ.isLoading ||
-    !!targetWizard ||
+    hasBlockedSource ||
     // Backwards moves require an explicit override to unlock.
     (counts.backward > 0 && !overrideBackwards) ||
     // If EVERY order is already in the target stage we have nothing to do.
@@ -400,11 +422,12 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
                 <strong className="text-indigo-800">{target.name}</strong>
               </div>
 
-              {/* Wizard stages need per-order data capture (SQF, photo,
-                  signature, amount). Bulk move can't surface N wizard
-                  modals — the user has to do them individually so the
-                  contractor payouts and per-piece data stay intact. */}
-              {targetWizard && (
+              {/* Critical source-stage wizards capture SQF / photos /
+                  signatures / amounts that the system needs downstream.
+                  Bulk move can't surface N wizards, so we block here and
+                  point the user back to the relevant stage screen where
+                  the per-order capture lives. */}
+              {hasBlockedSource && (
                 <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                   <div className="flex items-start gap-2">
                     <Wand2
@@ -412,12 +435,17 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
                       className="mt-0.5 flex-none text-amber-700"
                     />
                     <div>
-                      <strong>{target.name}</strong> needs per-order data
-                      capture ({targetWizard.title.toLowerCase()}). Bulk move
-                      is blocked for this stage — open each order from the
-                      list and use its own &quot;{targetWizard.submitLabel}
-                      &quot; button so the wizard records the data and
-                      creates the contractor payout.
+                      Bulk move blocked. Some selected orders are currently
+                      in{" "}
+                      <strong>
+                        {blockedSourceStages
+                          .map((c) => STAGE_WIZARDS[c]?.title || c)
+                          .join(", ")}
+                      </strong>
+                      , which captures per-order data (SQF / photo / amount).
+                      Open each order and use its &quot;Save &amp;
+                      advance&quot; button so the wizard records the data
+                      and contractor payouts are created correctly.
                     </div>
                   </div>
                 </div>
