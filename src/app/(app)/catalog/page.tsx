@@ -991,7 +991,7 @@ function KpiTile({
   label: string;
   value: string;
   hint: string;
-  icon: React.ElementType;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   iconBg: string;
   iconColor: string;
 }) {

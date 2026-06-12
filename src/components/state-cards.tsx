@@ -12,7 +12,7 @@ export function EmptyState({
 }: {
   title?: string;
   message?: string;
-  icon?: React.ElementType;
+  icon?: React.ComponentType<{ size?: number; className?: string }>;
 }) {
   return (
     <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center">

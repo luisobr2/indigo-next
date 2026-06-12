@@ -14,6 +14,7 @@ import {
   Boxes,
   KanbanSquare,
   Package,
+  Rotate3d,
   type LucideIcon,
 } from "lucide-react";
 import type { SessionPayload } from "./odoo/types";
@@ -43,6 +44,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/billing", label: "Billing", icon: Receipt, show: allManagerOrOffice },
   { href: "/reports", label: "Reports", icon: BarChart3, show: allManagerOrOffice },
   { href: "/catalog", label: "Catalog", icon: Boxes, show: allManagerOrOffice },
+  { href: "/customizer", label: "3D Customizer", icon: Rotate3d, show: allManagerOrOffice },
   { href: "/inventory/available-stock", label: "Available Stock", icon: Package, show: allManagerOrOffice },
   { href: "/settings", label: "Settings", icon: Settings, show: allManagerOrOffice },
 ];

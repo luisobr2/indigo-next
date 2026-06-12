@@ -640,7 +640,7 @@ function HealthCard({
   label,
   href,
 }: {
-  icon: React.ElementType;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   iconBg: string;
   iconColor: string;
   value: string;

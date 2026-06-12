@@ -463,7 +463,7 @@ function PayoutCard({
   onSettle,
 }: {
   title: string;
-  icon: React.ElementType;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   iconColor: string;
   bg: string;
   buckets: PayoutBucket[];
