@@ -29,11 +29,20 @@ interface DoorModel {
 
 const MODELS: DoorModel[] = [
   {
-    id: "milano",
-    name: "Milano",
+    id: "eclipse",
+    name: "Eclipse",
     doorType: "Double Door",
-    url: "/3d/door-milano.glb",
-    description: "Modern horizontal bars with vertical accent",
+    url: "/3d/door-eclipse.glb",
+    description: "Intersecting tall ovals per leaf",
+    widthIn: 72,
+    heightIn: 80,
+  },
+  {
+    id: "orbit",
+    name: "Orbit",
+    doorType: "Double Door",
+    url: "/3d/door-orbit.glb",
+    description: "Center circle with sweeping corner arcs",
     widthIn: 72,
     heightIn: 80,
   },
@@ -44,15 +53,6 @@ const MODELS: DoorModel[] = [
     url: "/3d/door-roma.glb",
     description: "Classic rings over a center bar",
     widthIn: 36,
-    heightIn: 80,
-  },
-  {
-    id: "geo",
-    name: "Geo",
-    doorType: "Double Door",
-    url: "/3d/door-geo.glb",
-    description: "Stacked diamond outlines",
-    widthIn: 72,
     heightIn: 80,
   },
 ];
@@ -112,6 +112,8 @@ function Door({ url, finish }: { url: string; finish: Finish }) {
   useEffect(() => {
     scene.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
+      obj.castShadow = true;
+      obj.receiveShadow = true;
       const mat = obj.material as THREE.MeshStandardMaterial;
       if (mat.name === "PatternMetal") {
         mat.color.set(finish.hex);
@@ -143,7 +145,13 @@ function Scene({ model, finish }: { model: DoorModel; finish: Finish }) {
     >
       <color attach="background" args={["#eef1f5"]} />
       <ambientLight intensity={0.55} />
-      <directionalLight position={[3, 5, 4]} intensity={1.5} castShadow />
+      <directionalLight
+        position={[3, 5, 4]}
+        intensity={1.5}
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.0004}
+      />
       <directionalLight position={[-4, 3, -3]} intensity={0.6} />
       {/* Procedural environment (no network fetch) so metallic finishes
           have something to reflect — without it bronze renders black. */}
@@ -170,21 +178,33 @@ function Scene({ model, finish }: { model: DoorModel; finish: Finish }) {
         />
       </Environment>
       <Door url={model.url} finish={finish} />
+      {/* Entryway context: wall behind the door + floor, like a facade. */}
+      <mesh position={[0, 1.6, -0.09]} receiveShadow>
+        <planeGeometry args={[14, 6]} />
+        <meshStandardMaterial color="#e9e5de" roughness={0.95} metalness={0} />
+      </mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0, 2.5]} receiveShadow>
+        <planeGeometry args={[14, 7]} />
+        <meshStandardMaterial color="#cfd2d5" roughness={0.9} metalness={0} />
+      </mesh>
       <ContactShadows
-        position={[0, 0.001, 0]}
-        opacity={0.45}
+        position={[0, 0.002, 0]}
+        opacity={0.4}
         scale={6}
         blur={2.2}
         far={3}
       />
       <OrbitControls
         target={[0, 1.05, 0]}
-        minDistance={1.5}
-        maxDistance={6}
-        maxPolarAngle={Math.PI / 1.9}
+        minDistance={1.6}
+        maxDistance={5.5}
+        // Keep the camera in front of the facade — behind the wall there
+        // is nothing to see.
+        minAzimuthAngle={-1.0}
+        maxAzimuthAngle={1.0}
+        minPolarAngle={0.7}
+        maxPolarAngle={Math.PI / 2.02}
         enablePan={false}
-        autoRotate
-        autoRotateSpeed={0.6}
       />
     </Canvas>
   );
