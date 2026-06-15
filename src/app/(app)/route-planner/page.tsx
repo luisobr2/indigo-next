@@ -292,7 +292,9 @@ function SortableStop({
           <span className="line-clamp-2">{o.client_address}</span>
         </div>
         <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
-          <span>{fmtDate(o.installation_date as string)}</span>
+          <span>
+            {o.installation_date ? fmtDate(o.installation_date) : "No date"}
+          </span>
           {index < total - 1 && (
             <ArrowRight size={10} className="text-slate-300" />
           )}
