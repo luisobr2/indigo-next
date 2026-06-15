@@ -29,11 +29,6 @@ import {
   type PendingOrder,
 } from "@/components/schedule-on-day-modal";
 
-// Capability token for the .ics feed; matches the API fallback. Not a hard
-// secret — the whole point is to hand this URL to a calendar client.
-const ICS_TOKEN =
-  process.env.NEXT_PUBLIC_CALENDAR_ICS_TOKEN ?? "idg-cal-2f8a91c47e6b5d30";
-
 interface CalEvent {
   id: number;
   name: string;
@@ -80,11 +75,22 @@ export default function CalendarPage() {
   const [dayTarget, setDayTarget] = useState<string | null>(null);
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [feedUrl, setFeedUrl] = useState("");
 
+  // Token is fetched from a session-gated endpoint (not baked into the
+  // public bundle), only when the manager opens the subscribe dialog.
+  const { data: feed } = useQuery<{ token: string }>({
+    queryKey: ["calendar-feed-url"],
+    queryFn: () => fetch("/api/calendar/feed-url").then((r) => r.json()),
+    enabled: subscribeOpen,
+    staleTime: 60 * 60_000,
+  });
+  const [origin, setOrigin] = useState("");
   useEffect(() => {
-    setFeedUrl(`${window.location.origin}/api/calendar.ics?token=${ICS_TOKEN}`);
+    setOrigin(window.location.origin);
   }, []);
+  const feedUrl = feed?.token
+    ? `${origin}/api/calendar.ics?token=${feed.token}`
+    : "";
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth(); // 0-based
@@ -330,13 +336,14 @@ export default function CalendarPage() {
               <div className="flex items-center gap-2">
                 <input
                   readOnly
-                  value={feedUrl}
+                  value={feedUrl || "Loading…"}
                   onFocus={(e) => e.currentTarget.select()}
                   className="h-9 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 font-mono text-xs text-slate-700"
                 />
                 <Button
                   variant="outline"
                   size="sm"
+                  disabled={!feedUrl}
                   onClick={async () => {
                     try {
                       await navigator.clipboard.writeText(feedUrl);
@@ -365,12 +372,18 @@ export default function CalendarPage() {
 
             <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
               Prefer a one-time import (no auto-sync)? Use{" "}
-              <a
-                href={feedUrl}
-                className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:underline"
-              >
-                <Download size={12} /> download the .ics file
-              </a>{" "}
+              {feedUrl ? (
+                <a
+                  href={feedUrl}
+                  className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:underline"
+                >
+                  <Download size={12} /> download the .ics file
+                </a>
+              ) : (
+                <span className="font-semibold text-slate-400">
+                  <Download size={12} className="inline" /> download the .ics file
+                </span>
+              )}{" "}
               and import it into your calendar.
             </div>
           </div>

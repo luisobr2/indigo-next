@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticate, call } from "@/lib/odoo/client";
+import { authenticate, call, destroySession } from "@/lib/odoo/client";
+import { tokenOk } from "@/lib/ics-feed";
 
 export const runtime = "nodejs";
 
@@ -17,7 +18,6 @@ export const runtime = "nodejs";
  * protected by an unguessable token in the URL (a capability URL — the
  * URL itself is the secret, like every other .ics subscription).
  */
-const ICS_TOKEN = process.env.CALENDAR_ICS_TOKEN ?? "idg-cal-2f8a91c47e6b5d30";
 const SERVICE_LOGIN =
   process.env.ICS_SERVICE_LOGIN ?? "majela@indigodecors.com";
 const SERVICE_PASSWORD = process.env.IMPERSONATE_PASSWORD ?? "indigo123";
@@ -63,13 +63,14 @@ interface OrderRow {
 }
 
 export async function GET(req: NextRequest) {
-  const token = req.nextUrl.searchParams.get("token");
-  if (!ICS_TOKEN || token !== ICS_TOKEN) {
+  if (!tokenOk(req.nextUrl.searchParams.get("token"))) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
+  let serviceSession: string | null = null;
   try {
     const auth = await authenticate(SERVICE_LOGIN, SERVICE_PASSWORD);
+    serviceSession = auth.session;
 
     const now = new Date();
     const from = new Date(now);
@@ -188,9 +189,11 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (e) {
-    return new NextResponse(
-      `Error: ${e instanceof Error ? e.message : "unknown"}`,
-      { status: 500 },
-    );
+    // Generic body — this is a public endpoint; don't leak Odoo internals.
+    console.error("calendar.ics feed error:", e);
+    return new NextResponse("Calendar feed unavailable", { status: 500 });
+  } finally {
+    // Don't leave service sessions piling up on every calendar poll.
+    if (serviceSession) await destroySession(serviceSession).catch(() => {});
   }
 }

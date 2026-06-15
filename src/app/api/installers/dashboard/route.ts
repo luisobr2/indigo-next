@@ -130,7 +130,12 @@ export async function GET(req: NextRequest) {
     //     scheduled date is already in the past. These have a date so they
     //     fall out of "Pending Scheduling", and being in a past week they
     //     vanish from the current-week view — so they'd silently slip.
-    const todayStr = ymd(new Date());
+    //     Anchor "today" to the workshop's timezone (Miami / America/New_York)
+    //     so a UTC server in the evening doesn't flag same-day installs as
+    //     overdue. en-CA formats as YYYY-MM-DD.
+    const todayStr = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+    }).format(new Date());
     const overdue = await call<OrderRow[]>({
       session: s.session,
       model: "indigo.order",
