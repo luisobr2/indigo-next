@@ -20,6 +20,7 @@ import {
   FileText,
   LayoutDashboard,
   Sparkles,
+  Plus,
 } from "lucide-react";
 import {
   generateCatalogSheetPdf,
@@ -316,8 +317,9 @@ export default function CatalogPage() {
             Catalog
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Browse our door designs. Click <strong>Select Design</strong> on
-            any card to start a new order pre-filled with that design.
+            Browse, create and edit door designs. Click{" "}
+            <strong>Select Design</strong> to start a new order, or{" "}
+            <strong>View / Edit</strong> to manage a design.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -333,6 +335,12 @@ export default function CatalogPage() {
               className="h-10 pl-10"
             />
           </div>
+          <Link
+            href="/catalog/designs/new"
+            className="inline-flex h-11 items-center justify-center gap-1.5 rounded-lg bg-indigo-700 px-4 text-sm font-semibold text-white shadow shadow-indigo-700/20 transition hover:bg-indigo-800"
+          >
+            <Plus size={16} /> New Design
+          </Link>
           <Button variant="outline" size="lg" onClick={exportCatalog}>
             <Download size={14} /> Export CSV
           </Button>
@@ -824,7 +832,7 @@ function DesignCard({
             href={`/catalog/designs/${family.variants[0]?.id}`}
             className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700"
           >
-            View Details
+            View / Edit
           </Link>
           <button
             type="button"
