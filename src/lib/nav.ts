@@ -14,6 +14,7 @@ import {
   Boxes,
   KanbanSquare,
   Package,
+  CalendarDays,
   type LucideIcon,
 } from "lucide-react";
 import type { SessionPayload } from "./odoo/types";
@@ -39,6 +40,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/cnc-production", label: "CNC Production", icon: Hammer, show: (r) => allManagerOrOffice(r) || r.isCnc },
   { href: "/paint", label: "Paint", icon: Brush, show: (r) => allManagerOrOffice(r) || r.isPainter },
   { href: "/installations", label: "Installations", icon: Truck },
+  { href: "/calendar", label: "Calendar", icon: CalendarDays, show: allManagerOrOffice },
   { href: "/route-planner", label: "Route Planner", icon: Map, show: allManagerOrOffice },
   { href: "/billing", label: "Billing", icon: Receipt, show: allManagerOrOffice },
   { href: "/reports", label: "Reports", icon: BarChart3, show: allManagerOrOffice },

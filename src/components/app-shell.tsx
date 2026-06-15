@@ -246,22 +246,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        {/* ---------- Footer: support card (expanded) / collapse toggle ---------- */}
+        {/* ---------- Footer: collapse toggle ---------- */}
         <div className="border-t border-slate-100 p-3">
-          {!isCollapsed && (
-            <div className="mb-2 rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-xs">
-              <div className="font-semibold text-indigo-900">Need Help?</div>
-              <div className="mt-1 text-indigo-700/70">Contact support team</div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-3 w-full border-indigo-100 bg-white text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
-              >
-                Contact Us
-              </Button>
-            </div>
-          )}
           {/* Collapse toggle — desktop only */}
           <Button
             type="button"
