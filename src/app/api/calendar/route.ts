@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
+import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,12 @@ interface OrderRow {
 export async function GET(req: NextRequest) {
   try {
     const s = await requireSession();
+    // Same gate as the page (nav) and the installations dashboard: the
+    // calendar exposes client names + addresses across all dealers.
+    const role = deriveRole(s.user.groups);
+    if (!role.isManager && !role.isOffice && !s.user.isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const sp = req.nextUrl.searchParams;
     const from = (sp.get("from") || "").trim();
     const to = (sp.get("to") || "").trim();
