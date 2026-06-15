@@ -20,6 +20,7 @@ import {
   Info,
   MoreVertical,
   CircleDollarSign,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { fmtMoney, fmtNum, fmtDate, cn } from "@/lib/utils";
@@ -88,6 +89,19 @@ interface DashboardData {
     installer: string;
     installer_ids: number[];
   }>;
+  overdue: Array<{
+    id: number;
+    name: string;
+    dealer_ref: string;
+    client_name: string;
+    client_address: string;
+    door_type: string;
+    qty: number;
+    scheduled_date: string;
+    days_overdue: number;
+    installer: string;
+    installer_ids: number[];
+  }>;
   days: Array<{
     date: string;
     label: string;
@@ -107,6 +121,18 @@ function startOfWeek(d: Date) {
   r.setDate(d.getDate() - day);
   r.setHours(0, 0, 0, 0);
   return r;
+}
+
+// Format a YYYY-MM-DD as a local date (avoids the UTC off-by-one that
+// fmtDate hits on date-only strings, which would disagree with days_overdue).
+function fmtYmd(ymdStr: string) {
+  const [y, m, d] = ymdStr.split("-").map(Number);
+  if (!y) return ymdStr;
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 function formatWeek(start: string, end: string) {
@@ -172,6 +198,20 @@ export default function InstallationsPage() {
   // "Installations Pending" KPI counts that the weekly view used to hide.
   const unscheduled = useMemo(() => {
     const rows = data?.unscheduled ?? [];
+    if (!q.trim()) return rows;
+    const needle = q.toLowerCase();
+    return rows.filter(
+      (o) =>
+        o.client_name.toLowerCase().includes(needle) ||
+        o.name.toLowerCase().includes(needle) ||
+        o.dealer_ref.toLowerCase().includes(needle) ||
+        o.client_address.toLowerCase().includes(needle),
+    );
+  }, [data, q]);
+
+  // Overdue: scheduled in the past, still not installed. Week-agnostic.
+  const overdue = useMemo(() => {
+    const rows = data?.overdue ?? [];
     if (!q.trim()) return rows;
     const needle = q.toLowerCase();
     return rows.filter(
@@ -287,6 +327,101 @@ export default function InstallationsPage() {
           iconColor="text-violet-600"
         />
       </section>
+
+      {/* Overdue — scheduled in the past but still not installed. Highest
+          priority: these slip through both the weekly view (past week) and
+          the Pending Scheduling panel (they have a date). */}
+      {overdue.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border border-rose-200 bg-rose-50/50 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rose-200 px-5 py-3">
+            <h3 className="flex items-center gap-1.5 font-semibold text-rose-900">
+              <AlertTriangle size={15} className="text-rose-600" />
+              Overdue Installations
+              <Badge
+                variant="secondary"
+                className="bg-rose-200 text-[10px] font-bold text-rose-800"
+              >
+                {overdue.length}
+              </Badge>
+            </h3>
+            <span className="text-xs text-rose-700">
+              Scheduled date has passed and not marked installed. Reschedule or
+              open the order to close it out.
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-sm">
+              <thead className="bg-rose-100/60 text-left text-[10px] font-bold uppercase tracking-wide text-rose-800">
+                <tr>
+                  <th className="px-4 py-2.5">Order Number</th>
+                  <th className="px-4 py-2.5">Client Name</th>
+                  <th className="px-4 py-2.5">Address</th>
+                  <th className="px-4 py-2.5">Scheduled</th>
+                  <th className="px-4 py-2.5 text-right">Qty</th>
+                  <th className="px-4 py-2.5">Installer</th>
+                  <th className="px-4 py-2.5 w-28"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {overdue.map((o) => (
+                  <tr
+                    key={o.id}
+                    className="border-t border-rose-100 transition hover:bg-rose-100/40"
+                  >
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/orders/${o.id}`}
+                        className="font-mono text-xs font-semibold text-indigo-700 hover:underline"
+                        title={o.name}
+                      >
+                        {o.dealer_ref || o.name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-700">{o.client_name}</td>
+                    <td className="px-4 py-2.5 text-xs text-slate-600">
+                      {o.client_address || "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs">
+                      <span className="text-slate-600">
+                        {fmtYmd(o.scheduled_date)}
+                      </span>
+                      <span className="ml-1.5 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">
+                        {o.days_overdue}d late
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono text-xs">
+                      {o.qty}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-slate-600">
+                      {o.installer === "Unassigned" ? (
+                        <span className="text-rose-700">Unassigned</span>
+                      ) : (
+                        o.installer
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setScheduleTarget({
+                            id: o.id,
+                            label: o.dealer_ref || o.name,
+                            clientName: o.client_name,
+                            installerIds: o.installer_ids,
+                          })
+                        }
+                        className="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-rose-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-rose-700"
+                      >
+                        <Calendar size={11} /> Reschedule
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* Pending scheduling — orders awaiting an installation date. These are
           counted in the dashboard "Installations Pending" KPI but have no

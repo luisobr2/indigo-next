@@ -126,11 +126,42 @@ export async function GET(req: NextRequest) {
       kwargs: { limit: 500, order: "create_date desc" },
     });
 
+    // 1c. Overdue: still pending-install (not yet installed) but the
+    //     scheduled date is already in the past. These have a date so they
+    //     fall out of "Pending Scheduling", and being in a past week they
+    //     vanish from the current-week view — so they'd silently slip.
+    const todayStr = ymd(new Date());
+    const overdue = await call<OrderRow[]>({
+      session: s.session,
+      model: "indigo.order",
+      method: "search_read",
+      args: [
+        [
+          ["stage_id.code", "in", PENDING_INSTALL_CODES],
+          ["installation_date", "!=", false],
+          ["installation_date", "<", todayStr],
+        ],
+        [
+          "id",
+          "name",
+          "dealer_ref",
+          "client_name",
+          "client_address",
+          "installer_ids",
+          "door_count",
+          "installation_date",
+          "stage_code",
+          "total_sqf",
+        ],
+      ],
+      kwargs: { limit: 500, order: "installation_date" },
+    });
+
     // 2. Resolve installer names from res.partner (since installer_ids is
     //    a m2m to res.partner via the `installer_partner_rel` table). Read
-    //    them once for the whole batch (weekly + unscheduled).
+    //    them once for the whole batch (weekly + unscheduled + overdue).
     const installerIdSet = new Set<number>();
-    for (const o of [...orders, ...unscheduled]) {
+    for (const o of [...orders, ...unscheduled, ...overdue]) {
       for (const iid of o.installer_ids || []) installerIdSet.add(iid);
     }
     interface PartnerRow {
@@ -148,8 +179,8 @@ export async function GET(req: NextRequest) {
       : [];
     const nameOf = new Map(installers.map((p) => [p.id, p.name]));
 
-    // 3. Pull first_line per order for door_type + color (weekly + unscheduled).
-    const orderIds = [...orders, ...unscheduled].map((o) => o.id);
+    // 3. Pull first_line per order for door_type + color (all buckets).
+    const orderIds = [...orders, ...unscheduled, ...overdue].map((o) => o.id);
     interface LineRow {
       id: number;
       order_id: [number, string] | false;
@@ -280,6 +311,35 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // 4c. Overdue rows: scheduled in the past, still not installed. Carries
+    //     daysOverdue so the UI can flag how late each one is.
+    const todayMs = new Date(todayStr + "T00:00:00").getTime();
+    const overdueRows = overdue.map((o) => {
+      const firstLine = firstLineByOrder.get(o.id);
+      const names = (o.installer_ids || [])
+        .map((iid) => nameOf.get(iid))
+        .filter(Boolean) as string[];
+      const dateStr = o.installation_date
+        ? String(o.installation_date).slice(0, 10)
+        : "";
+      const daysOverdue = dateStr
+        ? Math.round((todayMs - new Date(dateStr + "T00:00:00").getTime()) / 86_400_000)
+        : 0;
+      return {
+        id: o.id,
+        name: o.name,
+        dealer_ref: o.dealer_ref || "",
+        client_name: o.client_name,
+        client_address: o.client_address || "",
+        door_type: firstLine?.door_type ?? "",
+        qty: o.door_count || 1,
+        scheduled_date: dateStr,
+        days_overdue: daysOverdue,
+        installer: names.length ? names.join(", ") : "Unassigned",
+        installer_ids: o.installer_ids || [],
+      };
+    });
+
     // 5. Daily breakdown for the bar chart. One bar per weekday with
     //    installed / pending / not_scheduled counts.
     const days: Array<{
@@ -383,6 +443,7 @@ export async function GET(req: NextRequest) {
       },
       installers: installerBuckets,
       unscheduled: unscheduledRows,
+      overdue: overdueRows,
       days,
     });
   } catch (e) {
