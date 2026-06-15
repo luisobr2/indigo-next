@@ -24,6 +24,10 @@ import {
 import { toast } from "sonner";
 import { fmtMoney, fmtNum, fmtDate, cn } from "@/lib/utils";
 import { AddInstallerModal } from "@/components/add-installer-modal";
+import {
+  ScheduleInstallationModal,
+  type ScheduleTarget,
+} from "@/components/schedule-installation-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -82,6 +86,7 @@ interface DashboardData {
     qty: number;
     stage_code: string;
     installer: string;
+    installer_ids: number[];
   }>;
   days: Array<{
     date: string;
@@ -132,6 +137,7 @@ export default function InstallationsPage() {
   const [q, setQ] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | number>("all");
   const [addInstallerOpen, setAddInstallerOpen] = useState(false);
+  const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null);
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
 
   const { data, isLoading } = useQuery<DashboardData>({
@@ -241,6 +247,11 @@ export default function InstallationsPage() {
         onClose={() => setAddInstallerOpen(false)}
       />
 
+      <ScheduleInstallationModal
+        target={scheduleTarget}
+        onClose={() => setScheduleTarget(null)}
+      />
+
       {/* KPI tiles */}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiTile
@@ -344,12 +355,20 @@ export default function InstallationsPage() {
                       )}
                     </td>
                     <td className="px-4 py-2.5">
-                      <Link
-                        href={`/orders/${o.id}`}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setScheduleTarget({
+                            id: o.id,
+                            label: o.dealer_ref || o.name,
+                            clientName: o.client_name,
+                            installerIds: o.installer_ids,
+                          })
+                        }
                         className="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-amber-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-amber-700"
                       >
                         <Calendar size={11} /> Schedule
-                      </Link>
+                      </button>
                     </td>
                   </tr>
                 ))}

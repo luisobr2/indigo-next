@@ -276,6 +276,7 @@ export async function GET(req: NextRequest) {
         qty: o.door_count || 1,
         stage_code: o.stage_code,
         installer: names.length ? names.join(", ") : "Unassigned",
+        installer_ids: o.installer_ids || [],
       };
     });
 
