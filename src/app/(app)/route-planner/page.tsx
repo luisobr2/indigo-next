@@ -1,10 +1,36 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Map, MapPin, Truck, Send, ArrowRight, Printer } from "lucide-react";
+import {
+  Map,
+  MapPin,
+  Truck,
+  Send,
+  ArrowRight,
+  Printer,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { fmtDate, m2o } from "@/lib/utils";
+import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { fmtDate, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 
@@ -28,7 +54,43 @@ export default function RoutePlannerPage() {
       ),
   });
 
-  const orders = data?.records ?? [];
+  // Local, reorderable copy of the stops. The on-screen numbering, the
+  // WhatsApp message and the printed list all follow THIS order so the
+  // operator can sequence the day by customer availability.
+  const [stops, setStops] = useState<RouteOrder[]>([]);
+  const records = data?.records ?? [];
+  // Order-sensitive signature: resync only when the underlying set/order
+  // from the server actually changes, so a manual reorder isn't clobbered
+  // by a background refetch that returns the same stops.
+  const sig = records.map((r) => r.id).join(",");
+  useEffect(() => {
+    setStops(records);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor),
+  );
+
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    setStops((items) => {
+      const from = items.findIndex((x) => x.id === active.id);
+      const to = items.findIndex((x) => x.id === over.id);
+      if (from === -1 || to === -1) return items;
+      return arrayMove(items, from, to);
+    });
+  }
+
+  function nudge(index: number, dir: -1 | 1) {
+    setStops((items) => {
+      const to = index + dir;
+      if (to < 0 || to >= items.length) return items;
+      return arrayMove(items, index, to);
+    });
+  }
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-5">
@@ -43,59 +105,61 @@ export default function RoutePlannerPage() {
           </p>
         </div>
         <div className="flex gap-2">
-        <Button
-          variant="outline"
-          size="lg"
-          onClick={() => {
-            if (!orders.length) {
-              toast.warning("No installations scheduled");
-              return;
-            }
-            openOdooReport({
-              report: REPORTS.installationAddresses,
-              ids: orders.map((o) => o.id),
-              filename: `installations-${new Date().toISOString().slice(0, 10)}.pdf`,
-            });
-          }}
-        >
-          <Printer size={14} />
-          Print addresses
-        </Button>
-        <Button
-          size="lg"
-          onClick={() => {
-            if (!orders.length) {
-              toast.warning("No installations scheduled");
-              return;
-            }
-            // Build a WhatsApp-shareable text version of the day's stops.
-            // We URL-encode so addresses with commas/spaces survive the
-            // wa.me handler. No phone number prefix -> opens the contact
-            // picker on the device so the user picks the installer.
-            const lines = [
-              "*Indigo Decors — Today's installations*",
-              "",
-              ...orders.map((o, i) =>
-                [
-                  `${i + 1}. ${o.name} — ${o.client_name}`,
-                  o.client_address ? `   ${o.client_address.replace(/\n/g, ", ")}` : "",
-                  o.client_phone ? `   📞 ${o.client_phone}` : "",
-                ]
-                  .filter(Boolean)
-                  .join("\n"),
-              ),
-              "",
-              `Total stops: ${orders.length}`,
-            ].join("\n");
-            const url = `https://wa.me/?text=${encodeURIComponent(lines)}`;
-            window.open(url, "_blank", "noopener");
-            toast.success("Opening WhatsApp...");
-          }}
-          className="bg-emerald-600 text-white shadow shadow-emerald-600/30 hover:bg-emerald-700"
-        >
-          <Send size={14} />
-          Send route to WhatsApp
-        </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => {
+              if (!stops.length) {
+                toast.warning("No installations scheduled");
+                return;
+              }
+              openOdooReport({
+                report: REPORTS.installationAddresses,
+                ids: stops.map((o) => o.id),
+                filename: `installations-${new Date().toISOString().slice(0, 10)}.pdf`,
+              });
+            }}
+          >
+            <Printer size={14} />
+            Print addresses
+          </Button>
+          <Button
+            size="lg"
+            onClick={() => {
+              if (!stops.length) {
+                toast.warning("No installations scheduled");
+                return;
+              }
+              // Build a WhatsApp-shareable text version of the day's stops in
+              // the CURRENT (possibly reordered) sequence. We URL-encode so
+              // addresses with commas/spaces survive the wa.me handler. No
+              // phone prefix -> opens the contact picker on the device.
+              const lines = [
+                "*Indigo Decors — Today's installations*",
+                "",
+                ...stops.map((o, i) =>
+                  [
+                    `${i + 1}. ${o.name} — ${o.client_name}`,
+                    o.client_address
+                      ? `   ${o.client_address.replace(/\n/g, ", ")}`
+                      : "",
+                    o.client_phone ? `   📞 ${o.client_phone}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join("\n"),
+                ),
+                "",
+                `Total stops: ${stops.length}`,
+              ].join("\n");
+              const url = `https://wa.me/?text=${encodeURIComponent(lines)}`;
+              window.open(url, "_blank", "noopener");
+              toast.success("Opening WhatsApp...");
+            }}
+            className="bg-emerald-600 text-white shadow shadow-emerald-600/30 hover:bg-emerald-700"
+          >
+            <Send size={14} />
+            Send route to WhatsApp
+          </Button>
         </div>
       </div>
 
@@ -119,55 +183,143 @@ export default function RoutePlannerPage() {
         </div>
 
         <aside className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center gap-2 font-semibold text-slate-800">
+          <div className="mb-1 flex items-center gap-2 font-semibold text-slate-800">
             <Truck size={16} className="text-indigo-700" />
-            Stops ({orders.length})
+            Stops ({stops.length})
           </div>
+          <p className="mb-3 text-xs text-slate-400">
+            Drag <GripVertical size={11} className="inline -mt-0.5" /> or use
+            the ↑ ↓ buttons to reorder. The order here is what gets sent to
+            WhatsApp and printed.
+          </p>
           {isLoading && (
             <div className="py-12 text-center text-sm text-slate-400">
               Loading...
             </div>
           )}
-          {!isLoading && orders.length === 0 && (
+          {!isLoading && stops.length === 0 && (
             <div className="py-12 text-center text-sm text-slate-400">
               Nothing scheduled.
             </div>
           )}
-          <ol className="space-y-2">
-            {orders.map((o, i) => (
-              <li
-                key={o.id}
-                className="flex gap-3 rounded-xl border border-slate-100 p-3 hover:bg-slate-50"
-              >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-700 text-xs font-bold text-white">
-                  {i + 1}
-                </div>
-                <div className="flex-1 text-sm">
-                  <Link
-                    href={`/orders/${o.id}`}
-                    className="font-semibold text-indigo-700 hover:underline"
-                  >
-                    {o.name}
-                  </Link>
-                  <div className="font-medium text-slate-800">
-                    {o.client_name}
-                  </div>
-                  <div className="flex items-start gap-1 text-xs text-slate-500">
-                    <MapPin size={11} className="mt-0.5 shrink-0" />
-                    <span className="line-clamp-2">{o.client_address}</span>
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
-                    <span>{fmtDate(o.installation_date as string)}</span>
-                    {i < orders.length - 1 && (
-                      <ArrowRight size={10} className="text-slate-300" />
-                    )}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ol>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={stops.map((s) => s.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <ol className="space-y-2">
+                {stops.map((o, i) => (
+                  <SortableStop
+                    key={o.id}
+                    order={o}
+                    index={i}
+                    total={stops.length}
+                    onUp={() => nudge(i, -1)}
+                    onDown={() => nudge(i, 1)}
+                  />
+                ))}
+              </ol>
+            </SortableContext>
+          </DndContext>
         </aside>
       </div>
     </div>
+  );
+}
+
+function SortableStop({
+  order: o,
+  index,
+  total,
+  onUp,
+  onDown,
+}: {
+  order: RouteOrder;
+  index: number;
+  total: number;
+  onUp: () => void;
+  onDown: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: o.id });
+
+  const style: React.CSSProperties = {
+    transform: transform
+      ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
+      : undefined,
+    transition,
+    zIndex: isDragging ? 10 : undefined,
+  };
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex items-stretch gap-2 rounded-xl border border-slate-100 bg-white p-3",
+        isDragging ? "shadow-lg ring-1 ring-indigo-200" : "hover:bg-slate-50",
+      )}
+    >
+      {/* Drag handle */}
+      <button
+        type="button"
+        className="flex cursor-grab touch-none items-center text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+        aria-label="Drag to reorder"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical size={16} />
+      </button>
+
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-700 text-xs font-bold text-white">
+        {index + 1}
+      </div>
+
+      <div className="flex-1 text-sm">
+        <Link
+          href={`/orders/${o.id}`}
+          className="font-semibold text-indigo-700 hover:underline"
+        >
+          {o.name}
+        </Link>
+        <div className="font-medium text-slate-800">{o.client_name}</div>
+        <div className="flex items-start gap-1 text-xs text-slate-500">
+          <MapPin size={11} className="mt-0.5 shrink-0" />
+          <span className="line-clamp-2">{o.client_address}</span>
+        </div>
+        <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
+          <span>{fmtDate(o.installation_date as string)}</span>
+          {index < total - 1 && (
+            <ArrowRight size={10} className="text-slate-300" />
+          )}
+        </div>
+      </div>
+
+      {/* Up / down nudge buttons — touch-friendly alternative to dragging */}
+      <div className="flex flex-col justify-center gap-1">
+        <button
+          type="button"
+          onClick={onUp}
+          disabled={index === 0}
+          aria-label="Move up"
+          className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <ChevronUp size={15} />
+        </button>
+        <button
+          type="button"
+          onClick={onDown}
+          disabled={index === total - 1}
+          aria-label="Move down"
+          className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <ChevronDown size={15} />
+        </button>
+      </div>
+    </li>
   );
 }
