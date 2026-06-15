@@ -1,21 +1,38 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   CalendarDays,
+  CalendarPlus,
   ChevronLeft,
   ChevronRight,
   Plus,
   MapPin,
+  Copy,
+  Check,
+  Download,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   ScheduleOnDayModal,
   type PendingOrder,
 } from "@/components/schedule-on-day-modal";
+
+// Capability token for the .ics feed; matches the API fallback. Not a hard
+// secret — the whole point is to hand this URL to a calendar client.
+const ICS_TOKEN =
+  process.env.NEXT_PUBLIC_CALENDAR_ICS_TOKEN ?? "idg-cal-2f8a91c47e6b5d30";
 
 interface CalEvent {
   id: number;
@@ -61,6 +78,13 @@ export default function CalendarPage() {
   // `cursor` is any day inside the displayed month.
   const [cursor, setCursor] = useState(() => new Date());
   const [dayTarget, setDayTarget] = useState<string | null>(null);
+  const [subscribeOpen, setSubscribeOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [feedUrl, setFeedUrl] = useState("");
+
+  useEffect(() => {
+    setFeedUrl(`${window.location.origin}/api/calendar.ics?token=${ICS_TOKEN}`);
+  }, []);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth(); // 0-based
@@ -155,6 +179,13 @@ export default function CalendarPage() {
           </div>
           <Button variant="outline" size="lg" onClick={() => setCursor(new Date())}>
             Today
+          </Button>
+          <Button
+            size="lg"
+            onClick={() => setSubscribeOpen(true)}
+            className="bg-indigo-700 text-white shadow shadow-indigo-700/20 hover:bg-indigo-800"
+          >
+            <CalendarPlus size={16} /> Add to my calendar
           </Button>
         </div>
       </div>
@@ -276,6 +307,75 @@ export default function CalendarPage() {
         onClose={() => setDayTarget(null)}
         onScheduled={() => setDayTarget(null)}
       />
+
+      <Dialog open={subscribeOpen} onOpenChange={setSubscribeOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarPlus size={16} className="text-indigo-700" />
+              Add installations to your calendar
+            </DialogTitle>
+            <DialogDescription>
+              Subscribe once and every scheduled installation shows up in your
+              Google / Apple calendar — with a reminder the day before. It stays
+              in sync automatically.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <div className="mb-1 text-xs font-semibold text-slate-600">
+                Subscription link
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  value={feedUrl}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="h-9 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 font-mono text-xs text-slate-700"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(feedUrl);
+                      setCopied(true);
+                      toast.success("Link copied");
+                      setTimeout(() => setCopied(false), 2000);
+                    } catch {
+                      toast.error("Could not copy");
+                    }
+                  }}
+                >
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </div>
+            </div>
+
+            <ol className="list-decimal space-y-1.5 pl-5 text-sm text-slate-600">
+              <li>Open Google Calendar on a computer.</li>
+              <li>
+                Left side: <strong>Other calendars</strong> → <strong>+</strong>{" "}
+                → <strong>From URL</strong>.
+              </li>
+              <li>Paste the link above and click <strong>Add calendar</strong>.</li>
+            </ol>
+
+            <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+              Prefer a one-time import (no auto-sync)? Use{" "}
+              <a
+                href={feedUrl}
+                className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:underline"
+              >
+                <Download size={12} /> download the .ics file
+              </a>{" "}
+              and import it into your calendar.
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

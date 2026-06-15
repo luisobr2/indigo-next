@@ -11,6 +11,10 @@ export function proxy(req: NextRequest) {
   if (
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/auth") ||
+    // Public, token-gated iCalendar feed: subscribed by external calendar
+    // clients (Google/Apple) that can't carry the session cookie. The
+    // route validates its own ?token=.
+    pathname.startsWith("/api/calendar.ics") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname === "/"
