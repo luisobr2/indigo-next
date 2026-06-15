@@ -71,6 +71,18 @@ interface DashboardData {
       scheduled_date: string | false;
     }>;
   }>;
+  unscheduled: Array<{
+    id: number;
+    name: string;
+    dealer_ref: string;
+    client_name: string;
+    client_address: string;
+    door_type: string;
+    color: string;
+    qty: number;
+    stage_code: string;
+    installer: string;
+  }>;
   days: Array<{
     date: string;
     label: string;
@@ -148,6 +160,22 @@ export default function InstallationsPage() {
       }))
       .filter((i) => i.orders.length > 0);
   }, [data, activeTab, q]);
+
+  // Pending installs that have no date yet — week-agnostic, so they show
+  // regardless of which week is selected. This is what the dashboard
+  // "Installations Pending" KPI counts that the weekly view used to hide.
+  const unscheduled = useMemo(() => {
+    const rows = data?.unscheduled ?? [];
+    if (!q.trim()) return rows;
+    const needle = q.toLowerCase();
+    return rows.filter(
+      (o) =>
+        o.client_name.toLowerCase().includes(needle) ||
+        o.name.toLowerCase().includes(needle) ||
+        o.dealer_ref.toLowerCase().includes(needle) ||
+        o.client_address.toLowerCase().includes(needle),
+    );
+  }, [data, q]);
 
   function shiftWeek(deltaDays: number) {
     const d = new Date(week);
@@ -248,6 +276,88 @@ export default function InstallationsPage() {
           iconColor="text-violet-600"
         />
       </section>
+
+      {/* Pending scheduling — orders awaiting an installation date. These are
+          counted in the dashboard "Installations Pending" KPI but have no
+          date, so they don't appear in any week. Surface them here so they
+          can be opened and scheduled. */}
+      {unscheduled.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/50 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 px-5 py-3">
+            <h3 className="flex items-center gap-1.5 font-semibold text-amber-900">
+              <Calendar size={15} className="text-amber-600" />
+              Pending Scheduling
+              <Badge
+                variant="secondary"
+                className="bg-amber-200 text-[10px] font-bold text-amber-800"
+              >
+                {unscheduled.length}
+              </Badge>
+            </h3>
+            <span className="text-xs text-amber-700">
+              Ready to install — no date assigned yet. Open an order to schedule it.
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[800px] text-sm">
+              <thead className="bg-amber-100/60 text-left text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                <tr>
+                  <th className="px-4 py-2.5">Order Number</th>
+                  <th className="px-4 py-2.5">Client Name</th>
+                  <th className="px-4 py-2.5">Address</th>
+                  <th className="px-4 py-2.5">Door Type</th>
+                  <th className="px-4 py-2.5 text-right">Qty</th>
+                  <th className="px-4 py-2.5">Installer</th>
+                  <th className="px-4 py-2.5 w-28"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {unscheduled.map((o) => (
+                  <tr
+                    key={o.id}
+                    className="border-t border-amber-100 transition hover:bg-amber-100/40"
+                  >
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/orders/${o.id}`}
+                        className="font-mono text-xs font-semibold text-indigo-700 hover:underline"
+                        title={o.name}
+                      >
+                        {o.dealer_ref || o.name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-700">{o.client_name}</td>
+                    <td className="px-4 py-2.5 text-xs text-slate-600">
+                      {o.client_address || "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-slate-700">
+                      {DOOR_TYPE_LABEL[o.door_type] ?? o.door_type ?? "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono text-xs">
+                      {o.qty}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-slate-600">
+                      {o.installer === "Unassigned" ? (
+                        <span className="text-amber-700">Unassigned</span>
+                      ) : (
+                        o.installer
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/orders/${o.id}`}
+                        className="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-amber-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-amber-700"
+                      >
+                        <Calendar size={11} /> Schedule
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* Body */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">

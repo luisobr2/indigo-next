@@ -7,6 +7,11 @@ export const runtime = "nodejs";
 
 const INSTALLER_RATE_PER_DOOR = 35;
 
+// Stages the dashboard counts as "Installations Pending". Kept in sync with
+// the Odoo dashboard model (PENDING_INSTALL_CODES) so the KPI on the
+// dashboard reconciles with what this page can show.
+const PENDING_INSTALL_CODES = ["ready_install", "install_scheduled"];
+
 /**
  * GET /api/installers/dashboard?week=YYYY-MM-DD
  *
@@ -91,11 +96,41 @@ export async function GET(req: NextRequest) {
       kwargs: { limit: 500, order: "installation_date" },
     });
 
+    // 1b. Pull orders that are pending installation but have NO date yet.
+    //     These are counted in the dashboard "Installations Pending" KPI but
+    //     never show in the weekly view — which is exactly what operators
+    //     reported as "the dashboard says N pending but I can't see them".
+    //     They are week-agnostic (no date), so we always return them.
+    const unscheduled = await call<OrderRow[]>({
+      session: s.session,
+      model: "indigo.order",
+      method: "search_read",
+      args: [
+        [
+          ["stage_id.code", "in", PENDING_INSTALL_CODES],
+          ["installation_date", "=", false],
+        ],
+        [
+          "id",
+          "name",
+          "dealer_ref",
+          "client_name",
+          "client_address",
+          "installer_ids",
+          "door_count",
+          "installation_date",
+          "stage_code",
+          "total_sqf",
+        ],
+      ],
+      kwargs: { limit: 500, order: "create_date desc" },
+    });
+
     // 2. Resolve installer names from res.partner (since installer_ids is
     //    a m2m to res.partner via the `installer_partner_rel` table). Read
-    //    them once for the whole batch.
+    //    them once for the whole batch (weekly + unscheduled).
     const installerIdSet = new Set<number>();
-    for (const o of orders) {
+    for (const o of [...orders, ...unscheduled]) {
       for (const iid of o.installer_ids || []) installerIdSet.add(iid);
     }
     interface PartnerRow {
@@ -113,8 +148,8 @@ export async function GET(req: NextRequest) {
       : [];
     const nameOf = new Map(installers.map((p) => [p.id, p.name]));
 
-    // 3. Pull first_line per order for door_type + color.
-    const orderIds = orders.map((o) => o.id);
+    // 3. Pull first_line per order for door_type + color (weekly + unscheduled).
+    const orderIds = [...orders, ...unscheduled].map((o) => o.id);
     interface LineRow {
       id: number;
       order_id: [number, string] | false;
@@ -223,6 +258,27 @@ export async function GET(req: NextRequest) {
     );
     if (unassigned.orders.length) installerBuckets.push(unassigned);
 
+    // 4b. Flat list of pending-but-undated orders for the "needs scheduling"
+    //     panel. Each carries the assigned installer name(s) or "Unassigned".
+    const unscheduledRows = unscheduled.map((o) => {
+      const firstLine = firstLineByOrder.get(o.id);
+      const names = (o.installer_ids || [])
+        .map((iid) => nameOf.get(iid))
+        .filter(Boolean) as string[];
+      return {
+        id: o.id,
+        name: o.name,
+        dealer_ref: o.dealer_ref || "",
+        client_name: o.client_name,
+        client_address: o.client_address || "",
+        door_type: firstLine?.door_type ?? "",
+        color: firstLine?.color ?? "",
+        qty: o.door_count || 1,
+        stage_code: o.stage_code,
+        installer: names.length ? names.join(", ") : "Unassigned",
+      };
+    });
+
     // 5. Daily breakdown for the bar chart. One bar per weekday with
     //    installed / pending / not_scheduled counts.
     const days: Array<{
@@ -325,6 +381,7 @@ export async function GET(req: NextRequest) {
         paymentDue,
       },
       installers: installerBuckets,
+      unscheduled: unscheduledRows,
       days,
     });
   } catch (e) {
