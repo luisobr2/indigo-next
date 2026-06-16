@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/state-cards";
+import { fetchJson } from "@/lib/fetch-json";
 
 interface BrandPayload {
   brand: {
@@ -51,8 +52,9 @@ export default function BrandEditorPage({
 
   const { data, isLoading, error, refetch } = useQuery<BrandPayload>({
     queryKey: ["brand", idStr],
-    queryFn: () => fetch(`/api/catalog/brands/${id}`).then((r) => r.json()),
+    queryFn: () => fetchJson<BrandPayload>(`/api/catalog/brands/${id}`),
     enabled: !isNew,
+    retry: 1,
   });
 
   useEffect(() => {

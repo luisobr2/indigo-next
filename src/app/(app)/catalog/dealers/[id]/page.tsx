@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Building2, Mail, Phone, MapPin, Save } from "lucide-react";
 import { toast } from "sonner";
 import { fmtDate, fmtMoney, m2o } from "@/lib/utils";
+import { fetchJson } from "@/lib/fetch-json";
 import { ErrorState } from "@/components/state-cards";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,13 +44,17 @@ export default function DealerDetailPage({
   const qc = useQueryClient();
   const router = useRouter();
 
-  const { data, isLoading } = useQuery<{
+  const { data, isLoading, isError, error, refetch } = useQuery<{
     dealer: DealerDto;
     orders: DealerOrder[];
   }>({
     queryKey: ["dealer", idStr],
-    queryFn: () => fetch(`/api/catalog/dealers/${id}`).then((r) => r.json()),
+    queryFn: () =>
+      fetchJson<{ dealer: DealerDto; orders: DealerOrder[] }>(
+        `/api/catalog/dealers/${id}`,
+      ),
     enabled: !isNew,
+    retry: 1,
   });
 
   // Edit form state — synced from server data on first arrival.
@@ -124,6 +129,22 @@ export default function DealerDetailPage({
 
   if (!isNew && isLoading)
     return <div className="p-12 text-center text-slate-400">Loading...</div>;
+  if (!isNew && isError) {
+    const status = (error as (Error & { status?: number }) | null)?.status;
+    const notFound = status === 404;
+    return (
+      <ErrorState
+        title={notFound ? "Dealer not found" : "Couldn't load this dealer"}
+        message={
+          notFound
+            ? `Dealer #${idStr} doesn't exist or you don't have permission to see it.`
+            : "Something went wrong loading the dealer. Check your connection and try again."
+        }
+        backHref="/catalog"
+        onRetry={notFound ? undefined : () => refetch()}
+      />
+    );
+  }
   if (!isNew && !data?.dealer)
     return (
       <ErrorState

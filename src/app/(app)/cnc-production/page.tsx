@@ -3,7 +3,7 @@ import {
   Play,
   Settings as Gear,
   CheckCircle2,
-  Clock,
+  PauseCircle,
 } from "lucide-react";
 import { StageScreenV2 } from "@/components/stage-screen-v2";
 import { fmtDate, fmtNum } from "@/lib/utils";
@@ -65,7 +65,7 @@ export default function CncProductionPage() {
         {
           key: "on_hold",
           label: "On Hold",
-          icon: Clock,
+          icon: PauseCircle,
           iconBg: "bg-slate-100",
           iconColor: "text-slate-600",
           pillBg: "bg-slate-100",
@@ -113,7 +113,7 @@ export default function CncProductionPage() {
         },
         {
           key: "sqf",
-          label: "SQFT",
+          label: "SQF",
           align: "right",
           render: (r) => fmtNum(r.total_sqf),
         },

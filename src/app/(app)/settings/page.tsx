@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/state-cards";
+import { fetchJson } from "@/lib/fetch-json";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -331,7 +332,7 @@ function OrphanAssignmentCard() {
   const qc = useQueryClient();
   const { data, refetch, isLoading } = useQuery<OrphansPayload>({
     queryKey: ["orphans"],
-    queryFn: () => fetch("/api/orders/auto-assign").then((r) => r.json()),
+    queryFn: () => fetchJson<OrphansPayload>("/api/orders/auto-assign"),
     staleTime: 30_000,
   });
 

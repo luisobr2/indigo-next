@@ -31,6 +31,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { fmtDate, cn } from "@/lib/utils";
+import { fetchJson } from "@/lib/fetch-json";
 import { Button } from "@/components/ui/button";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 
@@ -46,11 +47,11 @@ interface RouteOrder {
 }
 
 export default function RoutePlannerPage() {
-  const { data, isLoading } = useQuery<{ records: RouteOrder[] }>({
+  const { data, isLoading, isError } = useQuery<{ records: RouteOrder[] }>({
     queryKey: ["route-planner"],
     queryFn: () =>
-      fetch("/api/orders?stages=install_scheduled,ready_install&limit=50").then(
-        (r) => r.json(),
+      fetchJson<{ records: RouteOrder[] }>(
+        "/api/orders?stages=install_scheduled,ready_install&limit=50",
       ),
   });
 
@@ -197,7 +198,12 @@ export default function RoutePlannerPage() {
               Loading...
             </div>
           )}
-          {!isLoading && stops.length === 0 && (
+          {isError && (
+            <div className="py-12 text-center text-sm text-rose-600">
+              Couldn&apos;t load scheduled stops. Refresh to try again.
+            </div>
+          )}
+          {!isLoading && !isError && stops.length === 0 && (
             <div className="py-12 text-center text-sm text-slate-400">
               Nothing scheduled.
             </div>

@@ -1,8 +1,14 @@
 "use client";
-import { Pencil, Settings as Gear, CheckCircle2, Clock, Tag } from "lucide-react";
+import { Pencil, Settings as Gear, CheckCircle2, PauseCircle, Tag } from "lucide-react";
 import { StageScreenV2 } from "@/components/stage-screen-v2";
 import { fmtDate, fmtNum } from "@/lib/utils";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
+
+const DOOR_TYPE_LABEL: Record<string, string> = {
+  SD: "Single Door",
+  DD: "Double Door",
+  SDL: "Door with Sidelites",
+};
 
 export default function DigitalizationPage() {
   return (
@@ -11,6 +17,7 @@ export default function DigitalizationPage() {
       subtitle="Confirmed orders ready to be digitalized and prepared for CNC production."
       stageCode="ready_digitalization"
       subStatusPrefix="digi"
+      includeLines
       tabs={[
         {
           key: "ready",
@@ -42,7 +49,7 @@ export default function DigitalizationPage() {
         {
           key: "on_hold",
           label: "On Hold",
-          icon: Clock,
+          icon: PauseCircle,
           iconBg: "bg-slate-100",
           iconColor: "text-slate-600",
           pillBg: "bg-slate-100",
@@ -53,14 +60,23 @@ export default function DigitalizationPage() {
         {
           key: "design",
           label: "Design",
-          render: (r) => (
-            <div>
-              <div className="font-mono font-bold text-indigo-700">—</div>
-              <div className="text-xs text-slate-500">
-                {r.door_count} {r.door_count === 1 ? "door" : "doors"}
+          render: (r) => {
+            const code =
+              r.first_line?.design_id && Array.isArray(r.first_line.design_id)
+                ? r.first_line.design_id[1]
+                : "—";
+            const doorType = r.first_line?.door_type ?? "";
+            return (
+              <div>
+                <div className="font-mono font-bold text-indigo-700">{code}</div>
+                <div className="text-xs text-slate-500">
+                  {DOOR_TYPE_LABEL[doorType] ?? doorType ?? ""}
+                  {doorType ? " · " : ""}
+                  {r.door_count} {r.door_count === 1 ? "door" : "doors"}
+                </div>
               </div>
-            </div>
-          ),
+            );
+          },
         },
         {
           key: "measurements",
