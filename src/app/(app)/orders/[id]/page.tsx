@@ -92,6 +92,9 @@ export default function OrderDetailPage({
     door_count: number;
     total_sqf: number;
     total_dealer_charge: number;
+    installation_fee?: number;
+    install_zone_name?: string | false;
+    client_zip?: string | false;
     payment_state: string;
     create_date: string;
     notes: string;
@@ -574,6 +577,21 @@ export default function OrderDetailPage({
               <Row label="Color" value={lines[0]?.color ?? "—"} />
               <Row label="Glass" value={lines[0]?.glass_type ?? "—"} />
               <Row label="SQF" value={fmtNum(o.total_sqf)} />
+              {o.installation_fee && o.installation_fee > 0 ? (
+                <Row
+                  label="Install fee"
+                  value={
+                    <span>
+                      {fmtMoney(o.installation_fee)}
+                      {o.install_zone_name ? (
+                        <span className="ml-1 text-[10px] text-slate-400">
+                          ({String(o.install_zone_name).split("—")[0].trim()})
+                        </span>
+                      ) : null}
+                    </span>
+                  }
+                />
+              ) : null}
               <Row
                 label="Status"
                 value={
