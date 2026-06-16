@@ -9,6 +9,7 @@ import {
   CheckSquare,
   PieChart as PieIcon,
   Search,
+  Download,
   Plus,
   Calendar,
   ChevronDown,
@@ -18,7 +19,9 @@ import {
   CircleDollarSign,
   AlertTriangle,
 } from "lucide-react";
+import { toast } from "sonner";
 import { fmtMoney, fmtNum, fmtDate, cn } from "@/lib/utils";
+import { toCsv, downloadCsv } from "@/lib/csv";
 import { fetchJson } from "@/lib/fetch-json";
 import { ErrorState } from "@/components/state-cards";
 import { AddInstallerModal } from "@/components/add-installer-modal";
@@ -225,6 +228,31 @@ export default function InstallationsPage() {
     setWeek(ymd(startOfWeek(d)));
   }
 
+  // Export what the user currently sees (respects the search + installer tab)
+  // as a flat CSV — one row per scheduled door.
+  function exportCsv() {
+    const rows = filteredInstallers.flatMap((inst) =>
+      inst.orders.map((o) => ({ installer: inst.name, o })),
+    );
+    if (!rows.length) {
+      toast.warning("Nothing to export for this view.");
+      return;
+    }
+    const csv = toCsv(rows, [
+      { header: "Installer", value: (r) => r.installer },
+      { header: "Order #", value: (r) => r.o.dealer_ref || r.o.name },
+      { header: "Client", value: (r) => r.o.client_name },
+      { header: "Address", value: (r) => r.o.client_address?.replace(/\n/g, " ") },
+      { header: "Door Type", value: (r) => DOOR_TYPE_LABEL[r.o.door_type] ?? r.o.door_type },
+      { header: "Color", value: (r) => r.o.color },
+      { header: "Qty", value: (r) => r.o.qty },
+      { header: "Status", value: (r) => r.o.status },
+      { header: "Scheduled", value: (r) => (r.o.scheduled_date ? String(r.o.scheduled_date) : "") },
+    ]);
+    downloadCsv(`installations-${week}.csv`, csv);
+    toast.success(`Exported ${rows.length} row${rows.length === 1 ? "" : "s"}`);
+  }
+
   const summary = data?.summary;
 
   // Donut data
@@ -275,6 +303,9 @@ export default function InstallationsPage() {
               className="h-10 pl-10"
             />
           </div>
+          <Button variant="outline" size="lg" onClick={exportCsv}>
+            <Download size={14} /> Export CSV
+          </Button>
           <Button size="lg" onClick={() => setAddInstallerOpen(true)}>
             <Plus size={14} /> Add Installer
           </Button>

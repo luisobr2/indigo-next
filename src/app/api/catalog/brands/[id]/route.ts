@@ -69,8 +69,14 @@ export async function PUT(
       active: boolean;
     }>;
     const vals: Record<string, unknown> = {};
-    if (body.name !== undefined) vals.name = body.name;
-    if (body.code !== undefined) vals.code = body.code || false;
+    if (body.name !== undefined) {
+      const name = String(body.name).trim();
+      if (!name) {
+        return NextResponse.json({ error: "Brand name can't be empty." }, { status: 400 });
+      }
+      vals.name = name;
+    }
+    if (body.code !== undefined) vals.code = body.code.trim().toUpperCase() || false;
     if (body.notes !== undefined) vals.notes = body.notes;
     if (body.active !== undefined) vals.active = body.active;
     if (!Object.keys(vals).length) {

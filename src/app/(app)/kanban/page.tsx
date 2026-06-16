@@ -128,6 +128,25 @@ export default function KanbanPage() {
     const targetStage = data?.stages.find((s) => s.id === targetStageId);
     if (!targetStage) return;
 
+    // Guard non-adjacent moves. A drag straight to the column writes the
+    // stage directly, bypassing the wizard (photo / SQF / payment capture).
+    // Stepping one stage at a time is the normal flow and goes through with
+    // no friction; skipping stages forward or dragging backwards asks for
+    // confirmation so an accidental drag (e.g. New Order → Installed) can't
+    // silently skip production and its payouts.
+    const currentStage = data?.stages.find((s) => s.id === currentStageId);
+    const gap = targetStage.sequence - (currentStage?.sequence ?? 0);
+    if (Math.abs(gap) > 1) {
+      const skipped = Math.abs(gap) - 1;
+      const ok = window.confirm(
+        `Move ${card.name} ${gap < 0 ? "BACK" : "forward"} from ` +
+          `"${currentStage?.name ?? "?"}" to "${targetStage.name}"?\n\n` +
+          `This skips ${skipped} stage${skipped === 1 ? "" : "s"} and bypasses ` +
+          `the stage wizard (no photo / SQF / payment capture). Continue?`,
+      );
+      if (!ok) return;
+    }
+
     // Optimistic update
     setOptimistic((prev) => ({ ...prev, [orderId]: targetStageId }));
 

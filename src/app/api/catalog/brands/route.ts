@@ -62,11 +62,12 @@ export async function POST(req: NextRequest) {
       code: string;
       notes: string;
     }>;
-    if (!body.name) {
+    const name = (body.name ?? "").trim();
+    if (!name) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
-    const vals: Record<string, unknown> = { name: body.name };
-    if (body.code) vals.code = body.code;
+    const vals: Record<string, unknown> = { name };
+    if (body.code) vals.code = body.code.trim().toUpperCase();
     if (body.notes) vals.notes = body.notes;
 
     const id = await call<number>({
