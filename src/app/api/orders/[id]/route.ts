@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { call, odooReportUrl } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 import { deriveRole } from "@/lib/odoo/types";
+import { validateOrderEdit } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -247,6 +248,10 @@ export async function PUT(
         { error: "No editable fields provided" },
         { status: 400 },
       );
+    }
+    const valErr = validateOrderEdit(vals);
+    if (valErr) {
+      return NextResponse.json({ error: valErr }, { status: 400 });
     }
     const ok = await call<boolean>({
       session: s.session,

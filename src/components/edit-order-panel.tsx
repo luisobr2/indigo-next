@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { FractionalInchInput } from "@/components/fractional-inch-input";
 import { cn } from "@/lib/utils";
+import { validateOrderEdit, validateLineEdit } from "@/lib/validation";
 
 interface LineRow {
   id: number;
@@ -126,6 +127,31 @@ export function EditOrderPanel({
   }
 
   async function save() {
+    // Client-side validation (mirrored server-side as defense in depth).
+    // Validate the full intended state so we never save an invalid order.
+    const orderErr = validateOrderEdit({
+      client_name: orderForm.client_name,
+      client_email: orderForm.client_email,
+    });
+    if (orderErr) {
+      toast.error(orderErr);
+      return;
+    }
+    for (let i = 0; i < lineForms.length; i++) {
+      const lf = lineForms[i];
+      const lineVals: Record<string, unknown> = {
+        width: lf.width,
+        height: lf.height,
+        qty: lf.qty,
+      };
+      if (lf.design_tier === "custom") lineVals.custom_price = lf.custom_price;
+      const lineErr = validateLineEdit(lineVals, `Piece ${i + 1}`);
+      if (lineErr) {
+        toast.error(lineErr);
+        return;
+      }
+    }
+
     setSaving(true);
     // Collect every write into a list of promises so we can run them in
     // parallel and report partial failures clearly. There's no DB-level

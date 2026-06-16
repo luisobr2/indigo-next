@@ -55,9 +55,23 @@ export default function OrderDetailPage({
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState(false);
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery<OrderDetail>({
+  const { data, isLoading, isError, error, refetch } = useQuery<OrderDetail>({
     queryKey: ["order", id],
-    queryFn: () => fetch(`/api/orders/${id}`).then((r) => r.json()),
+    // Throw on non-2xx so react-query surfaces it via isError (otherwise a
+    // 500/network failure would be swallowed and look like "not found").
+    queryFn: async () => {
+      const r = await fetch(`/api/orders/${id}`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const err = new Error(j?.error || `Request failed (${r.status})`) as Error & {
+          status?: number;
+        };
+        err.status = r.status;
+        throw err;
+      }
+      return j;
+    },
+    retry: 1,
   });
   const { data: me } = useQuery<MePayload>({
     queryKey: ["me"],
@@ -67,6 +81,25 @@ export default function OrderDetailPage({
   const canAssign = !!(role?.isManager || role?.isOffice || me?.user?.isAdmin);
 
   if (isLoading) return <OrderDetailSkeleton />;
+
+  // Distinguish a genuine 404 (order doesn't exist / no access) from a
+  // transient load failure (500 / network) — the latter gets a retry.
+  if (isError) {
+    const status = (error as (Error & { status?: number }) | null)?.status;
+    const notFound = status === 404;
+    return (
+      <ErrorState
+        title={notFound ? "Order not found" : "Couldn't load this order"}
+        message={
+          notFound
+            ? `Order #${id} doesn't exist or you don't have permission to see it.`
+            : "Something went wrong loading the order. Check your connection and try again."
+        }
+        backHref="/orders"
+        onRetry={notFound ? undefined : () => refetch()}
+      />
+    );
+  }
 
   if (!data?.order)
     return (

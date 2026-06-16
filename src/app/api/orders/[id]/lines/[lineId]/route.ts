@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 import { deriveRole } from "@/lib/odoo/types";
+import { validateLineEdit } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -59,6 +60,10 @@ export async function PATCH(
         { error: "No editable fields provided" },
         { status: 400 },
       );
+    }
+    const valErr = validateLineEdit(vals);
+    if (valErr) {
+      return NextResponse.json({ error: valErr }, { status: 400 });
     }
 
     // Verify the line belongs to this order AND fetch its current
