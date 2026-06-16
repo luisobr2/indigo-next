@@ -2,9 +2,20 @@
 
 import { Suspense, useRef, useState, FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
+function friendlyError(status: number, raw?: string): string {
+  const r = (raw || "").toLowerCase();
+  if (status === 401 || r.includes("credential") || r.includes("invalid") || r.includes("denied")) {
+    return "Incorrect email or password.";
+  }
+  if (status === 429) return "Too many attempts. Please wait a moment and try again.";
+  if (status >= 500) return "We couldn't sign you in right now. Please try again shortly.";
+  return raw || "Sign in failed. Please try again.";
+}
 
 function LoginInner() {
   const router = useRouter();
@@ -13,42 +24,33 @@ function LoginInner() {
 
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
 
-  async function attemptLogin(
-    loginVal: string,
-    passwordVal: string,
-    landing: string,
-  ) {
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
     setError(null);
     setBusy(true);
     try {
       const r = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login: loginVal, password: passwordVal }),
+        body: JSON.stringify({ login: login.trim(), password }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Login failed");
-      router.replace(landing);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
-      setPassword("");
-      requestAnimationFrame(() => passwordRef.current?.focus());
-      throw err;
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(friendlyError(r.status, data?.error));
+        setPassword("");
+        requestAnimationFrame(() => passwordRef.current?.focus());
+        return;
+      }
+      router.replace(next);
+    } catch {
+      setError("Network error — check your connection and try again.");
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    try {
-      await attemptLogin(login, password, next);
-    } catch {
-      /* attemptLogin already set the error state */
     }
   }
 
@@ -79,9 +81,12 @@ function LoginInner() {
             <Input
               id="login"
               type="email"
+              inputMode="email"
               autoComplete="email"
+              spellCheck={false}
               value={login}
               onChange={(e) => setLogin(e.target.value)}
+              aria-invalid={!!error}
               autoFocus
               required
               className="h-11"
@@ -90,21 +95,37 @@ function LoginInner() {
 
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
-            <Input
-              ref={passwordRef}
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              aria-invalid={!!error}
-              className="h-11"
-            />
+            <div className="relative">
+              <Input
+                ref={passwordRef}
+                id="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                aria-invalid={!!error}
+                className="h-11 pr-11"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                title={showPassword ? "Hide password" : "Show password"}
+                tabIndex={-1}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           {error && (
-            <div className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 ring-1 ring-rose-200">
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 ring-1 ring-rose-200"
+            >
               {error}
             </div>
           )}
@@ -115,13 +136,17 @@ function LoginInner() {
             size="lg"
             className="h-11 w-full text-base font-semibold shadow-lg shadow-indigo-700/30"
           >
-            {busy ? "Signing in..." : "Sign in"}
+            {busy ? "Signing in…" : "Sign in"}
           </Button>
 
           <p className="text-center text-xs text-slate-400">
-            Indigo Decors · Production ERP
+            Trouble signing in? Contact your administrator.
           </p>
         </form>
+
+        <p className="mt-6 text-center text-xs text-slate-400">
+          © {new Date().getFullYear()} Indigo Publicity Corp · Indigo Decors
+        </p>
       </div>
     </main>
   );
