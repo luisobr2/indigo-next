@@ -5,8 +5,6 @@ import { use, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
-  CheckCircle2,
-  Circle,
   Printer,
   Mail,
   FileText,
@@ -154,10 +152,29 @@ export default function OrderDetailPage({
 
   const dealer = m2o(o.dealer_id);
   const currentStage = data.stages.find((s) => s.code === o.stage_code);
-  const currentSeq = currentStage?.sequence ?? 0;
   const wizardCfg = STAGE_WIZARDS[o.stage_code];
   // suppress unused warning — dealer is shown via m2o in the cards below
   void dealer;
+
+  // Human-readable stage name (coherent with the header badge) instead of
+  // the raw code (e.g. "Ready for Installation" not "ready_install").
+  const stageLabel = currentStage?.name ?? m2o(o.stage_id)?.name ?? o.stage_code;
+
+  // Multi-piece orders historically showed only piece 1 in the summary
+  // cards. Surface "Mixed" when a field varies across pieces so a 3-door
+  // order with different colors isn't misrepresented by piece 1.
+  const multiPiece = lines.length > 1;
+  const uniform = <T,>(get: (l: (typeof lines)[number]) => T) => {
+    if (!lines.length) return { value: undefined as T | undefined, mixed: false };
+    const first = get(lines[0]);
+    return { value: first, mixed: lines.some((l) => get(l) !== first) };
+  };
+  const uDoorType = uniform((l) => l.door_type);
+  const uColor = uniform((l) => l.color);
+  const uGlass = uniform((l) => l.glass_type);
+  const firstBrand = m2o(
+    (lines[0] as { brand_id?: [number, string] | false } | undefined)?.brand_id,
+  );
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-5">
@@ -352,18 +369,7 @@ export default function OrderDetailPage({
                 <div className="mt-2 flex items-center justify-center gap-2 text-xs text-slate-500">
                   <span
                     className="inline-block h-3 w-3 rounded-full border border-slate-300"
-                    style={{
-                      background:
-                        lines[0].color === "white"
-                          ? "#fff"
-                          : lines[0].color === "bronze"
-                            ? "#a16207"
-                            : lines[0].color === "bronze_eco"
-                              ? "#854d0e"
-                              : lines[0].color === "black"
-                                ? "#111"
-                                : "#cbd5e1",
-                    }}
+                    style={{ background: colorDot(lines[0].color) }}
                   />
                   <span className="capitalize">
                     {lines[0].color.replace("_", " ")}
@@ -377,34 +383,42 @@ export default function OrderDetailPage({
               <div className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">
                 Order Number
               </div>
-              <div className="mb-4 flex items-baseline gap-3">
+              <div className="mb-1 flex items-baseline gap-3">
                 <span className="text-2xl font-bold text-slate-900">
                   {lines[0]?.design_id
                     ? m2o(lines[0].design_id)?.name
                     : "—"}
                 </span>
               </div>
+              {multiPiece && (
+                <p className="mb-3 text-[11px] text-amber-700">
+                  {lines.length} pieces — fields below reflect piece 1; see the
+                  Pieces table for all.
+                </p>
+              )}
 
               <dl className="space-y-3 border-t border-slate-100 pt-3">
-                <Row label="Door Type" value={lines[0]?.door_type ?? "—"} />
+                <Row
+                  label="Door Type"
+                  value={uDoorType.mixed ? "Mixed" : uDoorType.value ?? "—"}
+                />
                 <Row
                   label="Color"
                   value={
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="inline-block h-3 w-3 rounded-full"
-                        style={{
-                          background:
-                            lines[0]?.color === "white"
-                              ? "#fff"
-                              : lines[0]?.color === "bronze"
-                                ? "#a16207"
-                                : "#1f2937",
-                          border: "1px solid #cbd5e1",
-                        }}
-                      />
-                      {lines[0]?.color ?? "—"}
-                    </span>
+                    uColor.mixed ? (
+                      "Mixed"
+                    ) : (
+                      <span className="flex items-center gap-2 capitalize">
+                        <span
+                          className="inline-block h-3 w-3 rounded-full"
+                          style={{
+                            background: colorDot(lines[0]?.color),
+                            border: "1px solid #cbd5e1",
+                          }}
+                        />
+                        {lines[0]?.color?.replace("_", " ") ?? "—"}
+                      </span>
+                    )
                   }
                 />
                 <Row
@@ -423,8 +437,11 @@ export default function OrderDetailPage({
                       : `${lines[0]?.height ?? "—"} in`
                   }
                 />
-                <Row label="Brand" value="Indigo Decors" />
-                <Row label="Glass" value={lines[0]?.glass_type ?? "—"} />
+                <Row label="Brand" value={firstBrand?.name ?? "—"} />
+                <Row
+                  label="Glass"
+                  value={uGlass.mixed ? "Mixed" : uGlass.value || "—"}
+                />
                 <Row
                   label="Privacy"
                   value={lines[0]?.is_privacy_glass ? "Privacy" : "Clear"}
@@ -606,9 +623,26 @@ export default function OrderDetailPage({
               Order Summary
             </div>
             <dl className="space-y-3 text-sm">
-              <Row label="Door Type" value={lines[0]?.door_type ?? "—"} />
-              <Row label="Color" value={lines[0]?.color ?? "—"} />
-              <Row label="Glass" value={lines[0]?.glass_type ?? "—"} />
+              <Row
+                label="Door Type"
+                value={uDoorType.mixed ? "Mixed" : uDoorType.value ?? "—"}
+              />
+              <Row
+                label="Color"
+                value={
+                  uColor.mixed ? (
+                    "Mixed"
+                  ) : (
+                    <span className="capitalize">
+                      {lines[0]?.color?.replace("_", " ") ?? "—"}
+                    </span>
+                  )
+                }
+              />
+              <Row
+                label="Glass"
+                value={uGlass.mixed ? "Mixed" : uGlass.value || "—"}
+              />
               <Row label="SQF" value={fmtNum(o.total_sqf)} />
               {o.installation_fee && o.installation_fee > 0 ? (
                 <Row
@@ -628,8 +662,15 @@ export default function OrderDetailPage({
               <Row
                 label="Status"
                 value={
-                  <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-bold uppercase text-orange-700">
-                    {o.stage_code === "painting" ? "In Progress" : o.stage_code}
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
+                      o.stage_code === "painting"
+                        ? "bg-orange-50 text-orange-700"
+                        : "bg-indigo-50 text-indigo-700",
+                    )}
+                  >
+                    {stageLabel}
                   </span>
                 }
               />
@@ -673,6 +714,19 @@ export default function OrderDetailPage({
       )}
     </div>
   );
+}
+
+// Single source of truth for color swatches on this page (was duplicated in
+// 3 inconsistent inline maps — one didn't even distinguish black/bronze ECO).
+const COLOR_HEX: Record<string, string> = {
+  white: "#fff",
+  bronze: "#a16207",
+  bronze_eco: "#854d0e",
+  black: "#111",
+  custom: "#a78bfa",
+};
+function colorDot(color?: string): string {
+  return COLOR_HEX[color ?? ""] ?? "#cbd5e1";
 }
 
 function Row({

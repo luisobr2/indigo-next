@@ -172,3 +172,78 @@ export async function PATCH(
     );
   }
 }
+
+/**
+ * DELETE /api/orders/:id/lines/:lineId — remove a piece from an order.
+ * Refuses to delete the last remaining piece (an order must keep at least
+ * one). Posts a chatter note so the removal is auditable.
+ */
+export async function DELETE(
+  _req: NextRequest,
+  context: { params: Promise<{ id: string; lineId: string }> },
+) {
+  try {
+    const s = await requireSession();
+    const role = deriveRole(s.user.groups);
+    if (!role.isManager && !role.isOffice && !s.user.isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const { id: orderStr, lineId: lineStr } = await context.params;
+    const orderId = Number(orderStr);
+    const lineId = Number(lineStr);
+    if (!Number.isFinite(orderId) || !Number.isFinite(lineId)) {
+      return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+    }
+
+    // Load this order's lines to (a) confirm the line belongs to it and
+    // (b) guard against deleting the only piece.
+    const lines = await call<Array<{ id: number; design_id: [number, string] | false }>>({
+      session: s.session,
+      model: "indigo.order.line",
+      method: "search_read",
+      args: [[["order_id", "=", orderId]], ["id", "design_id"]],
+      kwargs: {},
+    });
+    const target = lines.find((l) => l.id === lineId);
+    if (!target) {
+      return NextResponse.json({ error: "Line not found" }, { status: 404 });
+    }
+    if (lines.length <= 1) {
+      return NextResponse.json(
+        { error: "An order must keep at least one piece." },
+        { status: 400 },
+      );
+    }
+
+    const label =
+      Array.isArray(target.design_id) && target.design_id[1]
+        ? target.design_id[1]
+        : `#${lineId}`;
+    await call({
+      session: s.session,
+      model: "indigo.order",
+      method: "message_post",
+      args: [[orderId]],
+      kwargs: {
+        body: `Piece removed from the order (${label}).`,
+        message_type: "comment",
+      },
+    }).catch(() => undefined);
+
+    await call({
+      session: s.session,
+      model: "indigo.order.line",
+      method: "unlink",
+      args: [[lineId]],
+      kwargs: {},
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    if (e instanceof Response) return e;
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Error" },
+      { status: 500 },
+    );
+  }
+}

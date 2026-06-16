@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, X, Save, Check } from "lucide-react";
+import { Pencil, X, Save, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,7 +60,9 @@ interface Props {
 const DOOR_TYPES = [
   { value: "SD", label: "Single Door" },
   { value: "DD", label: "Double Door" },
-  { value: "SDL", label: "Door with Sidelites" },
+  // Must match the Odoo selection value ("sidelite"), not "SDL" — writing
+  // "SDL" would be rejected by the model and silently fail the save.
+  { value: "sidelite", label: "Door with Sidelites" },
 ];
 const COLORS = [
   { value: "white", label: "White" },
@@ -96,6 +98,10 @@ export function EditOrderPanel({
   const [saving, setSaving] = useState(false);
   const [orderForm, setOrderForm] = useState<OrderRow>(order);
   const [lineForms, setLineForms] = useState<LineRow[]>(lines);
+  // Ids of existing pieces the user removed in this edit session — deleted
+  // on save. New (unsaved) pieces carry a negative temp id from this ref.
+  const [deletedIds, setDeletedIds] = useState<number[]>([]);
+  const tempIdRef = useRef(-1);
 
   useEffect(() => {
     // Only resync from props when we're NOT in the middle of editing —
@@ -103,8 +109,40 @@ export function EditOrderPanel({
     if (!editing) {
       setOrderForm(order);
       setLineForms(lines);
+      setDeletedIds([]);
     }
   }, [order, lines, editing]);
+
+  function addLine() {
+    const id = tempIdRef.current;
+    tempIdRef.current -= 1;
+    setLineForms((prev) => [
+      ...prev,
+      {
+        id,
+        design_id: false,
+        door_type: "SD",
+        color: "white",
+        glass_type: "",
+        glass_privacy: "clear",
+        width: 0,
+        height: 0,
+        width_label: "",
+        height_label: "",
+        qty: 1,
+        design_tier: "basic",
+      },
+    ]);
+  }
+
+  function removeLine(idx: number) {
+    setLineForms((prev) => {
+      const line = prev[idx];
+      // Existing line (real id) → queue a delete on save. New line → just drop.
+      if (line && line.id > 0) setDeletedIds((d) => [...d, line.id]);
+      return prev.filter((_, i) => i !== idx);
+    });
+  }
 
   // Lazy-load designs for the "Design Selected" dropdown.
   const { data: designs } = useQuery<{ records: DesignRow[] }>({
@@ -150,6 +188,11 @@ export function EditOrderPanel({
         toast.error(lineErr);
         return;
       }
+      // New pieces also need a design chosen.
+      if (lf.id <= 0 && !lf.design_id) {
+        toast.error(`Piece ${i + 1}: pick a design.`);
+        return;
+      }
     }
 
     setSaving(true);
@@ -181,24 +224,51 @@ export function EditOrderPanel({
       });
     }
 
-    // Diff each line.
+    // New pieces → create; existing pieces → diff & patch.
     for (let i = 0; i < lineForms.length; i++) {
       const lf = lineForms[i];
-      const original = lines[i];
+      const designId = Array.isArray(lf.design_id) ? lf.design_id[0] : undefined;
+
+      if (lf.id <= 0) {
+        const payload: Record<string, unknown> = {
+          design_id: designId,
+          door_type: lf.door_type,
+          color: lf.color,
+          glass_type: lf.glass_type,
+          glass_privacy: lf.glass_privacy,
+          width: lf.width,
+          height: lf.height,
+          qty: lf.qty,
+          design_tier: lf.design_tier ?? "basic",
+        };
+        if (lf.design_tier === "custom") payload.custom_price = lf.custom_price;
+        writes.push({
+          label: `New piece ${i + 1}`,
+          run: async () => {
+            const r = await fetch(`/api/orders/${order.id}/lines`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            const j = await r.json();
+            if (!r.ok || !j.id) throw new Error(j.error || "failed");
+          },
+        });
+        continue;
+      }
+
+      const original = lines.find((l) => l.id === lf.id);
       if (!original) continue;
       const lineDiff: Record<string, unknown> = {};
       (Object.keys(lf) as Array<keyof LineRow>).forEach((k) => {
         if (k === "id" || k === "design_id") return;
         if (lf[k] !== original[k]) lineDiff[k as string] = lf[k];
       });
-      if (lf.design_id && original.design_id) {
-        const cur =
-          Array.isArray(lf.design_id) && Array.isArray(original.design_id)
-            ? lf.design_id[0] !== original.design_id[0]
-            : false;
-        if (cur) {
-          lineDiff.design_id = Array.isArray(lf.design_id) ? lf.design_id[0] : lf.design_id;
-        }
+      if (
+        designId &&
+        (!Array.isArray(original.design_id) || designId !== original.design_id[0])
+      ) {
+        lineDiff.design_id = designId;
       }
       if (Object.keys(lineDiff).length) {
         writes.push({
@@ -214,6 +284,20 @@ export function EditOrderPanel({
           },
         });
       }
+    }
+
+    // Removed pieces → delete.
+    for (const delId of deletedIds) {
+      writes.push({
+        label: "Removed piece",
+        run: async () => {
+          const r = await fetch(`/api/orders/${order.id}/lines/${delId}`, {
+            method: "DELETE",
+          });
+          const j = await r.json();
+          if (!r.ok || !j.ok) throw new Error(j.error || "failed");
+        },
+      });
     }
 
     if (!writes.length) {
@@ -369,9 +453,30 @@ export function EditOrderPanel({
           key={line.id}
           className="rounded-xl bg-white p-4 ring-1 ring-slate-100"
         >
-          <h4 className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">
-            Piece {idx + 1}
-          </h4>
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              Piece {idx + 1}
+              {line.id <= 0 && (
+                <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
+                  NEW
+                </span>
+              )}
+            </h4>
+            {/* Don't allow removing the last piece — an order needs ≥ 1. */}
+            <button
+              type="button"
+              onClick={() => removeLine(idx)}
+              disabled={lineForms.length <= 1}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+              title={
+                lineForms.length <= 1
+                  ? "An order must keep at least one piece"
+                  : "Remove this piece"
+              }
+            >
+              <Trash2 size={12} /> Remove
+            </button>
+          </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <Field label="Design">
               <select
@@ -389,10 +494,12 @@ export function EditOrderPanel({
                 }}
                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-indigo-400 focus:outline-none"
               >
-                {Array.isArray(line.design_id) && (
+                {Array.isArray(line.design_id) ? (
                   <option value={String(line.design_id[0])}>
                     {line.design_id[1]}
                   </option>
+                ) : (
+                  <option value="">— Select design —</option>
                 )}
                 {designs?.records
                   ?.filter(
@@ -491,6 +598,15 @@ export function EditOrderPanel({
           </div>
         </section>
       ))}
+
+      {/* Add another door/piece to this order. */}
+      <button
+        type="button"
+        onClick={addLine}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-200 bg-white py-3 text-sm font-semibold text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-50/50"
+      >
+        <Plus size={16} /> Add piece
+      </button>
     </div>
   );
 }
