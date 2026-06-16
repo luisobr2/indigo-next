@@ -115,7 +115,8 @@ export default function PaintPage() {
     if (marking) return;
     const ids = Array.from(selected);
     if (!ids.length) return;
-    setMarking(true);
+    // Resolve the target stage BEFORE flipping `marking` — otherwise an
+    // early return here would leave the button stuck on "Marking…" forever.
     const readyStage = stagesQ.data?.records?.find(
       (s) => s.code === "ready_install",
     );
@@ -125,6 +126,7 @@ export default function PaintPage() {
       );
       return;
     }
+    setMarking(true);
     const results = await Promise.allSettled(
       ids.map((id) =>
         fetch(`/api/orders/${id}/stage`, {

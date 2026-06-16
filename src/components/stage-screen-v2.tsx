@@ -7,7 +7,6 @@ import {
   Search,
   Download,
   Printer,
-  Filter,
   Play,
   Pause,
   PauseCircle,
@@ -16,7 +15,6 @@ import {
   Clock,
   X,
   Eye,
-  MoreVertical,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
@@ -551,14 +549,6 @@ export function StageScreenV2({
           >
             <Printer size={14} /> Print / PDF
             {bulk.size > 0 ? ` (${bulk.size})` : ""}
-          </Button>
-          <Button
-            size="lg"
-            onClick={() =>
-              toast.info("Filter drawer coming soon — use Search + tabs for now.")
-            }
-          >
-            <Filter size={14} /> Filters
           </Button>
         </div>
       </header>
@@ -1200,16 +1190,6 @@ function Row({
           >
             <Eye size={14} />
           </Link>
-          <button
-            type="button"
-            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            aria-label="More"
-            onClick={() =>
-              toast.info("Row context menu coming soon — open the order for actions.")
-            }
-          >
-            <MoreVertical size={14} />
-          </button>
         </div>
       </td>
     </tr>

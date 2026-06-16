@@ -9,20 +9,15 @@ import {
   CheckSquare,
   PieChart as PieIcon,
   Search,
-  Download,
-  Printer,
   Plus,
-  Settings as Gear,
   Calendar,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Info,
-  MoreVertical,
   CircleDollarSign,
   AlertTriangle,
 } from "lucide-react";
-import { toast } from "sonner";
 import { fmtMoney, fmtNum, fmtDate, cn } from "@/lib/utils";
 import { fetchJson } from "@/lib/fetch-json";
 import { ErrorState } from "@/components/state-cards";
@@ -280,15 +275,6 @@ export default function InstallationsPage() {
               className="h-10 pl-10"
             />
           </div>
-          <Button
-            size="lg"
-            className="bg-emerald-600 text-white shadow shadow-emerald-600/30 hover:bg-emerald-700"
-          >
-            <Download size={14} /> Export Excel
-          </Button>
-          <Button variant="outline" size="lg">
-            <Printer size={14} /> Print / PDF
-          </Button>
           <Button size="lg" onClick={() => setAddInstallerOpen(true)}>
             <Plus size={14} /> Add Installer
           </Button>
@@ -536,19 +522,9 @@ export default function InstallationsPage() {
               <Info size={13} className="text-slate-400" />
             </h3>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  toast.info("Manage installers — coming soon.")
-                }
-              >
-                <Gear size={12} /> Manage Installers
-              </Button>
               <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700">
                 <Calendar size={12} className="text-slate-400" />
                 This Week
-                <ChevronDown size={12} className="text-slate-400" />
               </div>
             </div>
           </div>
@@ -585,20 +561,19 @@ export default function InstallationsPage() {
                   <th className="px-4 py-3 text-right">Qty</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Scheduled Date</th>
-                  <th className="px-4 py-3 w-10"></th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading && (
                   <tr>
-                    <td colSpan={9} className="p-12 text-center text-xs text-slate-400">
+                    <td colSpan={8} className="p-12 text-center text-xs text-slate-400">
                       Loading…
                     </td>
                   </tr>
                 )}
                 {!isLoading && filteredInstallers.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="p-12 text-center text-xs text-slate-400">
+                    <td colSpan={8} className="p-12 text-center text-xs text-slate-400">
                       No installer assignments for this week.
                     </td>
                   </tr>
@@ -608,7 +583,7 @@ export default function InstallationsPage() {
                   return (
                     <FragmentRows key={inst.id}>
                       <tr className="bg-slate-50/60 border-t border-slate-100">
-                        <td colSpan={9} className="px-4 py-2.5">
+                        <td colSpan={8} className="px-4 py-2.5">
                           <button
                             type="button"
                             onClick={() =>
@@ -693,14 +668,6 @@ export default function InstallationsPage() {
                             </td>
                             <td className="px-4 py-2.5 text-xs text-slate-600">
                               {fmtDate(o.scheduled_date as string)}
-                            </td>
-                            <td className="px-4 py-2.5 text-slate-400">
-                              <button
-                                type="button"
-                                className="rounded p-1 hover:bg-slate-100"
-                              >
-                                <MoreVertical size={14} />
-                              </button>
                             </td>
                           </tr>
                         ))}
