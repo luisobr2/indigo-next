@@ -12,6 +12,10 @@ interface DesignRow {
   active: boolean;
   allowed_colors: string | false;
   favorite_user_ids?: number[];
+  min_width?: number;
+  max_width?: number;
+  min_height?: number;
+  max_height?: number;
 }
 
 interface DesignVariant {
@@ -20,6 +24,12 @@ interface DesignVariant {
   door_type: string;
   hasImage: boolean;
   favorite: boolean;
+  /** Design dimension range (inches). 0 = no constraint. Used to
+   *  prefill the New Order width/height when the design defines a size. */
+  min_width: number;
+  max_width: number;
+  min_height: number;
+  max_height: number;
 }
 
 interface FamilyOut {
@@ -75,6 +85,10 @@ export async function GET(_req: NextRequest) {
           "active",
           "allowed_colors",
           "favorite_user_ids",
+          "min_width",
+          "max_width",
+          "min_height",
+          "max_height",
         ],
       ],
       kwargs: { order: "code", limit: 500 },
@@ -131,6 +145,10 @@ export async function GET(_req: NextRequest) {
         door_type: (d.door_type as string) || "",
         hasImage: attachmentDesignIds.has(d.id),
         favorite: (d.favorite_user_ids || []).includes(me),
+        min_width: Number(d.min_width) || 0,
+        max_width: Number(d.max_width) || 0,
+        min_height: Number(d.min_height) || 0,
+        max_height: Number(d.max_height) || 0,
       };
       const entry = families.get(family);
       if (entry) {

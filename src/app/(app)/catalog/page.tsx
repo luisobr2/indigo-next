@@ -39,6 +39,10 @@ interface FamilyVariant {
   door_type: string;
   hasImage: boolean;
   favorite: boolean;
+  min_width?: number;
+  max_width?: number;
+  min_height?: number;
+  max_height?: number;
 }
 
 interface FamilyOut {
@@ -698,6 +702,10 @@ export default function CatalogPage() {
             id: v.id,
             code: v.code,
             door_type: v.door_type,
+            min_width: v.min_width,
+            max_width: v.max_width,
+            min_height: v.min_height,
+            max_height: v.max_height,
           }))}
           colors={selectedFamily.colors}
         />

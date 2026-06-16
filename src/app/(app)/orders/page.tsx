@@ -23,10 +23,17 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Pagination } from "@/components/pagination";
 import { BulkSendToButton } from "@/components/bulk-send-to-button";
+import { NewOrderButton } from "@/components/new-order-button";
+import type { deriveRole } from "@/lib/odoo/types";
 
 interface Dealer {
   id: number;
   name: string;
+}
+
+interface MeResponse {
+  user: { isAdmin?: boolean } | null;
+  role: ReturnType<typeof deriveRole> | null;
 }
 
 const STAGE_OPTIONS = [
@@ -118,6 +125,19 @@ function OrdersInner() {
         ? "on_hold"
         : "",
   );
+
+  // Who am I? Gates the "New Order" button to roles allowed to create
+  // orders (manager / office / admin) — the POST endpoint enforces the same.
+  const meQ = useQuery<MeResponse>({
+    queryKey: ["me"],
+    queryFn: () => fetch("/api/auth/me").then((r) => r.json()),
+    staleTime: 5 * 60_000,
+  });
+  const canCreate =
+    !!meQ.data?.role &&
+    (meQ.data.role.isManager ||
+      meQ.data.role.isOffice ||
+      !!meQ.data.user?.isAdmin);
 
   // Pull dealers for the dropdown.
   const dealersQ = useQuery<{ records: Dealer[] }>({
@@ -224,6 +244,7 @@ function OrdersInner() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {canCreate && <NewOrderButton />}
           {selected.size > 0 && (
             <>
               <Badge

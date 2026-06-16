@@ -35,6 +35,22 @@ interface FamilyVariant {
   id: number;
   code: string;
   door_type: string;
+  /** Design dimension range (inches), optional. 0 / undefined = none. */
+  min_width?: number;
+  max_width?: number;
+  min_height?: number;
+  max_height?: number;
+}
+
+/**
+ * The size to prefill from a design. We start EMPTY so the operator must
+ * enter the real measurement — unless the design itself defines a size, in
+ * which case we use it: the min bound if set, otherwise the max bound.
+ */
+function dimDefault(min?: number, max?: number): number | "" {
+  if (min && min > 0) return min;
+  if (max && max > 0) return max;
+  return "";
 }
 
 interface Props {
@@ -91,9 +107,31 @@ export function NewOrderFromDesignModal({
   const effectiveColors = colors.length ? colors : ["white", "bronze", "black"];
   const [color, setColor] = useState<string>(effectiveColors[0]);
   // Width / Height carry decimal inches in state but the input parses
-  // US fractional notation ("23 3/4") and snaps to 1/16" on blur.
-  const [width, setWidth] = useState<number | "">(36);
-  const [height, setHeight] = useState<number | "">(80);
+  // US fractional notation ("23 3/4") and snaps to 1/16" on blur. They
+  // start EMPTY (operator must enter the real measurement) unless the
+  // selected design defines its own size — see the effect below.
+  const firstVariant = variants[0];
+  const [width, setWidth] = useState<number | "">(
+    dimDefault(firstVariant?.min_width, firstVariant?.max_width),
+  );
+  const [height, setHeight] = useState<number | "">(
+    dimDefault(firstVariant?.min_height, firstVariant?.max_height),
+  );
+  // Track whether the user has hand-edited the size. Once they touch it,
+  // switching SD↔DD must NOT clobber their value.
+  const [sizeTouched, setSizeTouched] = useState(false);
+
+  // Switch configuration (SD ↔ DD) and re-seed the size from that design's
+  // dimension range — but only while the operator hasn't typed a custom
+  // value. Done here (not in an effect) to avoid cascading renders.
+  function pickVariant(v: FamilyVariant) {
+    setVariantId(v.id);
+    if (!sizeTouched) {
+      setWidth(dimDefault(v.min_width, v.max_width));
+      setHeight(dimDefault(v.min_height, v.max_height));
+    }
+  }
+
   const [qty, setQty] = useState("1");
   // Customer / Client PO — the purchase-order number the dealer's
   // customer issued. Distinct from `dealer_ref` (internal dealer code)
@@ -120,8 +158,9 @@ export function NewOrderFromDesignModal({
     setClientAddress("");
     setVariantId(variants[0]?.id ?? 0);
     setColor(effectiveColors[0]);
-    setWidth(36);
-    setHeight(80);
+    setWidth(dimDefault(firstVariant?.min_width, firstVariant?.max_width));
+    setHeight(dimDefault(firstVariant?.min_height, firstVariant?.max_height));
+    setSizeTouched(false);
     setQty("1");
     setCustomerPo("");
     setFiles([]);
@@ -284,7 +323,7 @@ export function NewOrderFromDesignModal({
                 <button
                   key={v.id}
                   type="button"
-                  onClick={() => setVariantId(v.id)}
+                  onClick={() => pickVariant(v)}
                   className={cn(
                     "rounded-lg border px-3 py-2 text-xs font-medium transition",
                     variantId === v.id
@@ -343,7 +382,10 @@ export function NewOrderFromDesignModal({
               <FractionalInchInput
                 id="no-w"
                 value={width}
-                onChange={setWidth}
+                onChange={(v) => {
+                  setSizeTouched(true);
+                  setWidth(v);
+                }}
               />
             </div>
             <div className="space-y-1">
@@ -351,7 +393,10 @@ export function NewOrderFromDesignModal({
               <FractionalInchInput
                 id="no-h"
                 value={height}
-                onChange={setHeight}
+                onChange={(v) => {
+                  setSizeTouched(true);
+                  setHeight(v);
+                }}
               />
             </div>
             <div className="space-y-1">
