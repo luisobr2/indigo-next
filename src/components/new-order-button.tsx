@@ -128,7 +128,26 @@ export function NewOrderButton() {
             />
           </div>
 
-          <div className="-mx-1 flex-1 overflow-y-auto px-1 scrollbar-thin">
+          <div className="flex items-center justify-between px-0.5 text-[11px] text-slate-400">
+            <span>
+              {families.length} design{families.length === 1 ? "" : "s"}
+              {q.trim() ? " match" : " available"}
+            </span>
+            {q.trim() && (
+              <button
+                type="button"
+                onClick={() => setQ("")}
+                className="font-medium text-indigo-600 hover:underline"
+              >
+                Clear search
+              </button>
+            )}
+          </div>
+
+          {/* min-h-0 is required so this flex child can shrink and actually
+              scroll instead of overflowing the dialog (otherwise the tail of
+              the list gets clipped and looks like "not all designs show"). */}
+          <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 scrollbar-thin">
             {isLoading && (
               <div className="p-10 text-center text-sm text-slate-400">
                 Loading catalog…
