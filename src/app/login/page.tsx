@@ -58,12 +58,12 @@ function LoginInner() {
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50 px-4 py-8">
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="relative h-16 w-16">
+          <div className="relative">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/indigo-logo.webp"
               alt="Indigo Decors"
-              className="h-full w-full object-contain"
+              className="mx-auto h-28 w-auto max-w-[280px] object-contain"
             />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-indigo-900">
