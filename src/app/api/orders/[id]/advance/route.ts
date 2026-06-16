@@ -5,6 +5,20 @@ import { requireSession } from "@/lib/odoo/session";
 export const runtime = "nodejs";
 
 /**
+ * Only the known Indigo stage wizards may be driven from the panel.
+ * Without this, `body.wizard` would let a caller `create` a record on any
+ * Odoo model that happens to expose `action_save_and_advance`.
+ */
+const ALLOWED_WIZARDS = new Set([
+  "indigo.measurement.entry.wizard",
+  "indigo.sqf.entry.wizard",
+  "indigo.cnc.done.wizard",
+  "indigo.painter.done.wizard",
+  "indigo.installed.wizard",
+  "indigo.invoiced.paid.wizard",
+]);
+
+/**
  * Trigger an Odoo stage-advance wizard from the Next UI.
  *
  *   body = {
@@ -28,6 +42,9 @@ export async function POST(
     const s = await requireSession();
     const { id: idStr } = await params;
     const orderId = parseInt(idStr, 10);
+    if (!Number.isFinite(orderId)) {
+      return NextResponse.json({ error: "Invalid order id" }, { status: 400 });
+    }
     const body = await req.json();
     const wizardModel = body.wizard as string;
     const payload = (body.payload ?? {}) as Record<string, unknown>;
@@ -37,6 +54,22 @@ export async function POST(
         { error: "wizard model required" },
         { status: 400 },
       );
+    }
+    if (!ALLOWED_WIZARDS.has(wizardModel)) {
+      return NextResponse.json(
+        { error: "Unknown stage wizard" },
+        { status: 400 },
+      );
+    }
+    // Guard the collected amount when present (invoice/paid wizard).
+    if ("amount_collected" in payload) {
+      const amt = Number(payload.amount_collected);
+      if (!Number.isFinite(amt) || amt < 0) {
+        return NextResponse.json(
+          { error: "Invalid amount collected" },
+          { status: 400 },
+        );
+      }
     }
 
     // Per-line SQF write (used by the digitization wizard). Apply to

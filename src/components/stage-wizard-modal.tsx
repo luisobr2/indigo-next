@@ -140,11 +140,20 @@ export function StageWizardModal({
 
   async function submit() {
     setError(null);
+    // Amount is required (and must be > 0) for the invoice/paid wizard —
+    // otherwise the order advances to "Paid" with $0 collected.
+    if (config.withAmount) {
+      const amt = parseFloat(amount);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        setError("Enter the amount collected (greater than 0).");
+        return;
+      }
+    }
     setBusy(true);
     try {
       const payload: Record<string, unknown> = {};
       if (note) payload.note = note;
-      if (config.withAmount && amount)
+      if (config.withAmount)
         payload.amount_collected = parseFloat(amount);
       if (config.withPhoto && photoFile)
         payload.photo = await fileToBase64(photoFile);

@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { fetchJson } from "@/lib/fetch-json";
+import { ErrorState } from "@/components/state-cards";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -114,11 +116,11 @@ export default function CalendarPage() {
     return { gridStart: start, gridEnd: end, weeks: wk };
   }, [year, month]);
 
-  const { data, isLoading } = useQuery<CalendarResponse>({
+  const { data, isLoading, isError, refetch } = useQuery<CalendarResponse>({
     queryKey: ["calendar", ymd(gridStart), ymd(gridEnd)],
     queryFn: () =>
-      fetch(`/api/calendar?from=${ymd(gridStart)}&to=${ymd(gridEnd)}`).then((r) =>
-        r.json(),
+      fetchJson<CalendarResponse>(
+        `/api/calendar?from=${ymd(gridStart)}&to=${ymd(gridEnd)}`,
       ),
   });
 
@@ -210,7 +212,17 @@ export default function CalendarPage() {
           <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
         )}
 
-        {!isLoading &&
+        {isError && (
+          <div className="p-4">
+            <ErrorState
+              title="Couldn't load the calendar"
+              message="Failed to load scheduled installations for this month. Try again."
+              onRetry={() => refetch()}
+            />
+          </div>
+        )}
+
+        {!isLoading && !isError &&
           weeks.map((week, wi) => (
             <div key={wi} className="grid grid-cols-7 border-b border-slate-100 last:border-b-0">
               {week.map((day) => {

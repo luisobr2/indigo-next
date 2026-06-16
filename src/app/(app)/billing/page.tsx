@@ -25,6 +25,7 @@ import {
 } from "recharts";
 import { toast } from "sonner";
 import { fmtMoney, m2o } from "@/lib/utils";
+import { fetchJson } from "@/lib/fetch-json";
 import { ErrorState, EmptyState } from "@/components/state-cards";
 import { Skeleton } from "@/components/skeleton";
 import {
@@ -88,7 +89,7 @@ export default function BillingPage() {
 
   const summaryQ = useQuery<SummaryData>({
     queryKey: ["billing-summary"],
-    queryFn: () => fetch("/api/billing/summary").then((r) => r.json()),
+    queryFn: () => fetchJson<SummaryData>("/api/billing/summary"),
   });
   const [toInvoicePage, setToInvoicePage] = useState(0);
   const [outstandingPage, setOutstandingPage] = useState(0);
@@ -96,17 +97,17 @@ export default function BillingPage() {
   const toInvoiceQ = useQuery<{ records: OrderRow[]; total: number }>({
     queryKey: ["billing-to-invoice", toInvoicePage],
     queryFn: () =>
-      fetch(
+      fetchJson(
         `/api/billing/to-invoice?limit=${PAGE_SIZE}&offset=${toInvoicePage * PAGE_SIZE}`,
-      ).then((r) => r.json()),
+      ),
     placeholderData: (prev) => prev,
   });
   const outstandingQ = useQuery<{ records: OrderRow[]; total: number }>({
     queryKey: ["billing-outstanding", outstandingPage],
     queryFn: () =>
-      fetch(
+      fetchJson(
         `/api/billing/outstanding?limit=${PAGE_SIZE}&offset=${outstandingPage * PAGE_SIZE}`,
-      ).then((r) => r.json()),
+      ),
     placeholderData: (prev) => prev,
   });
   const payoutsQ = useQuery<{
@@ -114,11 +115,17 @@ export default function BillingPage() {
     installers: PayoutBucket[];
   }>({
     queryKey: ["billing-payouts"],
-    queryFn: () => fetch("/api/billing/payouts").then((r) => r.json()),
+    queryFn: () =>
+      fetchJson<{ painters: PayoutBucket[]; installers: PayoutBucket[] }>(
+        "/api/billing/payouts",
+      ),
   });
   const revenueQ = useQuery<{ series: Array<{ month: string; label: string; value: number }> }>({
     queryKey: ["billing-revenue"],
-    queryFn: () => fetch("/api/billing/revenue-by-month").then((r) => r.json()),
+    queryFn: () =>
+      fetchJson<{ series: Array<{ month: string; label: string; value: number }> }>(
+        "/api/billing/revenue-by-month",
+      ),
   });
 
   function refreshAll() {

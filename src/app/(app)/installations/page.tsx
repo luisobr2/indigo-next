@@ -24,6 +24,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { fmtMoney, fmtNum, fmtDate, cn } from "@/lib/utils";
+import { fetchJson } from "@/lib/fetch-json";
+import { ErrorState } from "@/components/state-cards";
 import { AddInstallerModal } from "@/components/add-installer-modal";
 import {
   ScheduleInstallationModal,
@@ -166,10 +168,9 @@ export default function InstallationsPage() {
   const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null);
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
 
-  const { data, isLoading } = useQuery<DashboardData>({
+  const { data, isLoading, isError, refetch } = useQuery<DashboardData>({
     queryKey: ["installers-dashboard", week],
-    queryFn: () =>
-      fetch(`/api/installers/dashboard?week=${week}`).then((r) => r.json()),
+    queryFn: () => fetchJson<DashboardData>(`/api/installers/dashboard?week=${week}`),
   });
 
   const filteredInstallers = useMemo(() => {
@@ -241,6 +242,18 @@ export default function InstallationsPage() {
       { name: "Not Started", value: ns, fill: "#cbd5e1" },
     ];
   }, [summary]);
+
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-[1700px]">
+        <ErrorState
+          title="Couldn't load installations"
+          message="The installations board failed to load. Check your connection and try again."
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-[1700px] space-y-4">

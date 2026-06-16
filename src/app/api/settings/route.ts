@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
+import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
 
@@ -86,7 +87,42 @@ interface PutBody {
 export async function PUT(req: NextRequest) {
   try {
     const s = await requireSession();
+    const role = deriveRole(s.user.groups);
+    if (!role.isManager && !role.isOffice && !s.user.isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const body = (await req.json()) as PutBody;
+
+    // Validate before writing: capacities must be positive (the dashboard
+    // divides by them) and rates can't be negative / nameless.
+    if (body.capacities) {
+      for (const [k, v] of Object.entries(body.capacities)) {
+        if (v == null) continue;
+        if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
+          return NextResponse.json(
+            { error: `Capacity "${k}" must be a number greater than 0.` },
+            { status: 400 },
+          );
+        }
+      }
+    }
+    if (body.rates) {
+      for (const r of body.rates) {
+        if (r._delete) continue;
+        if (typeof r.rate === "number" && (!Number.isFinite(r.rate) || r.rate < 0)) {
+          return NextResponse.json(
+            { error: "Contractor rate can't be negative." },
+            { status: 400 },
+          );
+        }
+        if (!r.id && !(r.name && r.name.trim())) {
+          return NextResponse.json(
+            { error: "New contractor rate needs a name." },
+            { status: 400 },
+          );
+        }
+      }
+    }
 
     if (body.capacities) {
       const ops: Array<Promise<unknown>> = [];

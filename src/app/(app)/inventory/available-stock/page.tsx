@@ -6,6 +6,8 @@ import Link from "next/link";
 import { Package, Search, Calendar, Clock, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { fmtDate, fmtNum, m2o } from "@/lib/utils";
+import { fetchJson } from "@/lib/fetch-json";
+import { ErrorState } from "@/components/state-cards";
 
 interface StockRecord {
   id: number;
@@ -59,7 +61,7 @@ export default function AvailableStockPage() {
   const [color, setColor] = useState("");
   const [material, setMaterial] = useState("");
 
-  const { data, isLoading } = useQuery<{ records: StockRecord[] }>({
+  const { data, isLoading, isError, refetch } = useQuery<{ records: StockRecord[] }>({
     queryKey: ["inventory-available", q, doorType, color, material],
     queryFn: () => {
       const url = new URL("/api/inventory/available", window.location.origin);
@@ -67,7 +69,7 @@ export default function AvailableStockPage() {
       if (doorType) url.searchParams.set("door_type", doorType);
       if (color) url.searchParams.set("color", color);
       if (material) url.searchParams.set("material", material);
-      return fetch(url).then((r) => r.json());
+      return fetchJson<{ records: StockRecord[] }>(url);
     },
   });
 
@@ -144,8 +146,18 @@ export default function AvailableStockPage() {
         />
       </div>
 
+      {/* Error — distinct from "no stock" so a backend failure doesn't read
+          as an empty warehouse (a dangerous false negative for inventory). */}
+      {isError && (
+        <ErrorState
+          title="Couldn't load stock"
+          message="The stock list failed to load — this is NOT the same as an empty warehouse. Try again."
+          onRetry={() => refetch()}
+        />
+      )}
+
       {/* Empty state */}
-      {!isLoading && records.length === 0 && (
+      {!isError && !isLoading && records.length === 0 && (
         <div className="rounded-2xl border border-slate-100 bg-white p-12 text-center shadow-sm">
           <Package size={36} className="mx-auto mb-3 text-slate-300" />
           <h3 className="font-semibold text-slate-700">No stock available</h3>
