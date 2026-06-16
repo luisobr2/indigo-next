@@ -23,6 +23,8 @@ interface LineRow {
   width_label: string;
   height_label: string;
   qty: number;
+  design_tier?: string;
+  custom_price?: number;
   material?: string;
   thickness?: string;
 }
@@ -69,6 +71,11 @@ const COLORS = [
 const PRIVACY = [
   { value: "clear", label: "Clear" },
   { value: "privacy", label: "Privacy" },
+];
+const DESIGN_TIERS = [
+  { value: "basic", label: "Basic" },
+  { value: "full_partial", label: "Full / Partial" },
+  { value: "custom", label: "Custom" },
 ];
 
 export function EditOrderPanel({
@@ -429,6 +436,31 @@ export function EditOrderPanel({
                 options={PRIVACY}
               />
             </Field>
+            <Field label="Price tier">
+              <SelectInput
+                value={line.design_tier ?? "basic"}
+                onChange={(v) => setLineField(idx, "design_tier", v)}
+                options={DESIGN_TIERS}
+              />
+            </Field>
+            {line.design_tier === "custom" && (
+              <Field label="Custom price (USD)">
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={
+                    line.custom_price === 0 || line.custom_price
+                      ? String(line.custom_price)
+                      : ""
+                  }
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setLineField(idx, "custom_price", v === "" ? 0 : parseFloat(v));
+                  }}
+                />
+              </Field>
+            )}
             <div />
           </div>
         </section>

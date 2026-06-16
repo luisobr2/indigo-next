@@ -16,6 +16,8 @@ const EDITABLE_FIELDS = [
   "width_label",
   "height_label",
   "qty",
+  "design_tier",
+  "custom_price",
   "material",
   "thickness",
   "paint_sides",

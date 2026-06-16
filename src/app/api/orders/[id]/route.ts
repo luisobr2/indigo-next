@@ -87,6 +87,10 @@ const LINE_FIELDS_V2_EXTRA = [
   "paint_sides",
   "sidelite_margin_left",
   "sidelite_margin_right",
+  "design_tier",
+  "custom_price",
+  "unit_price",
+  "line_charge",
 ];
 
 export async function GET(
