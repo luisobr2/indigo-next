@@ -185,10 +185,14 @@ export async function PUT(
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof Response) return e;
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Error" },
-      { status: 500 },
-    );
+    const msg = e instanceof Error ? e.message : "Error";
+    if (/unique|duplicate|already exists/i.test(msg)) {
+      return NextResponse.json(
+        { error: "A design with that code already exists — pick a different code." },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 

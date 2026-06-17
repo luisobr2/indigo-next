@@ -129,6 +129,24 @@ export default function DesignEditorPage({
     setDirty(false);
   }, [data]);
 
+  // Warn before losing unsaved edits on tab close / refresh.
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+
+  // Confirm before in-app navigation away (breadcrumb / back) when dirty.
+  function guardNav(e: React.MouseEvent) {
+    if (dirty && !confirm("You have unsaved changes. Leave without saving?")) {
+      e.preventDefault();
+    }
+  }
+
   function toggleColor(value: string) {
     setAllowedColors((prev) =>
       prev.includes(value) ? prev.filter((c) => c !== value) : [...prev, value],
@@ -363,7 +381,7 @@ export default function DesignEditorPage({
   return (
     <div className="mx-auto max-w-[1100px] space-y-5">
       <div className="flex items-center gap-2 text-sm text-slate-500">
-        <Link href="/catalog" className="hover:text-indigo-700">
+        <Link href="/catalog" className="hover:text-indigo-700" onClick={guardNav}>
           <ArrowLeft size={14} className="inline" /> Catalog
         </Link>
         <span>›</span>
