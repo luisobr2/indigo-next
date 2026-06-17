@@ -56,6 +56,7 @@ interface OrderRow {
   date_paid: string | false;
   create_date: string;
   write_date: string;
+  invoiced_at?: string | false;
 }
 
 interface PayoutBucket {
@@ -330,11 +331,14 @@ export default function BillingPage() {
           )}
           <ul className="space-y-2">
             {(outstandingQ.data?.records ?? []).map((o) => {
-              const daysSinceInvoiced = o.write_date
-                ? Math.floor(
-                    (Date.now() - new Date(o.write_date).getTime()) /
-                      86_400_000,
-                  )
+              // Age from when it was invoiced (stable), falling back to
+              // write_date only for orders invoiced before invoiced_at existed.
+              const ref = (o.invoiced_at || o.write_date) as string | false;
+              const since = typeof ref === "string"
+                ? ref.replace(" ", "T") + (/[zZ]|[+-]\d\d:\d\d$/.test(ref) ? "" : "Z")
+                : null;
+              const daysSinceInvoiced = since
+                ? Math.floor((Date.now() - new Date(since).getTime()) / 86_400_000)
                 : null;
               return (
                 <li

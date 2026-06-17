@@ -18,6 +18,7 @@ const EDITABLE_DEALER_FIELDS = [
   "country_id",
   "is_indigo_dealer",
   "indigo_default_price_per_sqf",
+  "indigo_charge_install_fee",
   "active",
 ] as const;
 
@@ -33,6 +34,7 @@ const DEALER_FIELDS = [
   "country_id",
   "is_indigo_dealer",
   "indigo_default_price_per_sqf",
+  "indigo_charge_install_fee",
   "active",
 ];
 

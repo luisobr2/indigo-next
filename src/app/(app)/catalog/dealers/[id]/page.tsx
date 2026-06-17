@@ -21,6 +21,7 @@ interface DealerDto {
   city: string | false;
   zip: string | false;
   indigo_default_price_per_sqf: number;
+  indigo_charge_install_fee?: boolean;
   active: boolean;
 }
 
@@ -65,6 +66,7 @@ export default function DealerDetailPage({
   const [city, setCity] = useState("");
   const [zip, setZip] = useState("");
   const [price, setPrice] = useState("");
+  const [chargeInstallFee, setChargeInstallFee] = useState(true);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -77,6 +79,7 @@ export default function DealerDetailPage({
     setCity((d.city as string) || "");
     setZip((d.zip as string) || "");
     setPrice(d.indigo_default_price_per_sqf?.toString() ?? "0");
+    setChargeInstallFee(d.indigo_charge_install_fee !== false);
   }, [data, isNew]);
 
   async function save() {
@@ -93,6 +96,7 @@ export default function DealerDetailPage({
       city: city || false,
       zip: zip || false,
       indigo_default_price_per_sqf: parseFloat(price) || 0,
+      indigo_charge_install_fee: chargeInstallFee,
     };
     const promise = (
       isNew
@@ -203,6 +207,25 @@ export default function DealerDetailPage({
                 className="h-10"
               />
             </Field>
+            <div className="space-y-1 md:col-span-2">
+              <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+                <input
+                  type="checkbox"
+                  checked={chargeInstallFee}
+                  onChange={(e) => setChargeInstallFee(e.target.checked)}
+                  className="mt-0.5 accent-indigo-600"
+                />
+                <span className="text-sm">
+                  <span className="font-medium text-slate-800">
+                    Charge installation fee
+                  </span>
+                  <span className="block text-xs text-slate-500">
+                    Adds the distance-based install fee to this dealer&apos;s order
+                    totals. Turn off for dealers that install themselves / B2C.
+                  </span>
+                </span>
+              </label>
+            </div>
             <Field label="Email" icon={<Mail size={12} />}>
               <Input
                 type="email"

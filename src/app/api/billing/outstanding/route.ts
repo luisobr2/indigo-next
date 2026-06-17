@@ -35,11 +35,12 @@ export async function GET(req: Request) {
           "total_dealer_charge",
           "payment_state",
           "date_paid",
+          "invoiced_at",
           "write_date",
           "create_date",
         ],
       ],
-      kwargs: { order: "write_date asc", limit, offset },
+      kwargs: { order: "invoiced_at asc, write_date asc", limit, offset },
     });
     const total = await call<number>({
       session: s.session,
