@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/state-cards";
+import { fetchJson } from "@/lib/fetch-json";
 
 interface DesignPayload {
   design: {
@@ -52,6 +53,7 @@ interface Brand {
 const COLOR_OPTIONS = [
   { value: "white", label: "White" },
   { value: "bronze", label: "Bronze" },
+  { value: "bronze_eco", label: "Bronze ECO" },
   { value: "black", label: "Black" },
   { value: "custom", label: "Custom" },
 ] as const;
@@ -98,9 +100,9 @@ export default function DesignEditorPage({
 
   const { data, isLoading, error, refetch } = useQuery<DesignPayload>({
     queryKey: ["design", idStr],
-    queryFn: () =>
-      fetch(`/api/catalog/designs/${id}`).then((r) => r.json()),
+    queryFn: () => fetchJson<DesignPayload>(`/api/catalog/designs/${id}`),
     enabled: !isNew,
+    retry: 1,
   });
 
   useEffect(() => {
@@ -153,6 +155,19 @@ export default function DesignEditorPage({
   async function save() {
     if (!code) {
       toast.error("Code is required");
+      return;
+    }
+    // Dimension range sanity: min can't exceed max.
+    const minW = parseFloat(minWidth) || 0;
+    const maxW = parseFloat(maxWidth) || 0;
+    const minH = parseFloat(minHeight) || 0;
+    const maxH = parseFloat(maxHeight) || 0;
+    if (minW && maxW && minW > maxW) {
+      toast.error("Min width can't be greater than max width.");
+      return;
+    }
+    if (minH && maxH && minH > maxH) {
+      toast.error("Min height can't be greater than max height.");
       return;
     }
     setSaving(true);
@@ -322,12 +337,18 @@ export default function DesignEditorPage({
   }
 
   if (!isNew && error) {
+    const status = (error as (Error & { status?: number }) | null)?.status;
+    const notFound = status === 404;
     return (
       <ErrorState
-        title="Couldn't load design"
-        message={error instanceof Error ? error.message : "Unknown"}
+        title={notFound ? "Design not found" : "Couldn't load design"}
+        message={
+          notFound
+            ? `Design #${idStr} doesn't exist or was removed.`
+            : "Something went wrong loading this design. Check your connection and try again."
+        }
         backHref="/catalog"
-        onRetry={() => refetch()}
+        onRetry={notFound ? undefined : () => refetch()}
       />
     );
   }

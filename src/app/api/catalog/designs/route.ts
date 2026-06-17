@@ -60,22 +60,61 @@ export async function POST(req: NextRequest) {
       name: string;
       door_type: string;
       description: string;
+      active: boolean;
+      allowed_colors: string;
+      allowed_glass_types: string;
+      allowed_brand_ids: number[];
+      min_width: number;
+      max_width: number;
+      min_height: number;
+      max_height: number;
     }>;
-    if (!body.code) {
-      return NextResponse.json({ error: "code is required" }, { status: 400 });
+    const code = (body.code || "").trim().toUpperCase();
+    if (!code) {
+      return NextResponse.json({ error: "Code is required." }, { status: 400 });
     }
-    const vals: Record<string, unknown> = { code: body.code };
-    if (body.name) vals.name = body.name;
-    if (body.door_type) vals.door_type = body.door_type;
-    if (body.description) vals.description = body.description;
 
-    const id = await call<number>({
-      session: s.session,
-      model: "indigo.design",
-      method: "create",
-      args: [vals],
-      kwargs: {},
-    });
+    // Base fields (always supported). Variation fields are split out so a
+    // legacy DB without them can still create the design (mirrors PUT).
+    const baseVals: Record<string, unknown> = { code };
+    if (body.name) baseVals.name = body.name;
+    if (body.door_type) baseVals.door_type = body.door_type;
+    if (body.description) baseVals.description = body.description;
+    if (body.active !== undefined) baseVals.active = body.active;
+
+    const variationVals: Record<string, unknown> = {};
+    if (body.allowed_colors) variationVals.allowed_colors = body.allowed_colors;
+    if (body.allowed_glass_types)
+      variationVals.allowed_glass_types = body.allowed_glass_types;
+    if (body.allowed_brand_ids && body.allowed_brand_ids.length)
+      variationVals.allowed_brand_ids = [[6, 0, body.allowed_brand_ids]];
+    if (body.min_width) variationVals.min_width = body.min_width;
+    if (body.max_width) variationVals.max_width = body.max_width;
+    if (body.min_height) variationVals.min_height = body.min_height;
+    if (body.max_height) variationVals.max_height = body.max_height;
+
+    let id: number;
+    try {
+      id = await call<number>({
+        session: s.session,
+        model: "indigo.design",
+        method: "create",
+        args: [{ ...baseVals, ...variationVals }],
+        kwargs: {},
+      });
+    } catch (err) {
+      // Legacy DB without the variation columns: create with base only so the
+      // design still gets made (variations are simply not stored).
+      const msg = err instanceof Error ? err.message : "";
+      if (!/Invalid field|does not exist/i.test(msg)) throw err;
+      id = await call<number>({
+        session: s.session,
+        model: "indigo.design",
+        method: "create",
+        args: [baseVals],
+        kwargs: {},
+      });
+    }
     return NextResponse.json({ id });
   } catch (e) {
     if (e instanceof Response) return e;
