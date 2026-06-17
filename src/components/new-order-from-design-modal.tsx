@@ -126,6 +126,7 @@ export function NewOrderFromDesignModal({
   // value. Done here (not in an effect) to avoid cascading renders.
   function pickVariant(v: FamilyVariant) {
     setVariantId(v.id);
+    setImgFailed(false);
     if (!sizeTouched) {
       setWidth(dimDefault(v.min_width, v.max_width));
       setHeight(dimDefault(v.min_height, v.max_height));
@@ -147,6 +148,9 @@ export function NewOrderFromDesignModal({
   // /api/orders returns the new id.
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
+  // Whether the design preview image failed to load (no cover image).
+  // Reset whenever the variant or color changes so it retries.
+  const [imgFailed, setImgFailed] = useState(false);
 
   const dealersQ = useQuery<{ records: Dealer[] }>({
     queryKey: ["catalog-dealers"],
@@ -173,6 +177,7 @@ export function NewOrderFromDesignModal({
     setWidth(dimDefault(firstVariant?.min_width, firstVariant?.max_width));
     setHeight(dimDefault(firstVariant?.min_height, firstVariant?.max_height));
     setSizeTouched(false);
+    setImgFailed(false);
     setQty("1");
     setBrandId("");
     setPrivacy("");
@@ -341,6 +346,27 @@ export function NewOrderFromDesignModal({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Design preview — lets the operator visually confirm which door
+              they're ordering (updates with the chosen configuration + color).
+              Falls back to a placeholder when the design has no cover image. */}
+          <section className="flex justify-center">
+            <div className="flex h-44 w-44 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+              {variantId && !imgFailed ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={`/api/catalog/designs/${variantId}/image?color=${encodeURIComponent(color)}`}
+                  alt={`${family} ${DOOR_TYPE_LABEL[variants.find((v) => v.id === variantId)?.door_type ?? ""] ?? ""} preview`}
+                  className="h-full w-full object-contain"
+                  onError={() => setImgFailed(true)}
+                />
+              ) : (
+                <span className="px-3 text-center text-xs text-slate-400">
+                  No preview image for this design
+                </span>
+              )}
+            </div>
+          </section>
+
           {/* Configuration picker */}
           <section>
             <Label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
@@ -383,7 +409,10 @@ export function NewOrderFromDesignModal({
                     <button
                       key={c}
                       type="button"
-                      onClick={() => setColor(c)}
+                      onClick={() => {
+                        setColor(c);
+                        setImgFailed(false);
+                      }}
                       className={cn(
                         "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition",
                         color === c
