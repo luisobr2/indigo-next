@@ -28,6 +28,7 @@ import { fmtMoney, fmtNum, m2o, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/state-cards";
+import { STAGE_WIZARDS } from "@/components/stage-wizard-modal";
 
 interface Stage {
   id: number;
@@ -128,21 +129,37 @@ export default function KanbanPage() {
     const targetStage = data?.stages.find((s) => s.id === targetStageId);
     if (!targetStage) return;
 
-    // Guard non-adjacent moves. A drag straight to the column writes the
-    // stage directly, bypassing the wizard (photo / SQF / payment capture).
-    // Stepping one stage at a time is the normal flow and goes through with
-    // no friction; skipping stages forward or dragging backwards asks for
-    // confirmation so an accidental drag (e.g. New Order → Installed) can't
-    // silently skip production and its payouts.
+    // Guard moves that bypass data capture. A kanban drag writes stage_id
+    // directly, skipping the stage wizard. We confirm when:
+    //   • the move skips stages (non-adjacent), or
+    //   • it goes backwards, or
+    //   • it advances OUT of a stage whose wizard captures required data
+    //     (SQF at Digitalization, amount at Invoiced, photo/signature at
+    //     Installed, photo at Painting) — even a single-step drag there
+    //     would silently skip that capture.
+    // A plain one-step advance out of a non-capture stage goes through with
+    // no friction (that's the point of the board).
     const currentStage = data?.stages.find((s) => s.id === currentStageId);
     const gap = targetStage.sequence - (currentStage?.sequence ?? 0);
-    if (Math.abs(gap) > 1) {
-      const skipped = Math.abs(gap) - 1;
+    const wizard = currentStage ? STAGE_WIZARDS[currentStage.code] : undefined;
+    const nonAdjacent = Math.abs(gap) > 1;
+    const backward = gap < 0;
+    const skipsWizard = gap > 0 && !!wizard;
+    if (nonAdjacent || backward || skipsWizard) {
+      let detail: string;
+      if (skipsWizard && !nonAdjacent) {
+        detail = `This skips the "${wizard!.title}" step — its capture ` +
+          `(photo / SQF / payment) won't be recorded. Use the order's button ` +
+          `for that. Continue anyway?`;
+      } else {
+        const skipped = Math.abs(gap) - 1;
+        detail = `This ${gap < 0 ? "moves the order BACK" : "skips " +
+          skipped + " stage" + (skipped === 1 ? "" : "s") + " and"} bypasses ` +
+          `the stage wizard (no photo / SQF / payment capture). Continue?`;
+      }
       const ok = window.confirm(
-        `Move ${card.name} ${gap < 0 ? "BACK" : "forward"} from ` +
-          `"${currentStage?.name ?? "?"}" to "${targetStage.name}"?\n\n` +
-          `This skips ${skipped} stage${skipped === 1 ? "" : "s"} and bypasses ` +
-          `the stage wizard (no photo / SQF / payment capture). Continue?`,
+        `Move ${card.name} from "${currentStage?.name ?? "?"}" to ` +
+          `"${targetStage.name}"?\n\n${detail}`,
       );
       if (!ok) return;
     }
@@ -271,6 +288,8 @@ function KanbanColumn({
   isOver: boolean;
 }) {
   const { setNodeRef } = useDroppable({ id: `stage-${stage.id}` });
+  const doors = cards.reduce((s, c) => s + (c.door_count || 0), 0);
+  const value = cards.reduce((s, c) => s + (c.total_dealer_charge || 0), 0);
   return (
     <div
       ref={setNodeRef}
@@ -284,8 +303,10 @@ function KanbanColumn({
           <h3 className="truncate text-sm font-semibold text-slate-800">
             {stage.name}
           </h3>
-          <p className="text-[10px] uppercase tracking-wide text-slate-400">
-            {stage.code}
+          <p className="text-[10px] text-slate-400">
+            {cards.length > 0
+              ? `${fmtNum(doors)} door${doors === 1 ? "" : "s"} · ${fmtMoney(value)}`
+              : "—"}
           </p>
         </div>
         <Badge variant="secondary" className="ml-2 bg-white text-slate-700">
@@ -365,7 +386,16 @@ function KanbanCard({
             </div>
           )}
           <div className="mt-2 flex items-center justify-between text-[10px]">
-            <span className={cn("text-slate-400", card.is_overdue && "font-bold text-rose-600")}>
+            <span
+              className={cn(
+                "rounded px-1 py-0.5 font-semibold tabular-nums",
+                card.is_overdue || card.days_in_current_stage >= 7
+                  ? "bg-rose-50 text-rose-700"
+                  : card.days_in_current_stage >= 4
+                    ? "bg-amber-50 text-amber-700"
+                    : "text-slate-400",
+              )}
+            >
               {card.days_in_current_stage}d in stage
             </span>
             <span className="font-semibold tabular-nums text-slate-700">
