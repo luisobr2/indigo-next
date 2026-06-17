@@ -16,6 +16,7 @@ const CREATABLE_FIELDS = [
   "color",
   "glass_type",
   "glass_privacy",
+  "brand_id",
   "width",
   "height",
   "width_label",

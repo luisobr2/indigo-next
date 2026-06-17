@@ -133,6 +133,11 @@ export function NewOrderFromDesignModal({
   }
 
   const [qty, setQty] = useState("1");
+  // Door brand + glass spec — required for manufacturing: the brand drives
+  // the paint tone; clear vs privacy changes the paint application.
+  const [brandId, setBrandId] = useState<number | "">("");
+  const [privacy, setPrivacy] = useState<"" | "clear" | "privacy">("");
+  const [glassType, setGlassType] = useState("");
   // Customer / Client PO — the purchase-order number the dealer's
   // customer issued. Distinct from `dealer_ref` (internal dealer code)
   // and `priv_ref` (label-only ref). Optional.
@@ -150,6 +155,13 @@ export function NewOrderFromDesignModal({
     staleTime: 5 * 60_000,
   });
 
+  const brandsQ = useQuery<{ records: Array<{ id: number; name: string }> }>({
+    queryKey: ["catalog-brands"],
+    queryFn: () => fetch("/api/catalog/brands").then((r) => r.json()),
+    enabled: open,
+    staleTime: 5 * 60_000,
+  });
+
   function reset() {
     setDealerId("");
     setClientName("");
@@ -162,6 +174,9 @@ export function NewOrderFromDesignModal({
     setHeight(dimDefault(firstVariant?.min_height, firstVariant?.max_height));
     setSizeTouched(false);
     setQty("1");
+    setBrandId("");
+    setPrivacy("");
+    setGlassType("");
     setCustomerPo("");
     setFiles([]);
     setBusy(false);
@@ -191,6 +206,16 @@ export function NewOrderFromDesignModal({
       toast.warning("Quantity must be a positive integer.");
       return;
     }
+    // Brand + privacy are required for manufacturing (paint tone / extra
+    // coat behind the design). Don't let an order be created without them.
+    if (!brandId) {
+      toast.warning("Pick the door brand.");
+      return;
+    }
+    if (!privacy) {
+      toast.warning("Choose glass: Clear or Privacy.");
+      return;
+    }
     const variant = variants.find((v) => v.id === variantId);
     if (!variant) return;
 
@@ -214,6 +239,9 @@ export function NewOrderFromDesignModal({
                 design_id: variant.id,
                 door_type: variant.door_type,
                 color,
+                brand_id: brandId,
+                glass_privacy: privacy,
+                glass_type: glassType.trim() || undefined,
                 width: w,
                 height: h,
                 qty: q,
@@ -371,6 +399,57 @@ export function NewOrderFromDesignModal({
                     </button>
                   );
               })}
+            </div>
+          </section>
+
+          {/* Brand + glass — required for manufacturing. */}
+          <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="space-y-1">
+              <Label htmlFor="no-brand">Brand *</Label>
+              <select
+                id="no-brand"
+                value={brandId}
+                onChange={(e) =>
+                  setBrandId(e.target.value ? Number(e.target.value) : "")
+                }
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-indigo-400 focus:outline-none"
+              >
+                <option value="">— Select brand —</option>
+                {brandsQ.data?.records?.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label>Glass *</Label>
+              <div className="flex gap-2">
+                {(["clear", "privacy"] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPrivacy(p)}
+                    className={cn(
+                      "flex-1 rounded-lg border px-3 py-2 text-xs font-medium capitalize transition",
+                      privacy === p
+                        ? "border-indigo-300 bg-indigo-50 text-indigo-800 ring-2 ring-indigo-200"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-indigo-200",
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="no-glass">Glass type</Label>
+              <Input
+                id="no-glass"
+                value={glassType}
+                onChange={(e) => setGlassType(e.target.value)}
+                placeholder="e.g. ESW"
+              />
             </div>
           </section>
 
@@ -554,7 +633,7 @@ export function NewOrderFromDesignModal({
           </Button>
           <Button
             onClick={submit}
-            disabled={busy || !dealerId || !clientName.trim()}
+            disabled={busy || !dealerId || !clientName.trim() || !brandId || !privacy}
             className="bg-indigo-700 text-white shadow shadow-indigo-700/30 hover:bg-indigo-800"
           >
             <Check size={14} />

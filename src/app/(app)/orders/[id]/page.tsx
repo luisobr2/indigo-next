@@ -249,6 +249,7 @@ export default function OrderDetailPage({
                 color: l.color,
                 glass_type: l.glass_type,
                 glass_privacy: (l as { glass_privacy?: string }).glass_privacy ?? "",
+                brand_id: (l as { brand_id?: [number, string] | false }).brand_id ?? false,
                 width: l.width,
                 height: l.height,
                 width_label: l.width_label,

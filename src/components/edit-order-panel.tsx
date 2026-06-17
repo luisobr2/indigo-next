@@ -19,6 +19,7 @@ interface LineRow {
   color: string;
   glass_type: string;
   glass_privacy: string;
+  brand_id?: [number, string] | false;
   width: number;
   height: number;
   width_label: string;
@@ -125,6 +126,7 @@ export function EditOrderPanel({
         color: "white",
         glass_type: "",
         glass_privacy: "clear",
+        brand_id: false,
         width: 0,
         height: 0,
         width_label: "",
@@ -148,6 +150,13 @@ export function EditOrderPanel({
   const { data: designs } = useQuery<{ records: DesignRow[] }>({
     queryKey: ["designs-options"],
     queryFn: () => fetch("/api/catalog/designs?limit=500").then((r) => r.json()),
+    enabled: editing,
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: brands } = useQuery<{ records: Array<{ id: number; name: string }> }>({
+    queryKey: ["catalog-brands"],
+    queryFn: () => fetch("/api/catalog/brands").then((r) => r.json()),
     enabled: editing,
     staleTime: 5 * 60_000,
   });
@@ -228,6 +237,7 @@ export function EditOrderPanel({
     for (let i = 0; i < lineForms.length; i++) {
       const lf = lineForms[i];
       const designId = Array.isArray(lf.design_id) ? lf.design_id[0] : undefined;
+      const brandId = Array.isArray(lf.brand_id) ? lf.brand_id[0] : false;
 
       if (lf.id <= 0) {
         const payload: Record<string, unknown> = {
@@ -236,6 +246,7 @@ export function EditOrderPanel({
           color: lf.color,
           glass_type: lf.glass_type,
           glass_privacy: lf.glass_privacy,
+          brand_id: brandId || undefined,
           width: lf.width,
           height: lf.height,
           qty: lf.qty,
@@ -261,7 +272,7 @@ export function EditOrderPanel({
       if (!original) continue;
       const lineDiff: Record<string, unknown> = {};
       (Object.keys(lf) as Array<keyof LineRow>).forEach((k) => {
-        if (k === "id" || k === "design_id") return;
+        if (k === "id" || k === "design_id" || k === "brand_id") return;
         if (lf[k] !== original[k]) lineDiff[k as string] = lf[k];
       });
       if (
@@ -269,6 +280,11 @@ export function EditOrderPanel({
         (!Array.isArray(original.design_id) || designId !== original.design_id[0])
       ) {
         lineDiff.design_id = designId;
+      }
+      // brand_id is a m2o ([id,name]|false) — diff by id; send false to clear.
+      const origBrandId = Array.isArray(original.brand_id) ? original.brand_id[0] : false;
+      if (brandId !== origBrandId) {
+        lineDiff.brand_id = brandId || false;
       }
       if (Object.keys(lineDiff).length) {
         writes.push({
@@ -568,6 +584,28 @@ export function EditOrderPanel({
                 onChange={(v) => setLineField(idx, "glass_privacy", v)}
                 options={PRIVACY}
               />
+            </Field>
+            <Field label="Brand">
+              <select
+                value={Array.isArray(line.brand_id) ? String(line.brand_id[0]) : ""}
+                onChange={(e) => {
+                  const id = Number(e.target.value);
+                  if (!id) {
+                    setLineField(idx, "brand_id", false);
+                    return;
+                  }
+                  const found = brands?.records.find((b) => b.id === id);
+                  setLineField(idx, "brand_id", [id, found?.name ?? ""] as [number, string]);
+                }}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-indigo-400 focus:outline-none"
+              >
+                <option value="">— None —</option>
+                {brands?.records?.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
             </Field>
             <Field label="Price tier">
               <SelectInput
