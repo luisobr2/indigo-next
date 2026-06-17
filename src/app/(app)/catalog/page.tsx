@@ -99,9 +99,15 @@ export default function CatalogPage() {
     let out = families;
     if (tab === "favorites") out = out.filter((f) => f.favorite);
     if (doorTypeFilter !== "all") {
-      out = out.filter((f) =>
-        f.variants.some((v) => v.door_type === doorTypeFilter),
-      );
+      // Keep only families that have a variant of this type, AND show only
+      // those variants on the card (otherwise a family with both SD+DD would
+      // still render its Single Door config under the "Double Door" filter).
+      out = out
+        .map((f) => ({
+          ...f,
+          variants: f.variants.filter((v) => v.door_type === doorTypeFilter),
+        }))
+        .filter((f) => f.variants.length > 0);
     }
     if (colorFilter !== "all") {
       out = out.filter((f) => f.colors.includes(colorFilter));
