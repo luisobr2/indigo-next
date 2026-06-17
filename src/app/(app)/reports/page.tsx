@@ -22,7 +22,7 @@ import {
   CartesianGrid,
   Cell,
 } from "recharts";
-import { fmtMoney, fmtNum } from "@/lib/utils";
+import { fmtMoney, fmtNum, fmtDate, fmtDateTime } from "@/lib/utils";
 import { TableSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { toCsv, downloadCsv } from "@/lib/csv";
@@ -59,6 +59,14 @@ interface ReportsData {
 }
 
 const NOW_MONTH = new Date().toISOString().slice(0, 7);
+// Prior calendar month (UTC, same basis as NOW_MONTH) — looked up by key so
+// the delta compares the right months even if the series has a gap.
+const PREV_MONTH = (() => {
+  const n = new Date();
+  return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth() - 1, 1))
+    .toISOString()
+    .slice(0, 7);
+})();
 
 export default function ReportsPage() {
   const { data, isLoading, error, refetch } = useQuery<ReportsData>({
@@ -95,7 +103,7 @@ export default function ReportsPage() {
 
   const totalRevenue6m = data?.revenue.reduce((s, m) => s + m.value, 0) ?? 0;
   const currentMonthRev = data?.revenue.find((r) => r.month === NOW_MONTH)?.value ?? 0;
-  const prevMonthRev = data?.revenue[data.revenue.length - 2]?.value ?? 0;
+  const prevMonthRev = data?.revenue.find((r) => r.month === PREV_MONTH)?.value ?? 0;
   const monthDelta = prevMonthRev > 0 ? ((currentMonthRev - prevMonthRev) / prevMonthRev) * 100 : 0;
 
   return (
@@ -383,7 +391,7 @@ export default function ReportsPage() {
       </section>
 
       <p className="text-center text-[10px] text-slate-400">
-        Window: from {data?.windowStart} to today · Generated {data?.generatedAt ? new Date(data.generatedAt).toLocaleString() : ""}
+        Window: from {data?.windowStart ? fmtDate(data.windowStart) : "—"} to today · Generated {data?.generatedAt ? fmtDateTime(data.generatedAt) : ""}
       </p>
     </div>
   );
