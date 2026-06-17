@@ -64,6 +64,30 @@ const DOOR_TYPES = [
   { value: "sidelite", label: "Door with Sidelites" },
 ] as const;
 
+const doorTypeLabel = (v: string) =>
+  DOOR_TYPES.find((t) => t.value === v)?.label ?? "";
+
+/** Big, unmissable badge that reflects the REAL door type (not the free-text
+ *  display name). Driven by live state so it's always truthful. */
+function DoorTypeBadge({ type }: { type: string }) {
+  const label = doorTypeLabel(type);
+  if (!label) return null;
+  const styles: Record<string, string> = {
+    SD: "bg-indigo-50 text-indigo-700 ring-indigo-200",
+    DD: "bg-amber-50 text-amber-700 ring-amber-200",
+    sidelite: "bg-teal-50 text-teal-700 ring-teal-200",
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-sm font-semibold ring-1 ${
+        styles[type] ?? "bg-slate-100 text-slate-600 ring-slate-200"
+      }`}
+    >
+      {label}
+    </span>
+  );
+}
+
 export default function DesignEditorPage({
   params,
 }: {
@@ -88,6 +112,9 @@ export default function DesignEditorPage({
   const [minHeight, setMinHeight] = useState<string>("");
   const [maxHeight, setMaxHeight] = useState<string>("");
   const [dirty, setDirty] = useState(false);
+  // Tracks whether the user hand-edited the display name. While false, the
+  // name auto-fills from code + door type (it's only a label anyway).
+  const [nameTouched, setNameTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -110,6 +137,8 @@ export default function DesignEditorPage({
     const d = data.design;
     setCode(d.code || "");
     setName(typeof d.name === "string" ? d.name : "");
+    // Preserve a name the design already has; only auto-fill empty ones.
+    setNameTouched(typeof d.name === "string" && d.name.trim().length > 0);
     setDoorType(typeof d.door_type === "string" ? d.door_type : "");
     setDescription(typeof d.description === "string" ? d.description : "");
     setActive(!!d.active);
@@ -128,6 +157,14 @@ export default function DesignEditorPage({
     setMaxHeight(d.max_height ? String(d.max_height) : "");
     setDirty(false);
   }, [data]);
+
+  // Auto-fill the display name from code + door type while the user hasn't
+  // customized it — keeps the label truthful without manual typing.
+  useEffect(() => {
+    if (nameTouched) return;
+    const suggested = [code, doorTypeLabel(doorType)].filter(Boolean).join(" ");
+    setName((prev) => (prev === suggested ? prev : suggested));
+  }, [code, doorType, nameTouched]);
 
   // Warn before losing unsaved edits on tab close / refresh.
   useEffect(() => {
@@ -396,8 +433,9 @@ export default function DesignEditorPage({
             <Boxes size={12} />
             {isNew ? "Create a new design" : `Design · ${data?.design.code}`}
           </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
-            {isNew ? "New design" : (name || data?.design.code) ?? "Untitled"}
+          <h1 className="mt-1 flex flex-wrap items-center gap-2.5 text-2xl font-bold tracking-tight text-slate-900">
+            {isNew ? "New design" : (code || data?.design.code) ?? "Untitled"}
+            <DoorTypeBadge type={doorType} />
           </h1>
           {!isNew && usedIn > 0 && (
             <p className="mt-1 text-xs text-slate-500">
@@ -454,29 +492,57 @@ export default function DesignEditorPage({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="door-type">Door type</Label>
-                <select
-                  id="door-type"
-                  value={doorType}
-                  onChange={(e) => markDirty(setDoorType)(e.target.value)}
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                >
-                  <option value="">— None —</option>
-                  {DOOR_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
+                {isNew ? (
+                  <>
+                    <select
+                      id="door-type"
+                      value={doorType}
+                      onChange={(e) => markDirty(setDoorType)(e.target.value)}
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    >
+                      <option value="">— Select —</option>
+                      {DOOR_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-slate-400">
+                      Single or double-door variant. Each type is its own design.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
+                      {doorTypeLabel(doorType) || "—"}
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Fixed for this design. To work the {doorType === "DD" ? "single" : "double"}-door
+                      version, open its own card in the catalog (e.g.{" "}
+                      <span className="font-medium">
+                        {(code || "ID01")} {doorType === "DD" ? "Single Door" : "Double Door"}
+                      </span>
+                      ).
+                    </p>
+                  </>
+                )}
               </div>
               <div className="space-y-1.5 md:col-span-2">
                 <Label htmlFor="name">Display name</Label>
                 <Input
                   id="name"
                   value={name}
-                  onChange={(e) => markDirty(setName)(e.target.value)}
+                  onChange={(e) => {
+                    setNameTouched(true);
+                    markDirty(setName)(e.target.value);
+                  }}
                   placeholder="e.g. ID10 Single Door"
                   className="h-10"
                 />
+                <p className="text-[11px] text-slate-400">
+                  Just a label shown in lists — the real type is the badge next
+                  to the title above. Leave it and it auto-fills from code + type.
+                </p>
               </div>
               <div className="space-y-1.5 md:col-span-2">
                 <Label htmlFor="description">Description</Label>
