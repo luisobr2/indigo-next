@@ -12,7 +12,8 @@ import {
   Play,
 } from "lucide-react";
 import { AddressLink, PhoneLink } from "@/components/address-link";
-import { fmtMoney, fmtNum, m2o } from "@/lib/utils";
+import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
+import { doorTypeLabel, colorLabel, colorDot } from "@/lib/labels";
 import { ActivityFeed } from "@/components/activity-feed";
 import { FilesDocumentsPanel } from "@/components/files-documents-panel";
 import { StockMatchBanner } from "@/components/stock-match-banner";
@@ -216,7 +217,7 @@ export default function OrderDetailPage({
             )}
           </div>
           <p className="ml-9 mt-1 text-sm text-slate-500">
-            Created {new Date(o.create_date).toLocaleDateString()} ·{" "}
+            Created {fmtDate(o.create_date)} ·{" "}
             {data.lines.length} piece{data.lines.length === 1 ? "" : "s"}
           </p>
         </div>
@@ -401,7 +402,7 @@ export default function OrderDetailPage({
               <dl className="space-y-3 border-t border-slate-100 pt-3">
                 <Row
                   label="Door Type"
-                  value={uDoorType.mixed ? "Mixed" : uDoorType.value ?? "—"}
+                  value={uDoorType.mixed ? "Mixed" : doorTypeLabel(uDoorType.value)}
                 />
                 <Row
                   label="Color"
@@ -409,7 +410,7 @@ export default function OrderDetailPage({
                     uColor.mixed ? (
                       "Mixed"
                     ) : (
-                      <span className="flex items-center gap-2 capitalize">
+                      <span className="flex items-center gap-2">
                         <span
                           className="inline-block h-3 w-3 rounded-full"
                           style={{
@@ -417,7 +418,7 @@ export default function OrderDetailPage({
                             border: "1px solid #cbd5e1",
                           }}
                         />
-                        {lines[0]?.color?.replace("_", " ") ?? "—"}
+                        {colorLabel(lines[0]?.color)}
                       </span>
                     )
                   }
@@ -554,8 +555,8 @@ export default function OrderDetailPage({
                       <td className="py-2 font-medium text-indigo-700">
                         {m2o(l.design_id)?.name ?? "—"}
                       </td>
-                      <td className="py-2">{l.door_type}</td>
-                      <td className="py-2 capitalize">{l.color}</td>
+                      <td className="py-2">{doorTypeLabel(l.door_type)}</td>
+                      <td className="py-2">{colorLabel(l.color)}</td>
                       <td className="py-2 font-medium uppercase text-slate-700">
                         {brand?.name ?? "—"}
                       </td>
@@ -715,19 +716,6 @@ export default function OrderDetailPage({
       )}
     </div>
   );
-}
-
-// Single source of truth for color swatches on this page (was duplicated in
-// 3 inconsistent inline maps — one didn't even distinguish black/bronze ECO).
-const COLOR_HEX: Record<string, string> = {
-  white: "#fff",
-  bronze: "#a16207",
-  bronze_eco: "#854d0e",
-  black: "#111",
-  custom: "#a78bfa",
-};
-function colorDot(color?: string): string {
-  return COLOR_HEX[color ?? ""] ?? "#cbd5e1";
 }
 
 function Row({

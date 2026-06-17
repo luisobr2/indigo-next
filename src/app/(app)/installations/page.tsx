@@ -156,6 +156,7 @@ const COLOR_DOT: Record<string, string> = {
   bronze: "#a16207",
   bronze_eco: "#854d0e",
   black: "#111",
+  custom: "#a78bfa",
 };
 
 export default function InstallationsPage() {

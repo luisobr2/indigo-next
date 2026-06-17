@@ -22,7 +22,7 @@ const SERVICE_LOGIN =
   process.env.ICS_SERVICE_LOGIN ?? "majela@indigodecors.com";
 const SERVICE_PASSWORD = process.env.IMPERSONATE_PASSWORD ?? "indigo123";
 
-const DONE_CODES = ["installed", "invoiced_paid", "invoiced", "closed"];
+const DONE_CODES = ["installed", "invoiced", "closed"];
 
 function localYmd(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");

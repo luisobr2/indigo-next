@@ -13,6 +13,7 @@ import {
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
+import { paymentLabel } from "@/lib/labels";
 import { TableSkeleton } from "@/components/skeleton";
 import { EmptyState } from "@/components/state-cards";
 import { toCsv, downloadCsv } from "@/lib/csv";
@@ -300,7 +301,7 @@ function OrdersInner() {
                 { header: "SQF", value: (r) => r.total_sqf },
                 { header: "Total (USD)", value: (r) => r.total_dealer_charge },
                 { header: "Stage", value: (r) => m2o(r.stage_id)?.name ?? "" },
-                { header: "Payment", value: (r) => r.payment_state },
+                { header: "Payment", value: (r) => paymentLabel(r.payment_state) },
                 { header: "Created", value: (r) => fmtDate(r.create_date) },
               ]);
               downloadCsv(`indigo-orders-${new Date().toISOString().slice(0, 10)}.csv`, csv);
@@ -586,7 +587,7 @@ function OrdersInner() {
                       variant="secondary"
                       className={`text-[10px] font-bold uppercase ${PAY_BADGE[r.payment_state]}`}
                     >
-                      {r.payment_state}
+                      {paymentLabel(r.payment_state)}
                     </Badge>
                   </td>
                 </tr>

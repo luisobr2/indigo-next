@@ -21,6 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { BulkSendToButton } from "@/components/bulk-send-to-button";
 import { QuickStageActionButton } from "@/components/quick-stage-action-button";
 import { fmtMoney, fmtNum } from "@/lib/utils";
+import { colorLabel, doorTypeLabel } from "@/lib/labels";
 import { toCsv, downloadCsv } from "@/lib/csv";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 
@@ -50,19 +51,6 @@ interface Stage {
   code: string;
   sequence: number;
 }
-
-const COLOR_LABEL: Record<string, string> = {
-  white: "white",
-  bronze: "bronze",
-  bronze_eco: "bronze ECO",
-  black: "black",
-};
-
-const DOOR_TYPE_LABEL: Record<string, string> = {
-  SD: "SD",
-  DD: "DD",
-  sidelite: "Door with Sidelites",
-};
 
 export default function PaintPage() {
   const qc = useQueryClient();
@@ -357,11 +345,8 @@ export default function PaintPage() {
                 const company =
                   (r.dealer_id && Array.isArray(r.dealer_id) && r.dealer_id[1]) ||
                   "—";
-                const colorKey = r.first_line?.color ?? "";
-                const colorLabel = COLOR_LABEL[colorKey] ?? colorKey ?? "—";
-                const doorType = r.first_line?.door_type ?? "—";
-                const doorTypeLabel =
-                  DOOR_TYPE_LABEL[doorType] ?? doorType;
+                const colorText = colorLabel(r.first_line?.color);
+                const doorTypeText = doorTypeLabel(r.first_line?.door_type);
                 const sides = r.first_line?.paint_sides ?? 2;
                 const total = (r.total_sqf || 0) * PAINT_RATE;
                 const isSelected = selected.has(r.id);
@@ -419,11 +404,11 @@ export default function PaintPage() {
                         {r.client_name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 capitalize text-slate-700">
-                      {colorLabel}
+                    <td className="px-4 py-3 text-slate-700">
+                      {colorText}
                     </td>
-                    <td className="px-4 py-3 font-mono text-slate-700">
-                      {doorTypeLabel}
+                    <td className="px-4 py-3 text-slate-700">
+                      {doorTypeText}
                     </td>
                     <td className="px-4 py-3 text-right font-mono">
                       {r.total_sqf?.toFixed(2)}

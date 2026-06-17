@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { fmtMoney, fmtNum, m2o, cn } from "@/lib/utils";
+import { paymentLabel } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/state-cards";
@@ -413,7 +414,7 @@ function KanbanCard({
                 card.payment_state === "unpaid" && "bg-rose-50 text-rose-700",
               )}
             >
-              {card.payment_state}
+              {paymentLabel(card.payment_state)}
             </Badge>
           </div>
         </div>

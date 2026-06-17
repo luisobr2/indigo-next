@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn, fmtDate, fmtNum, m2o } from "@/lib/utils";
+import { doorTypeLabel, colorLabel, colorDot } from "@/lib/labels";
 import { StageWizardModal, STAGE_WIZARDS } from "./stage-wizard-modal";
 import { HoldModal } from "./hold-modal";
 import { CancelModal } from "./cancel-modal";
@@ -1376,25 +1377,16 @@ function SidePanel({
           <Row2 label="Client" value={order.client_name} />
           <Row2 label="Reference" value={order.dealer_ref || "—"} />
           <Row2 label="Design" value={designLabel} />
-          <Row2 label="Door Type" value={(firstLine?.door_type as string) || "—"} />
+          <Row2 label="Door Type" value={doorTypeLabel(firstLine?.door_type)} />
           <Row2
             label="Color"
             value={
               <span className="flex items-center gap-2">
                 <span
                   className="inline-block h-3 w-3 rounded-full border border-slate-300"
-                  style={{
-                    background:
-                      (firstLine?.color as string) === "white"
-                        ? "#fff"
-                        : (firstLine?.color as string) === "bronze"
-                          ? "#a16207"
-                          : (firstLine?.color as string) === "black"
-                            ? "#111"
-                            : "#cbd5e1",
-                  }}
+                  style={{ background: colorDot(firstLine?.color) }}
                 />
-                {(firstLine?.color as string) ?? "—"}
+                {colorLabel(firstLine?.color)}
               </span>
             }
           />

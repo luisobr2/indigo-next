@@ -517,13 +517,23 @@ export default function DesignEditorPage({
                       {doorTypeLabel(doorType) || "—"}
                     </div>
                     <p className="text-[11px] text-slate-400">
-                      Fixed for this design. To work the {doorType === "DD" ? "single" : "double"}-door
-                      version, open its own card in the catalog (e.g.{" "}
-                      <span className="font-medium">
-                        {(code || "ID01").replace(/-(SD|DD|SDL|sidelite)$/i, "")}{" "}
-                        {doorType === "DD" ? "Single Door" : "Double Door"}
-                      </span>
-                      ).
+                      {doorType === "SD" || doorType === "DD" ? (
+                        <>
+                          Fixed for this design. To work the{" "}
+                          {doorType === "DD" ? "single" : "double"}-door version,
+                          open its own card in the catalog (e.g.{" "}
+                          <span className="font-medium">
+                            {(code || "ID01").replace(/-(SD|DD|SDL|sidelite)$/i, "")}{" "}
+                            {doorType === "DD" ? "Single Door" : "Double Door"}
+                          </span>
+                          ).
+                        </>
+                      ) : (
+                        <>
+                          Fixed for this design. Other door types are managed as
+                          their own cards in the catalog.
+                        </>
+                      )}
                     </p>
                   </>
                 )}

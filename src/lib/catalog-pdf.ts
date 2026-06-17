@@ -40,8 +40,7 @@ const COLOR_LABEL: Record<string, string> = {
 const DOOR_TYPE_LABEL: Record<string, string> = {
   SD: "Single Door",
   DD: "Double Door",
-  SDL: "With Sidelites",
-  sidelite: "With Sidelites",
+  sidelite: "Door with Sidelites",
 };
 
 /**

@@ -25,6 +25,7 @@ import {
 } from "recharts";
 import { toast } from "sonner";
 import { fmtMoney, m2o } from "@/lib/utils";
+import { paymentLabel } from "@/lib/labels";
 import { fetchJson } from "@/lib/fetch-json";
 import { ErrorState, EmptyState } from "@/components/state-cards";
 import { Skeleton } from "@/components/skeleton";
@@ -373,7 +374,7 @@ export default function BillingPage() {
                           : "text-rose-700"
                       }`}
                     >
-                      {o.payment_state}
+                      {paymentLabel(o.payment_state)}
                     </div>
                   </div>
                 </li>
