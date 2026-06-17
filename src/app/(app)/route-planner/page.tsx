@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Map,
@@ -46,23 +46,52 @@ interface RouteOrder {
   dealer_id: [number, string] | false;
 }
 
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+}
+
 export default function RoutePlannerPage() {
+  // The planner sequences ONE day's route. Default to today; the operator
+  // can pick another date and (optionally) narrow to a single installer.
+  const [day, setDay] = useState<string>(todayStr());
+  const [installerId, setInstallerId] = useState<number | "">("");
+
   const { data, isLoading, isError } = useQuery<{ records: RouteOrder[] }>({
     queryKey: ["route-planner"],
     queryFn: () =>
       fetchJson<{ records: RouteOrder[] }>(
-        "/api/orders?stages=install_scheduled,ready_install&limit=50",
+        "/api/orders?stages=install_scheduled,ready_install&limit=200",
       ),
   });
+
+  const installersQ = useQuery<{ records: Array<{ id: number; name: string }> }>({
+    queryKey: ["installers"],
+    queryFn: () => fetchJson<{ records: Array<{ id: number; name: string }> }>("/api/installers"),
+    staleTime: 5 * 60_000,
+  });
+
+  // Only the orders scheduled for the chosen day (and installer, if set).
+  const records = useMemo(() => {
+    const all = data?.records ?? [];
+    return all.filter((r) => {
+      if (!r.installation_date) return false;
+      if (String(r.installation_date).slice(0, 10) !== day) return false;
+      if (installerId !== "" && !(r.installer_ids || []).includes(installerId))
+        return false;
+      return true;
+    });
+  }, [data, day, installerId]);
 
   // Local, reorderable copy of the stops. The on-screen numbering, the
   // WhatsApp message and the printed list all follow THIS order so the
   // operator can sequence the day by customer availability.
   const [stops, setStops] = useState<RouteOrder[]>([]);
-  const records = data?.records ?? [];
   // Order-sensitive signature: resync only when the underlying set/order
-  // from the server actually changes, so a manual reorder isn't clobbered
-  // by a background refetch that returns the same stops.
+  // actually changes, so a manual reorder isn't clobbered by a refetch or
+  // an unrelated re-render.
   const sig = records.map((r) => r.id).join(",");
   useEffect(() => {
     setStops(records);
@@ -136,7 +165,7 @@ export default function RoutePlannerPage() {
               // addresses with commas/spaces survive the wa.me handler. No
               // phone prefix -> opens the contact picker on the device.
               const lines = [
-                "*Indigo Decors — Today's installations*",
+                `*Indigo Decors — Installations ${fmtDate(day)}*`,
                 "",
                 ...stops.map((o, i) =>
                   [
@@ -162,6 +191,50 @@ export default function RoutePlannerPage() {
             Send route to WhatsApp
           </Button>
         </div>
+      </div>
+
+      {/* Day + installer filter — the planner is for ONE day's route. */}
+      <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Day
+          </label>
+          <input
+            type="date"
+            value={day}
+            onChange={(e) => setDay(e.target.value)}
+            className="h-9 rounded-lg border border-slate-200 px-2 text-sm focus:border-indigo-400 focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => setDay(todayStr())}
+            className="text-xs font-medium text-indigo-700 hover:underline"
+          >
+            Today
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Installer
+          </label>
+          <select
+            value={installerId}
+            onChange={(e) =>
+              setInstallerId(e.target.value ? Number(e.target.value) : "")
+            }
+            className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-indigo-400 focus:outline-none"
+          >
+            <option value="">All installers</option>
+            {installersQ.data?.records?.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <span className="ml-auto text-xs text-slate-400">
+          {stops.length} stop{stops.length === 1 ? "" : "s"} · {fmtDate(day)}
+        </span>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -205,7 +278,8 @@ export default function RoutePlannerPage() {
           )}
           {!isLoading && !isError && stops.length === 0 && (
             <div className="py-12 text-center text-sm text-slate-400">
-              Nothing scheduled.
+              No installations scheduled for {fmtDate(day)}
+              {installerId !== "" ? " for this installer" : ""}.
             </div>
           )}
           <DndContext
