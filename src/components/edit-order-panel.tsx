@@ -394,7 +394,7 @@ export function EditOrderPanel({
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Field label="Name">
             <Input
-              value={orderForm.client_name ?? ""}
+              value={orderForm.client_name || ""}
               onChange={(e) =>
                 setOrderForm({ ...orderForm, client_name: e.target.value })
               }
@@ -402,7 +402,7 @@ export function EditOrderPanel({
           </Field>
           <Field label="Phone">
             <Input
-              value={orderForm.client_phone ?? ""}
+              value={orderForm.client_phone || ""}
               onChange={(e) =>
                 setOrderForm({ ...orderForm, client_phone: e.target.value })
               }
@@ -410,7 +410,7 @@ export function EditOrderPanel({
           </Field>
           <Field label="Email">
             <Input
-              value={orderForm.client_email ?? ""}
+              value={orderForm.client_email || ""}
               onChange={(e) =>
                 setOrderForm({ ...orderForm, client_email: e.target.value })
               }
@@ -418,7 +418,7 @@ export function EditOrderPanel({
           </Field>
           <Field label="Dealer reference">
             <Input
-              value={orderForm.dealer_ref ?? ""}
+              value={orderForm.dealer_ref || ""}
               onChange={(e) =>
                 setOrderForm({ ...orderForm, dealer_ref: e.target.value })
               }
@@ -426,7 +426,7 @@ export function EditOrderPanel({
           </Field>
           <Field label="Customer PO">
             <Input
-              value={orderForm.customer_po ?? ""}
+              value={orderForm.customer_po || ""}
               placeholder="PO-784512"
               onChange={(e) =>
                 setOrderForm({ ...orderForm, customer_po: e.target.value })
@@ -437,7 +437,7 @@ export function EditOrderPanel({
             <Field label="Address">
               <Textarea
                 rows={2}
-                value={orderForm.client_address ?? ""}
+                value={orderForm.client_address || ""}
                 onChange={(e) =>
                   setOrderForm({ ...orderForm, client_address: e.target.value })
                 }
@@ -558,7 +558,7 @@ export function EditOrderPanel({
             </Field>
             <Field label="Glass type">
               <Input
-                value={line.glass_type ?? ""}
+                value={line.glass_type || ""}
                 onChange={(e) => setLineField(idx, "glass_type", e.target.value)}
               />
             </Field>
