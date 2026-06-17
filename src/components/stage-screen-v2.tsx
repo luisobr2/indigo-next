@@ -217,7 +217,12 @@ export function StageScreenV2({
   const [holdOpen, setHoldOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
-  const [groupBy, setGroupBy] = useState<"none" | "status">("status");
+  // Grouping by sub-status only makes sense on screens that HAVE a sub-status
+  // prefix (digi/cnc/paint). Elsewhere (measurements, design-approval) every
+  // row derives to "Ready", so default to no grouping.
+  const [groupBy, setGroupBy] = useState<"none" | "status">(
+    subStatusPrefix ? "status" : "none",
+  );
   const [view, setView] = useState<"list" | "grid">("list");
   const [bulk, setBulk] = useState<Set<number>>(new Set());
 
@@ -613,15 +618,19 @@ export function StageScreenV2({
         ))}
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-slate-500">Group by:</span>
-          <select
-            value={groupBy}
-            onChange={(e) => setGroupBy(e.target.value as "none" | "status")}
-            className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm focus:border-indigo-500 focus:outline-none"
-          >
-            <option value="none">None</option>
-            <option value="status">Status</option>
-          </select>
+          {subStatusPrefix && (
+            <>
+              <span className="text-xs text-slate-500">Group by:</span>
+              <select
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as "none" | "status")}
+                className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="none">None</option>
+                <option value="status">Status</option>
+              </select>
+            </>
+          )}
           <div className="flex h-9 overflow-hidden rounded-lg border border-slate-200">
             <button
               type="button"

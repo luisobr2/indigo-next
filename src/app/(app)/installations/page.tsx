@@ -258,11 +258,9 @@ export default function InstallationsPage() {
   // Donut data
   const donutData = useMemo(() => {
     if (!summary) return [];
-    const ns = 0;
     return [
       { name: "Installed", value: summary.installedThisWeek, fill: "#10b981" },
       { name: "Pending", value: summary.pendingThisWeek, fill: "#f59e0b" },
-      { name: "Not Started", value: ns, fill: "#cbd5e1" },
     ];
   }, [summary]);
 

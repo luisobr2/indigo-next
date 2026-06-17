@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { m2o } from "@/lib/utils";
 
 export default function InstallDetailPage({
   params,
@@ -180,6 +181,7 @@ export default function InstallDetailPage({
     client_address: string;
     door_count: number;
     stage_code: string;
+    stage_id: [number, string] | false;
   };
 
   return (
@@ -224,7 +226,7 @@ export default function InstallDetailPage({
           <div className="mt-3 flex items-center gap-3 text-xs text-slate-500">
             <span>{o.door_count} doors</span>
             <Badge variant="secondary" className="bg-indigo-50 font-bold uppercase text-indigo-700">
-              {o.stage_code}
+              {m2o(o.stage_id)?.name ?? o.stage_code}
             </Badge>
           </div>
         </div>
