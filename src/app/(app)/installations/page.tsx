@@ -148,7 +148,7 @@ function formatWeek(start: string, end: string) {
 const DOOR_TYPE_LABEL: Record<string, string> = {
   SD: "Single Door",
   DD: "Double Door",
-  SDL: "Door with Sidelites",
+  sidelite: "Door with Sidelites",
 };
 
 const COLOR_DOT: Record<string, string> = {

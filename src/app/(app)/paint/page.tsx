@@ -61,7 +61,7 @@ const COLOR_LABEL: Record<string, string> = {
 const DOOR_TYPE_LABEL: Record<string, string> = {
   SD: "SD",
   DD: "DD",
-  SDL: "SDL",
+  sidelite: "Door with Sidelites",
 };
 
 export default function PaintPage() {

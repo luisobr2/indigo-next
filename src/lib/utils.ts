@@ -31,6 +31,32 @@ const DATETIME_FMT = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
 });
 
+// Date-only formatter pinned to UTC so a plain "YYYY-MM-DD" renders the
+// literal day (no timezone off-by-one).
+const DATE_FMT_UTC = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+/**
+ * Parse a value coming from Odoo into a real Date instant.
+ * Odoo serializes datetimes as naive UTC "YYYY-MM-DD HH:MM:SS" (no tz) and
+ * dates as "YYYY-MM-DD". `new Date("YYYY-MM-DD HH:MM:SS")` would (wrongly)
+ * read it as LOCAL time, shifting the clock by the viewer's offset — so we
+ * normalize the datetime form to UTC explicitly.
+ */
+function odooToInstant(v: string | Date): { d: Date; dateOnly: boolean } {
+  if (v instanceof Date) return { d: v, dateOnly: false };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    return { d: new Date(v + "T00:00:00Z"), dateOnly: true };
+  }
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/.exec(v);
+  if (m) return { d: new Date(`${m[1]}T${m[2]}Z`), dateOnly: false };
+  return { d: new Date(v), dateOnly: false };
+}
+
 export function fmtMoney(v: number | null | undefined): string {
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
@@ -45,16 +71,18 @@ export function fmtNum(v: number | null | undefined): string {
 
 export function fmtDate(v: string | Date | null | undefined | false): string {
   if (!v) return "—";
-  const d = v instanceof Date ? v : new Date(v);
+  const { d, dateOnly } = odooToInstant(v);
   if (Number.isNaN(d.getTime())) return "—";
-  return DATE_FMT.format(d);
+  // Date-only → render the literal day in UTC; datetimes → the local day of
+  // that instant.
+  return (dateOnly ? DATE_FMT_UTC : DATE_FMT).format(d);
 }
 
 export function fmtDateTime(
   v: string | Date | null | undefined | false,
 ): string {
   if (!v) return "—";
-  const d = v instanceof Date ? v : new Date(v);
+  const { d } = odooToInstant(v);
   if (Number.isNaN(d.getTime())) return "—";
   return DATETIME_FMT.format(d);
 }

@@ -46,7 +46,7 @@ const COLOR_DOT: Record<string, string> = {
 const DOOR_TYPE_LABEL: Record<string, string> = {
   SD: "Single Door",
   DD: "Double Door",
-  SDL: "Door with Sidelites",
+  sidelite: "Door with Sidelites",
 };
 
 function daysSince(iso: string | false): number {
@@ -118,7 +118,7 @@ export default function AvailableStockPage() {
             { value: "", label: "Any" },
             { value: "SD", label: "Single" },
             { value: "DD", label: "Double" },
-            { value: "SDL", label: "With Sidelites" },
+            { value: "sidelite", label: "With Sidelites" },
           ]}
         />
         <FilterPill
