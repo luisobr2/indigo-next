@@ -520,7 +520,8 @@ export default function DesignEditorPage({
                       Fixed for this design. To work the {doorType === "DD" ? "single" : "double"}-door
                       version, open its own card in the catalog (e.g.{" "}
                       <span className="font-medium">
-                        {(code || "ID01")} {doorType === "DD" ? "Single Door" : "Double Door"}
+                        {(code || "ID01").replace(/-(SD|DD|SDL|sidelite)$/i, "")}{" "}
+                        {doorType === "DD" ? "Single Door" : "Double Door"}
                       </span>
                       ).
                     </p>
