@@ -147,6 +147,7 @@ export default function OrderDetailPage({
     width_label: string;
     height_label: string;
     qty: number;
+    parts_count?: number;
     sqf: number;
     is_privacy_glass: boolean;
   }>;
@@ -173,6 +174,7 @@ export default function OrderDetailPage({
   const uDoorType = uniform((l) => l.door_type);
   const uColor = uniform((l) => l.color);
   const uGlass = uniform((l) => l.glass_type);
+  const uPieces = uniform((l) => l.parts_count ?? 1);
   const firstBrand = m2o(
     (lines[0] as { brand_id?: [number, string] | false } | undefined)?.brand_id,
   );
@@ -439,6 +441,10 @@ export default function OrderDetailPage({
                       : `${lines[0]?.height ?? "—"} in`
                   }
                 />
+                <Row
+                  label="Pieces"
+                  value={uPieces.mixed ? "Mixed" : String(lines[0]?.parts_count ?? 1)}
+                />
                 <Row label="Brand" value={firstBrand?.name ?? "—"} />
                 <Row
                   label="Glass"
@@ -531,6 +537,7 @@ export default function OrderDetailPage({
                   <th className="py-2 text-right">W (in)</th>
                   <th className="py-2 text-right">H (in)</th>
                   <th className="py-2 text-right">Qty</th>
+                  <th className="py-2 text-right">Pieces</th>
                   <th className="py-2 text-right">SQF</th>
                 </tr>
               </thead>
@@ -576,6 +583,7 @@ export default function OrderDetailPage({
                       <td className="py-2 text-right">{l.width_label || l.width}</td>
                       <td className="py-2 text-right">{l.height_label || l.height}</td>
                       <td className="py-2 text-right">{l.qty}</td>
+                      <td className="py-2 text-right">{l.parts_count ?? 1}</td>
                       <td className="py-2 text-right font-semibold">
                         {fmtNum(l.sqf)}
                       </td>

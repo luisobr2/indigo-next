@@ -204,6 +204,7 @@ export async function GET(req: NextRequest) {
               "thickness",
               "door_type",
               "color",
+              "parts_count",
             ],
           ],
           kwargs: { order: "order_id, id" },

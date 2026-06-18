@@ -147,6 +147,8 @@ export function NewOrderFromDesignModal({
   }
 
   const [qty, setQty] = useState("1");
+  // Pieces / parts a single door is cut into (free integer, default 1).
+  const [parts, setParts] = useState("1");
   // Door brand + glass spec — required for manufacturing: the brand drives
   // the paint tone; clear vs privacy changes the paint application.
   const [brandId, setBrandId] = useState<number | "">("");
@@ -193,6 +195,7 @@ export function NewOrderFromDesignModal({
     setSizeTouched(false);
     setImgFailed(false);
     setQty("1");
+    setParts("1");
     setBrandId("");
     setPrivacy("");
     setGlassType("");
@@ -268,6 +271,7 @@ export function NewOrderFromDesignModal({
                 width: w,
                 height: h,
                 qty: q,
+                parts_count: Math.max(1, parseInt(parts, 10) || 1),
               },
             ],
           ],
@@ -558,6 +562,17 @@ export function NewOrderFromDesignModal({
                 value={qty}
                 onChange={(e) => setQty(e.target.value)}
               />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="no-parts">Pieces</Label>
+              <Input
+                id="no-parts"
+                type="number"
+                min="1"
+                value={parts}
+                onChange={(e) => setParts(e.target.value)}
+              />
+              <p className="text-[10px] text-slate-400">Cut panels per door</p>
             </div>
           </section>
 

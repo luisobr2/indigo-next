@@ -22,6 +22,7 @@ const CREATABLE_FIELDS = [
   "width_label",
   "height_label",
   "qty",
+  "parts_count",
   "design_tier",
   "custom_price",
   "material",

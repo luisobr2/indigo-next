@@ -77,6 +77,7 @@ const LINE_FIELDS_BASE = [
   "width_label",
   "height_label",
   "qty",
+  "parts_count",
   "sqf",
   "notes_line",
   "sequence",

@@ -1416,6 +1416,7 @@ function SidePanel({
               </span>
             }
           />
+          <Row2 label="Pieces" value={String((firstLine?.parts_count as number) ?? 1)} />
           {prefix === "cnc" && (
             <>
               <Row2 label="Material" value={(firstLine?.material as string) || "—"} />

@@ -25,6 +25,7 @@ interface LineRow {
   width_label: string;
   height_label: string;
   qty: number;
+  parts_count?: number;
   design_tier?: string;
   custom_price?: number;
   material?: string;
@@ -132,6 +133,7 @@ export function EditOrderPanel({
         width_label: "",
         height_label: "",
         qty: 1,
+        parts_count: 1,
         design_tier: "basic",
       },
     ]);
@@ -250,6 +252,7 @@ export function EditOrderPanel({
           width: lf.width,
           height: lf.height,
           qty: lf.qty,
+          parts_count: lf.parts_count ?? 1,
           design_tier: lf.design_tier ?? "basic",
         };
         if (lf.design_tier === "custom") payload.custom_price = lf.custom_price;
@@ -569,6 +572,17 @@ export function EditOrderPanel({
                 onChange={(e) => {
                   const v = e.target.value;
                   setLineField(idx, "qty", v === "" ? 1 : parseInt(v));
+                }}
+              />
+            </Field>
+            <Field label="Pieces">
+              <Input
+                type="number"
+                min="1"
+                value={line.parts_count ? String(line.parts_count) : ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setLineField(idx, "parts_count", v === "" ? 1 : parseInt(v));
                 }}
               />
             </Field>
