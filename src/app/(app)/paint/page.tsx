@@ -427,7 +427,7 @@ export default function PaintPage() {
                         {designId ? (
                           /* eslint-disable-next-line @next/next/no-img-element */
                           <img
-                            src={`/api/catalog/designs/${designId}/image`}
+                            src={`/api/catalog/designs/${designId}/image?${new URLSearchParams({ ...(r.first_line?.color ? { color: r.first_line.color } : {}), ...(r.first_line?.door_type ? { type: r.first_line.door_type } : {}) }).toString()}`}
                             alt="Design"
                             className="h-full w-full object-cover"
                             onError={(e) => {

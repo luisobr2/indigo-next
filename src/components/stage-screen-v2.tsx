@@ -1348,7 +1348,7 @@ function SidePanel({
           {designId ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
-              src={`/api/catalog/designs/${designId[0]}/image`}
+              src={`/api/catalog/designs/${designId[0]}/image?${new URLSearchParams({ ...(firstLine?.color ? { color: firstLine.color as string } : {}), ...(firstLine?.door_type ? { type: firstLine.door_type as string } : {}) }).toString()}`}
               alt={designLabel}
               className="h-56 w-full object-contain"
               onError={(e) => {
