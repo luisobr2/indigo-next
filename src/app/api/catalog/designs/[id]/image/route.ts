@@ -76,6 +76,10 @@ export async function GET(
     // most-recent attachment when nothing matches.
     const attParam = sp.get("att");
     const colorParam = sp.get("color")?.toLowerCase().trim() || "";
+    // ?type=SD|DD|sidelite — for flexible designs (CUSTOM) that carry both
+    // single- and double-door images, pick the one matching the ordered type.
+    const typeParam = (sp.get("type") || "").toUpperCase().trim();
+    const typeTok = { SD: "sd", DD: "dd", SIDELITE: "sidelite" }[typeParam] || "";
 
     let att: { id: number; mimetype: string } | undefined;
     if (attParam) {
@@ -115,22 +119,28 @@ export async function GET(
         kwargs: { order: "create_date desc" },
       });
 
+      const segsOf = (n: string) =>
+        (n || "").toLowerCase().split(/[^a-z]+/).filter(Boolean);
+      const hasType = (a: { name: string }) =>
+        !typeTok || segsOf(a.name).includes(typeTok);
       if (colorParam) {
         // Honor bronze_eco -> bronze ECO -> bronze priority by trying the
         // most specific tokens first.
         const tokens = colorParam.includes("eco")
           ? ["bronze_eco", "bronze eco", "eco"]
           : [colorParam, colorParam.replace("_", " ")];
-        for (const token of tokens) {
-          const found = attachments.find((a) =>
-            (a.name || "").toLowerCase().includes(token),
-          );
-          if (found) {
-            att = found;
-            break;
-          }
-        }
+        const hasColor = (a: { name: string }) =>
+          tokens.some((t) => (a.name || "").toLowerCase().includes(t));
+        // Prefer an attachment matching BOTH the requested type and color
+        // (CUSTOM has CUSTOM-DD-black vs CUSTOM-SD-black); fall back to
+        // color-only, then to type-only.
+        att =
+          attachments.find((a) => hasType(a) && hasColor(a)) ||
+          attachments.find((a) => hasColor(a)) ||
+          undefined;
       }
+      // Type-only match when no color was given (or nothing matched color).
+      if (!att && typeTok) att = attachments.find((a) => hasType(a));
       // Fallback: most-recent attachment.
       if (!att) att = attachments[0];
     }

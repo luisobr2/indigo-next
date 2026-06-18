@@ -349,7 +349,7 @@ export default function OrderDetailPage({
                 {lines[0]?.design_id ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
-                    src={`/api/catalog/designs/${(lines[0].design_id as [number, string])[0]}/image${lines[0]?.color ? `?color=${encodeURIComponent(lines[0].color)}` : ""}`}
+                    src={`/api/catalog/designs/${(lines[0].design_id as [number, string])[0]}/image?${new URLSearchParams({ ...(lines[0]?.color ? { color: lines[0].color } : {}), ...(lines[0]?.door_type ? { type: lines[0].door_type } : {}) }).toString()}`}
                     alt={`${(lines[0].design_id as [number, string])[1]} — ${lines[0]?.color ?? ""}`}
                     className="h-full w-auto object-contain"
                     onError={(e) => {

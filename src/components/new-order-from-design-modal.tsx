@@ -372,7 +372,7 @@ export function NewOrderFromDesignModal({
               {variantId && !imgFailed ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
-                  src={`/api/catalog/designs/${variantId}/image?color=${encodeURIComponent(color)}`}
+                  src={`/api/catalog/designs/${variantId}/image?${new URLSearchParams({ color, ...((currentVariant?.door_type || flexDoorType) ? { type: currentVariant?.door_type || flexDoorType } : {}) }).toString()}`}
                   alt={`${family} ${DOOR_TYPE_LABEL[variants.find((v) => v.id === variantId)?.door_type ?? ""] ?? ""} preview`}
                   className="h-full w-full object-contain"
                   onError={() => setImgFailed(true)}
@@ -397,7 +397,10 @@ export function NewOrderFromDesignModal({
                   <button
                     key={t.value}
                     type="button"
-                    onClick={() => setFlexDoorType(t.value)}
+                    onClick={() => {
+                      setFlexDoorType(t.value);
+                      setImgFailed(false);
+                    }}
                     className={cn(
                       "rounded-lg border px-3 py-2 text-xs font-medium transition",
                       flexDoorType === t.value
