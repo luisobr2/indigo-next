@@ -296,7 +296,14 @@ export default function DesignEditorPage({
       .finally(() => setUploadingImage(false));
     toast.promise(promise, {
       loading: "Uploading…",
-      success: color ? `Added ${color} variant` : "Image added",
+      success: (j: { coveredProducts?: number }) =>
+        makeCover
+          ? j.coveredProducts
+            ? "Image added & set as storefront cover"
+            : "Image added & set as cover (no storefront product linked yet)"
+          : color
+            ? `Added ${color} variant`
+            : "Image added",
       error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }
@@ -315,7 +322,12 @@ export default function DesignEditorPage({
     });
     toast.promise(promise, {
       loading: "Updating…",
-      success: makeCover ? "Cover updated" : "Tag updated",
+      success: (j: { coveredProducts?: number }) =>
+        makeCover
+          ? j.coveredProducts
+            ? "Cover updated — storefront image set"
+            : "Cover set, but no storefront product is linked to this design yet"
+          : "Tag updated",
       error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }
@@ -744,6 +756,9 @@ export default function DesignEditorPage({
             is used when an order with{" "}
             <code className="rounded bg-slate-100 px-1">color = black</code>{" "}
             is opened). Tag the cover so unmatched orders fall back to it.
+            <br />
+            <strong>★ Set as cover</strong> also becomes the picture shown on
+            the public storefront for the linked product.
           </p>
 
           <ImageGallery
@@ -913,7 +928,7 @@ function ImageGallery({
                 type="button"
                 onClick={() => onRetag(img.id, detected, true)}
                 className="block w-full rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 transition hover:bg-indigo-100"
-                title="Use this image as the catalog cover (image_1920)"
+                title="Use this image as the cover — also sets the public storefront image for the linked product"
               >
                 ★ Set as cover
               </button>

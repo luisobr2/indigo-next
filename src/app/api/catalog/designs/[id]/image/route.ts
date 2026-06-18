@@ -6,6 +6,53 @@ import { deriveRole } from "@/lib/odoo/types";
 export const runtime = "nodejs";
 
 /**
+ * Apply a "cover" image (base64) to a design AND to the storefront product
+ * linked to it, so the picture chosen in the catalog editor is the one the
+ * public shop/PDP actually shows.
+ *
+ * - indigo.design has an `image` field (NOT `image_1920`) — writing the
+ *   non-existent `image_1920` was a silent no-op (the old bug).
+ * - product.template.image_1920 is what website_sale renders. We push the
+ *   bytes onto every product linked to this design via indigo_design_id.
+ *
+ * Returns how many storefront products were updated (0 if the design isn't
+ * linked to any product yet).
+ */
+async function applyCover(
+  session: string,
+  designId: number,
+  datas: string,
+): Promise<number> {
+  // 1) Design's own representative image (panel fallback / exports).
+  await call({
+    session,
+    model: "indigo.design",
+    method: "write",
+    args: [[designId], { image: datas }],
+    kwargs: {},
+  }).catch(() => undefined);
+
+  // 2) Propagate to the storefront product(s) linked to this design.
+  const productIds = await call<number[]>({
+    session,
+    model: "product.template",
+    method: "search",
+    args: [[["indigo_design_id", "=", designId]]],
+    kwargs: {},
+  }).catch(() => [] as number[]);
+  if (productIds.length) {
+    await call({
+      session,
+      model: "product.template",
+      method: "write",
+      args: [productIds, { image_1920: datas }],
+      kwargs: {},
+    }).catch(() => undefined);
+  }
+  return productIds.length;
+}
+
+/**
  * GET /api/catalog/designs/:id/image
  *
  * Streams the latest design image attachment back through the Next
@@ -183,20 +230,19 @@ export async function POST(
       kwargs: {},
     });
 
-    // If this is the cover, mirror the bytes onto the design's image_1920
-    // so consumers without an attachment fallback (other UIs, exports)
-    // still see something representative.
+    // If this is the cover, push the bytes onto the design's image AND the
+    // linked storefront product(s) so the public shop shows this picture.
+    let coveredProducts = 0;
     if (makeCover) {
-      await call({
-        session: s.session,
-        model: "indigo.design",
-        method: "write",
-        args: [[id], { image_1920: datas }],
-        kwargs: {},
-      }).catch(() => undefined);
+      coveredProducts = await applyCover(s.session, id, datas);
     }
 
-    return NextResponse.json({ ok: true, attachmentId: attId, name });
+    return NextResponse.json({
+      ok: true,
+      attachmentId: attId,
+      name,
+      coveredProducts,
+    });
   } catch (e) {
     if (e instanceof Response) return e;
     return NextResponse.json(
@@ -267,8 +313,10 @@ export async function PATCH(
       kwargs: {},
     });
 
+    let coveredProducts = 0;
     if (body.makeCover) {
-      // Pull the bytes from Odoo and write back to image_1920.
+      // Pull the bytes from Odoo and push them onto the design + linked
+      // storefront product(s).
       const odooRes = await fetch(`${odooConfig.url}/web/content/${attId}`, {
         headers: { Cookie: `session_id=${s.session}` },
         cache: "no-store",
@@ -276,17 +324,11 @@ export async function PATCH(
       if (odooRes.ok) {
         const buf = Buffer.from(await odooRes.arrayBuffer());
         const datas = buf.toString("base64");
-        await call({
-          session: s.session,
-          model: "indigo.design",
-          method: "write",
-          args: [[id], { image_1920: datas }],
-          kwargs: {},
-        }).catch(() => undefined);
+        coveredProducts = await applyCover(s.session, id, datas);
       }
     }
 
-    return NextResponse.json({ ok: true, name: newName });
+    return NextResponse.json({ ok: true, name: newName, coveredProducts });
   } catch (e) {
     if (e instanceof Response) return e;
     return NextResponse.json(
