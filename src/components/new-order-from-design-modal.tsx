@@ -81,6 +81,12 @@ const DOOR_TYPE_LABEL: Record<string, string> = {
   sidelite: "Door with Sidelites",
 };
 
+const DOOR_TYPES = [
+  { value: "SD", label: "Single Door" },
+  { value: "DD", label: "Double Door" },
+  { value: "sidelite", label: "Door with Sidelites" },
+] as const;
+
 export function NewOrderFromDesignModal({
   open,
   onClose,
@@ -101,10 +107,17 @@ export function NewOrderFromDesignModal({
   const [clientEmail, setClientEmail] = useState("");
   const [clientAddress, setClientAddress] = useState("");
   const [variantId, setVariantId] = useState<number>(variants[0]?.id ?? 0);
+  // Flexible designs (CUSTOM) have a variant with no door_type — the operator
+  // picks Single/Double here instead of choosing between variant cards.
+  const [flexDoorType, setFlexDoorType] = useState<string>("");
   // Fall back to the standard catalog palette when the design hasn't
   // had `allowed_colors` populated yet — otherwise the picker would
   // not render and the order would default to "white" silently.
   const effectiveColors = colors.length ? colors : ["white", "bronze", "black"];
+  // A "flexible" design (CUSTOM) has its single variant with no door_type, so
+  // the operator chooses Single/Double here rather than between variants.
+  const currentVariant = variants.find((v) => v.id === variantId) || variants[0];
+  const isFlexible = !!currentVariant && !currentVariant.door_type;
   const [color, setColor] = useState<string>(effectiveColors[0]);
   // Width / Height carry decimal inches in state but the input parses
   // US fractional notation ("23 3/4") and snaps to 1/16" on blur. They
@@ -173,6 +186,7 @@ export function NewOrderFromDesignModal({
     setClientEmail("");
     setClientAddress("");
     setVariantId(variants[0]?.id ?? 0);
+    setFlexDoorType("");
     setColor(effectiveColors[0]);
     setWidth(dimDefault(firstVariant?.min_width, firstVariant?.max_width));
     setHeight(dimDefault(firstVariant?.min_height, firstVariant?.max_height));
@@ -198,6 +212,10 @@ export function NewOrderFromDesignModal({
     }
     if (!variantId) {
       toast.warning("Pick a configuration (Single Door / Double Door).");
+      return;
+    }
+    if (isFlexible && !flexDoorType) {
+      toast.warning("Choose the door type (Single or Double).");
       return;
     }
     const w = typeof width === "number" ? width : NaN;
@@ -242,7 +260,7 @@ export function NewOrderFromDesignModal({
               0,
               {
                 design_id: variant.id,
-                door_type: variant.door_type,
+                door_type: variant.door_type || flexDoorType,
                 color,
                 brand_id: brandId,
                 glass_privacy: privacy,
@@ -367,29 +385,50 @@ export function NewOrderFromDesignModal({
             </div>
           </section>
 
-          {/* Configuration picker */}
+          {/* Configuration picker. Flexible designs (CUSTOM — variant with no
+              door_type) show a Single/Double chooser instead of variant cards. */}
           <section>
             <Label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-              Configuration
+              {isFlexible ? "Door type" : "Configuration"}
             </Label>
-            <div className="flex flex-wrap gap-2">
-              {variants.map((v) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  onClick={() => pickVariant(v)}
-                  className={cn(
-                    "rounded-lg border px-3 py-2 text-xs font-medium transition",
-                    variantId === v.id
-                      ? "border-indigo-300 bg-indigo-50 text-indigo-800 ring-2 ring-indigo-200"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-indigo-200",
-                  )}
-                >
-                  {DOOR_TYPE_LABEL[v.door_type] ?? v.door_type}
-                  <span className="ml-1 text-[9px] text-slate-400">{v.code}</span>
-                </button>
-              ))}
-            </div>
+            {isFlexible ? (
+              <div className="flex flex-wrap gap-2">
+                {DOOR_TYPES.map((t) => (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => setFlexDoorType(t.value)}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-xs font-medium transition",
+                      flexDoorType === t.value
+                        ? "border-indigo-300 bg-indigo-50 text-indigo-800 ring-2 ring-indigo-200"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-indigo-200",
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {variants.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => pickVariant(v)}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-xs font-medium transition",
+                      variantId === v.id
+                        ? "border-indigo-300 bg-indigo-50 text-indigo-800 ring-2 ring-indigo-200"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-indigo-200",
+                    )}
+                  >
+                    {DOOR_TYPE_LABEL[v.door_type] ?? v.door_type}
+                    <span className="ml-1 text-[9px] text-slate-400">{v.code}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
 
           {/* Color picker */}

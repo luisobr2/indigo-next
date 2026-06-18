@@ -523,10 +523,20 @@ export default function DesignEditorPage({
                       Single or double-door variant. Each type is its own design.
                     </p>
                   </>
+                ) : !doorType ? (
+                  <>
+                    <div className="flex h-10 items-center rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 text-sm font-medium text-indigo-800">
+                      Single or Double — chosen on each order
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Flexible design (e.g. CUSTOM). The dealer picks Single or
+                      Double when placing the order — it isn&apos;t fixed here.
+                    </p>
+                  </>
                 ) : (
                   <>
                     <div className="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
-                      {doorTypeLabel(doorType) || "—"}
+                      {doorTypeLabel(doorType)}
                     </div>
                     <p className="text-[11px] text-slate-400">
                       {doorType === "SD" || doorType === "DD" ? (
