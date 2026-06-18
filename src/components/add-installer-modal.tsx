@@ -111,7 +111,7 @@ export function AddInstallerModal({ open, onClose }: Props) {
                 id="installer-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Carlos Instalador"
+                placeholder="e.g. Carlos Lopez"
                 disabled={busy}
                 autoFocus
               />

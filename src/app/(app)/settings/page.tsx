@@ -245,7 +245,7 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-base font-semibold text-slate-900">Contractor rates</h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Each rate drives the Hoja del Pintor totals and weekly installer settlement.
+              Each rate drives the Painter Sheet totals and weekly installer settlement.
             </p>
           </div>
         </div>
