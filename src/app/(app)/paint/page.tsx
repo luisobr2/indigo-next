@@ -197,7 +197,7 @@ export default function PaintPage() {
                 { header: "Door Type", value: (r) => r.first_line?.door_type ?? "" },
                 { header: "SQF", value: (r) => r.total_sqf },
                 {
-                  header: "Lados de la Puerta",
+                  header: "Door Sides",
                   value: (r) => r.first_line?.paint_sides ?? 2,
                 },
                 { header: "Price / SQF (USD)", value: () => PAINT_RATE },
@@ -314,7 +314,7 @@ export default function PaintPage() {
                 <th className="px-4 py-3">Color</th>
                 <th className="px-4 py-3">Door Type</th>
                 <th className="px-4 py-3 text-right">SQF</th>
-                <th className="px-4 py-3 text-center">Lados de la Puerta</th>
+                <th className="px-4 py-3 text-center">Door Sides</th>
                 <th className="px-4 py-3 text-right">Price (USD) / SQF</th>
                 <th className="px-4 py-3 text-right">Total (USD)</th>
                 <th className="px-4 py-3 text-center w-24">Design Preview</th>

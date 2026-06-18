@@ -332,14 +332,16 @@ export default function BillingPage() {
           )}
           <ul className="space-y-2">
             {(outstandingQ.data?.records ?? []).map((o) => {
-              // Age from when it was invoiced (stable), falling back to
-              // write_date only for orders invoiced before invoiced_at existed.
-              const ref = (o.invoiced_at || o.write_date) as string | false;
+              // Age strictly from when it was invoiced. We do NOT fall back to
+              // write_date: that bumps on any edit, so it produced misleading
+              // (and even negative) "days outstanding". Orders invoiced before
+              // invoiced_at tracking simply show "—".
+              const ref = o.invoiced_at as string | false;
               const since = typeof ref === "string"
                 ? ref.replace(" ", "T") + (/[zZ]|[+-]\d\d:\d\d$/.test(ref) ? "" : "Z")
                 : null;
               const daysSinceInvoiced = since
-                ? Math.floor((Date.now() - new Date(since).getTime()) / 86_400_000)
+                ? Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 86_400_000))
                 : null;
               return (
                 <li

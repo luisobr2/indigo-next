@@ -17,9 +17,12 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "25", 10), 500);
     const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+    // Only genuinely-invoiced unpaid orders are "outstanding receivables".
+    // `installed` (not yet invoiced) belongs to /to-invoice — including it
+    // here double-listed the same order in both sections.
     const domain = [
       ["payment_state", "in", ["unpaid", "partial"]],
-      ["stage_id.code", "in", ["invoiced", "installed"]],
+      ["stage_id.code", "=", "invoiced"],
     ];
     const records = await call<Array<Record<string, unknown>>>({
       session: s.session,

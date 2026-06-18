@@ -72,7 +72,9 @@ export async function GET() {
         })
       : [];
 
-    // ----- Outstanding (unpaid/partial across ALL stages, not just installed) -----
+    // ----- Outstanding (invoiced-but-unpaid receivables) -----
+    // Only `invoiced`; `installed`-unpaid orders are counted in `toInvoice`,
+    // not here, so the KPI matches the Outstanding list (no double counting).
     const outstandingCount = await call<number>({
       session: s.session,
       model: "indigo.order",
@@ -80,7 +82,7 @@ export async function GET() {
       args: [
         [
           ["payment_state", "in", ["unpaid", "partial"]],
-          ["stage_id.code", "in", ["invoiced", "installed"]],
+          ["stage_id.code", "=", "invoiced"],
         ],
       ],
       kwargs: {},
