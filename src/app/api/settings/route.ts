@@ -5,13 +5,6 @@ import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
 
-/** Keys stored in ir.config_parameter for production capacities. */
-const CAP_KEYS = {
-  cnc: "indigo_decors.capacity.cnc_per_day",
-  painting: "indigo_decors.capacity.painting_sqf_per_day",
-  install: "indigo_decors.capacity.installations_per_day",
-} as const;
-
 interface RateRow {
   id: number;
   name: string;
@@ -21,15 +14,8 @@ interface RateRow {
   active: boolean;
 }
 
-/** Helper: read an ir.config_parameter value via session. Defaults if blank. */
-async function readParam(session: string, key: string, fallback: number): Promise<number> {
-  const v = await call<string | false>({
-    session,
-    model: "ir.config_parameter",
-    method: "get_param",
-    args: [key, ""],
-    kwargs: {},
-  });
+/** Parse a raw param string to a positive number, else fall back. */
+function numOr(v: string | undefined, fallback: number): number {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
@@ -43,10 +29,16 @@ export async function GET() {
   try {
     const s = await requireSession();
 
-    const [cnc, painting, install, rates] = await Promise.all([
-      readParam(s.session, CAP_KEYS.cnc, 8),
-      readParam(s.session, CAP_KEYS.painting, 200),
-      readParam(s.session, CAP_KEYS.install, 5),
+    const [caps, rates] = await Promise.all([
+      // Read via a sudo'd, manager-gated method so plain managers (who can't
+      // read ir.config_parameter directly) can load Settings.
+      call<{ cnc: string; painting: string; install: string }>({
+        session: s.session,
+        model: "ir.config_parameter",
+        method: "indigo_get_capacities",
+        args: [],
+        kwargs: {},
+      }),
       call<RateRow[]>({
         session: s.session,
         model: "indigo.contractor.rate",
@@ -60,7 +52,11 @@ export async function GET() {
     ]);
 
     return NextResponse.json({
-      capacities: { cnc, painting, install },
+      capacities: {
+        cnc: numOr(caps.cnc, 8),
+        painting: numOr(caps.painting, 200),
+        install: numOr(caps.install, 5),
+      },
       rates,
     });
   } catch (e) {
@@ -125,35 +121,21 @@ export async function PUT(req: NextRequest) {
     }
 
     if (body.capacities) {
-      const ops: Array<Promise<unknown>> = [];
-      if (typeof body.capacities.cnc === "number") {
-        ops.push(call({
-          session: s.session,
-          model: "ir.config_parameter",
-          method: "set_param",
-          args: [CAP_KEYS.cnc, String(body.capacities.cnc)],
-          kwargs: {},
-        }));
-      }
-      if (typeof body.capacities.painting === "number") {
-        ops.push(call({
-          session: s.session,
-          model: "ir.config_parameter",
-          method: "set_param",
-          args: [CAP_KEYS.painting, String(body.capacities.painting)],
-          kwargs: {},
-        }));
-      }
-      if (typeof body.capacities.install === "number") {
-        ops.push(call({
-          session: s.session,
-          model: "ir.config_parameter",
-          method: "set_param",
-          args: [CAP_KEYS.install, String(body.capacities.install)],
-          kwargs: {},
-        }));
-      }
-      await Promise.all(ops);
+      // Persist via the sudo'd, manager-gated method (managers can't write
+      // ir.config_parameter directly).
+      await call({
+        session: s.session,
+        model: "ir.config_parameter",
+        method: "indigo_set_capacities",
+        args: [
+          {
+            cnc: body.capacities.cnc,
+            painting: body.capacities.painting,
+            install: body.capacities.install,
+          },
+        ],
+        kwargs: {},
+      });
     }
 
     if (body.rates) {
@@ -197,10 +179,14 @@ export async function PUT(req: NextRequest) {
     }
 
     // Refresh and return
-    const [cnc, painting, install, rates] = await Promise.all([
-      readParam(s.session, CAP_KEYS.cnc, 8),
-      readParam(s.session, CAP_KEYS.painting, 200),
-      readParam(s.session, CAP_KEYS.install, 5),
+    const [caps, rates] = await Promise.all([
+      call<{ cnc: string; painting: string; install: string }>({
+        session: s.session,
+        model: "ir.config_parameter",
+        method: "indigo_get_capacities",
+        args: [],
+        kwargs: {},
+      }),
       call<RateRow[]>({
         session: s.session,
         model: "indigo.contractor.rate",
@@ -215,7 +201,11 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      capacities: { cnc, painting, install },
+      capacities: {
+        cnc: numOr(caps.cnc, 8),
+        painting: numOr(caps.painting, 200),
+        install: numOr(caps.install, 5),
+      },
       rates,
     });
   } catch (e) {
