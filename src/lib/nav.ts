@@ -15,6 +15,8 @@ import {
   KanbanSquare,
   Package,
   CalendarDays,
+  Building2,
+  UserCog,
   type LucideIcon,
 } from "lucide-react";
 import type { SessionPayload } from "./odoo/types";
@@ -25,6 +27,8 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   show?: (role: ReturnType<typeof deriveRole>) => boolean;
+  /** Optional section header shown above this item in the sidebar. */
+  section?: string;
 }
 
 const allManagerOrOffice = (r: ReturnType<typeof deriveRole>) =>
@@ -50,6 +54,9 @@ export const NAV_ITEMS: NavItem[] = [
   // { href: "/customizer", label: "3D Customizer", icon: Rotate3d, show: allManagerOrOffice },
   { href: "/inventory/available-stock", label: "Available Stock", icon: Package, show: allManagerOrOffice },
   { href: "/settings", label: "Settings", icon: Settings, show: allManagerOrOffice },
+  // ----- Administration -----
+  { href: "/admin/dealers", label: "Dealers", icon: Building2, show: allManagerOrOffice, section: "Administration" },
+  { href: "/admin/users", label: "Users", icon: UserCog, show: (r) => r.isManager, section: "Administration" },
 ];
 
 export function visibleNav(session: SessionPayload | null): NavItem[] {

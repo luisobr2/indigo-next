@@ -5,18 +5,21 @@ import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const s = await requireSession();
+    // ?all=1 includes archived dealers (for the admin list); default returns
+    // only active ones (used by the order forms).
+    const all = new URL(req.url).searchParams.get("all") === "1";
     const records = await call<Array<Record<string, unknown>>>({
       session: s.session,
       model: "res.partner",
       method: "search_read",
       args: [
         [["is_indigo_dealer", "=", true]],
-        ["id", "name", "indigo_default_price_per_sqf", "active"],
+        ["id", "name", "email", "phone", "city", "indigo_default_price_per_sqf", "active"],
       ],
-      kwargs: { order: "name asc" },
+      kwargs: { order: "name asc", context: { active_test: !all } },
     });
     return NextResponse.json({ records });
   } catch (e) {

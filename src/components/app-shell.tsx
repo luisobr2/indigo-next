@@ -213,14 +213,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* ---------- Nav links ---------- */}
         <nav className="flex-1 overflow-y-auto py-3 scrollbar-thin">
-          {items.map((item: NavItem) => {
+          {items.map((item: NavItem, idx: number) => {
             const active =
               pathname === item.href ||
               (item.href !== "/" && pathname.startsWith(item.href));
             const Icon = item.icon;
+            const showHeader =
+              !isCollapsed && item.section && item.section !== items[idx - 1]?.section;
             return (
+              <div key={item.href}>
+                {showHeader && (
+                  <div className="mx-3 mb-1 mt-3 border-t border-slate-100 px-1 pt-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    {item.section}
+                  </div>
+                )}
               <Link
-                key={item.href}
                 href={item.href}
                 title={isCollapsed ? item.label : undefined}
                 className={cn(
@@ -242,6 +249,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 />
                 {!isCollapsed && <span>{item.label}</span>}
               </Link>
+              </div>
             );
           })}
         </nav>
