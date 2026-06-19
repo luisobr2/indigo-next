@@ -7,6 +7,7 @@ import {
   Search,
   Download,
   Printer,
+  Table2,
   AlertCircle,
   X,
 } from "lucide-react";
@@ -228,6 +229,94 @@ function OrdersInner() {
   const total = data?.total ?? 0;
   const records = useMemo(() => data?.records ?? [], [data]);
 
+  // Print the whole FILTERED list as one document (not one sheet per order).
+  // Re-fetches every matching order (ignores pagination) so the printout
+  // covers the full filtered view, then opens a print-ready window.
+  async function printList() {
+    const url = new URL("/api/orders", window.location.origin);
+    if (stage) url.searchParams.set("stage", stage);
+    if (dealer) url.searchParams.set("dealer", dealer);
+    if (payment) url.searchParams.set("payment", payment);
+    if (flag === "overdue") url.searchParams.set("overdue", "true");
+    if (flag === "on_hold") url.searchParams.set("on_hold", "true");
+    if (debouncedQ) url.searchParams.set("q", debouncedQ);
+    url.searchParams.set("limit", "2000");
+    url.searchParams.set("offset", "0");
+
+    const w = window.open("", "_blank");
+    if (!w) {
+      toast.error("Allow pop-ups to print the list");
+      return;
+    }
+    w.document.write("<p style='font:14px sans-serif;padding:24px'>Preparing list…</p>");
+
+    try {
+      const res = (await fetch(url).then((r) => r.json())) as { records: OrderRow[] };
+      const rows = res.records ?? [];
+      if (!rows.length) {
+        w.close();
+        toast.warning("No orders to print");
+        return;
+      }
+      const parts: string[] = [];
+      if (stage) parts.push(STAGE_OPTIONS.find((s) => s.code === stage)?.label ?? stage);
+      if (dealer) parts.push(dealersQ.data?.records.find((d) => String(d.id) === dealer)?.name ?? "Dealer");
+      if (payment) parts.push(paymentLabel(payment));
+      if (flag === "overdue") parts.push("Overdue");
+      if (flag === "on_hold") parts.push("On hold");
+      if (debouncedQ) parts.push(`“${debouncedQ}”`);
+      const subtitle = parts.length ? parts.join(" · ") : "All orders";
+
+      const esc = (v: unknown) =>
+        String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
+      const body = rows
+        .map(
+          (r) => `<tr>
+            <td>${esc(r.name)}</td>
+            <td>${esc(r.client_name)}</td>
+            <td>${esc(m2o(r.dealer_id)?.name ?? "")}</td>
+            <td>${esc((r.client_address ?? "").replace(/\n/g, " "))}</td>
+            <td class="r">${esc(r.door_count)}</td>
+            <td class="r">${esc(r.total_sqf)}</td>
+            <td class="r">${esc(fmtMoney(r.total_dealer_charge))}</td>
+            <td>${esc(m2o(r.stage_id)?.name ?? "")}</td>
+            <td>${esc(paymentLabel(r.payment_state))}</td>
+            <td>${esc(fmtDate(r.create_date))}</td>
+          </tr>`,
+        )
+        .join("");
+
+      w.document.open();
+      w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+        <title>Orders — ${esc(subtitle)}</title>
+        <style>
+          body{margin:22px;color:#111;font-family:Arial,Helvetica,sans-serif;}
+          h1{font-size:17px;margin:0 0 2px;color:#1f4486;}
+          .sub{font-size:11px;color:#555;margin-bottom:12px;}
+          table{width:100%;border-collapse:collapse;font-size:10px;}
+          th,td{border:1px solid #ccc;padding:4px 6px;text-align:left;vertical-align:top;}
+          th{background:#1f4486;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+          td.r,th.r{text-align:right;white-space:nowrap;}
+          thead{display:table-header-group;}
+          tr{page-break-inside:avoid;}
+          @page{size:landscape;margin:12mm;}
+        </style></head><body>
+        <h1>Indigo Decors — Orders</h1>
+        <div class="sub">${esc(subtitle)} · ${rows.length} order${rows.length === 1 ? "" : "s"} · ${esc(new Date().toLocaleString())}</div>
+        <table><thead><tr>
+          <th>Order #</th><th>Customer</th><th>Dealer</th><th>Reference</th>
+          <th class="r">Doors</th><th class="r">SQF</th><th class="r">Total</th>
+          <th>Stage</th><th>Payment</th><th>Created</th>
+        </tr></thead><tbody>${body}</tbody></table>
+        <script>window.onload=function(){setTimeout(function(){window.print();},150);};</script>
+        </body></html>`);
+      w.document.close();
+    } catch {
+      w.close();
+      toast.error("Couldn't prepare the list");
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[1500px] space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -312,6 +401,10 @@ function OrdersInner() {
             Export
             {selected.size > 0 ? ` (${selected.size})` : ""}
           </Button>
+          <Button variant="outline" size="lg" onClick={printList}>
+            <Table2 size={14} />
+            Print list
+          </Button>
           <Button
             variant="outline"
             size="lg"
@@ -347,7 +440,7 @@ function OrdersInner() {
             }}
           >
             <Printer size={14} />
-            Print / PDF
+            Print sheets
             {selected.size > 0 ? ` (${selected.size})` : ""}
           </Button>
         </div>
