@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
-import { odooConfig } from "@/lib/odoo/client";
 
 export const runtime = "nodejs";
 
@@ -44,7 +43,11 @@ export async function GET(
       id: r.id as number,
       name: String(r.name ?? ""),
       mimetype: String(r.mimetype ?? ""),
-      url: `${odooConfig.url}/web/content/${r.id}?download=true`,
+      // Serve through THIS origin (Next), not directly from Odoo: the panel
+      // lives on a different host than Odoo, so a direct /web/content link is
+      // cross-origin and carries no Odoo session → 403/404 → broken thumbnail.
+      // The proxy below streams the bytes with the session attached.
+      url: `/api/orders/${id}/attachments/${r.id as number}?download=true`,
     }));
 
     return NextResponse.json({ records: dtos });
