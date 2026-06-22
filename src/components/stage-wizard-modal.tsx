@@ -186,21 +186,15 @@ export function StageWizardModal({
     }
     setBusy(true);
     try {
-      // Save the dimensions to each line first, then fire the wizard so the
-      // stage only advances once the measurements are persisted.
-      if (config.withMeasureTable && sqfLines.length) {
-        for (const l of sqfLines) {
-          const r = await fetch(`/api/orders/${orderId}/lines/${l.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ width: l.width, height: l.height }),
-          });
-          const j = await r.json();
-          if (!r.ok || !j.ok) throw new Error(j.error || "Failed to save measurements");
-        }
-      }
       const payload: Record<string, unknown> = {};
       if (note) payload.note = note;
+      // Per-line dims persisted server-side in /advance (mirrors line_sqfs)
+      // before the wizard advances the stage to Measured.
+      if (config.withMeasureTable && sqfLines.length) {
+        const line_dims: Record<string, { width: number; height: number }> = {};
+        for (const l of sqfLines) line_dims[String(l.id)] = { width: l.width, height: l.height };
+        payload.line_dims = line_dims;
+      }
       if (config.withAmount)
         payload.amount_collected = parseFloat(amount);
       if (config.withPhoto && photoFile)

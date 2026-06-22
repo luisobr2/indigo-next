@@ -92,6 +92,29 @@ export async function POST(
       delete payload.line_sqfs;
     }
 
+    // Per-line width/height write (used by the measurement wizard). Apply to
+    // indigo.order.line BEFORE creating the wizard so the dimensions are
+    // persisted when the wizard advances to Measured.
+    const lineDims = payload.line_dims as
+      | Record<string, { width: number; height: number }>
+      | undefined;
+    if (lineDims) {
+      for (const [lineIdStr, dim] of Object.entries(lineDims)) {
+        const lineId = Number(lineIdStr);
+        const w = Number(dim?.width);
+        const h = Number(dim?.height);
+        if (!Number.isFinite(lineId) || !Number.isFinite(w) || !Number.isFinite(h)) continue;
+        await call({
+          session: s.session,
+          model: "indigo.order.line",
+          method: "write",
+          args: [[lineId], { width: w, height: h }],
+          kwargs: {},
+        });
+      }
+      delete payload.line_dims;
+    }
+
     const wizardId = await call<number>({
       session: s.session,
       model: wizardModel,
