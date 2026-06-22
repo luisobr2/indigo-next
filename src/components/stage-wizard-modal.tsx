@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { FractionalInchInput } from "@/components/fractional-inch-input";
 
 export interface StageWizardConfig {
   /** Odoo wizard model id, e.g. "indigo.painter.done.wizard" */
@@ -36,6 +37,13 @@ export interface StageWizardConfig {
    * wizard fires. Used by the digitization wizard.
    */
   withSqfTable?: boolean;
+  /**
+   * If true, fetches order lines and renders a per-line width/height input
+   * table (fractional inches). On submit the dimensions are saved to each
+   * indigo.order.line before the wizard advances the stage. Used by the
+   * measurement wizard.
+   */
+  withMeasureTable?: boolean;
   noteLabel?: string;
 }
 
@@ -79,6 +87,8 @@ export function StageWizardModal({
     height_label: string | false;
     qty: number;
     sqf: number;
+    width: number;
+    height: number;
   }
   const [sqfLines, setSqfLines] = useState<SqfLine[]>([]);
 
@@ -88,7 +98,7 @@ export function StageWizardModal({
   const requiresPainter = config.wizard === "indigo.painter.done.wizard";
   const requiresInstaller = config.wizard === "indigo.installed.wizard";
   const needsOrderFetch =
-    config.withSqfTable || requiresPainter || requiresInstaller;
+    config.withSqfTable || config.withMeasureTable || requiresPainter || requiresInstaller;
 
   const [assignment, setAssignment] = useState<{
     painter: [number, string] | false;
@@ -106,9 +116,16 @@ export function StageWizardModal({
         if (!r.ok) return;
         const j = await r.json();
         if (cancelled) return;
-        if (config.withSqfTable) {
+        if (config.withSqfTable || config.withMeasureTable) {
           const lines = (j.lines ?? []) as SqfLine[];
-          setSqfLines(lines.map((l) => ({ ...l, sqf: Number(l.sqf) || 0 })));
+          setSqfLines(
+            lines.map((l) => ({
+              ...l,
+              sqf: Number(l.sqf) || 0,
+              width: Number(l.width) || 0,
+              height: Number(l.height) || 0,
+            })),
+          );
         }
         const order = j.order ?? {};
         setAssignment({
@@ -124,7 +141,7 @@ export function StageWizardModal({
     return () => {
       cancelled = true;
     };
-  }, [open, needsOrderFetch, config.withSqfTable, orderId]);
+  }, [open, needsOrderFetch, config.withSqfTable, config.withMeasureTable, orderId]);
 
   const missingAssignment =
     (requiresPainter && assignment !== null && !assignment.painter) ||
@@ -133,6 +150,12 @@ export function StageWizardModal({
   function updateLineSqf(lineId: number, sqf: number) {
     setSqfLines((prev) =>
       prev.map((l) => (l.id === lineId ? { ...l, sqf } : l)),
+    );
+  }
+
+  function updateLineDim(lineId: number, field: "width" | "height", value: number) {
+    setSqfLines((prev) =>
+      prev.map((l) => (l.id === lineId ? { ...l, [field]: value } : l)),
     );
   }
 
@@ -149,8 +172,33 @@ export function StageWizardModal({
         return;
       }
     }
+    // Measurements must be filled in before advancing to Measured.
+    if (config.withMeasureTable) {
+      if (!sqfLines.length) {
+        setError("No pieces to measure on this order.");
+        return;
+      }
+      const missing = sqfLines.find((l) => !(l.width > 0) || !(l.height > 0));
+      if (missing) {
+        setError("Enter width and height (greater than 0) for every piece.");
+        return;
+      }
+    }
     setBusy(true);
     try {
+      // Save the dimensions to each line first, then fire the wizard so the
+      // stage only advances once the measurements are persisted.
+      if (config.withMeasureTable && sqfLines.length) {
+        for (const l of sqfLines) {
+          const r = await fetch(`/api/orders/${orderId}/lines/${l.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ width: l.width, height: l.height }),
+          });
+          const j = await r.json();
+          if (!r.ok || !j.ok) throw new Error(j.error || "Failed to save measurements");
+        }
+      }
       const payload: Record<string, unknown> = {};
       if (note) payload.note = note;
       if (config.withAmount)
@@ -266,6 +314,62 @@ export function StageWizardModal({
             </div>
           )}
 
+          {config.withMeasureTable && (
+            <div className="space-y-1.5">
+              <Label>Measurements per piece (inches)</Label>
+              {sqfLines.length === 0 ? (
+                <p className="text-xs italic text-slate-400">Loading pieces…</p>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">Design</th>
+                        <th className="px-2 py-1.5 text-left">Type</th>
+                        <th className="px-2 py-1.5 text-right">Width (in)</th>
+                        <th className="px-2 py-1.5 text-right">Height (in)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sqfLines.map((l) => {
+                        const design = Array.isArray(l.design_id)
+                          ? l.design_id[1]
+                          : "—";
+                        return (
+                          <tr key={l.id} className="border-t border-slate-100">
+                            <td className="px-2 py-1.5 text-slate-700">{design}</td>
+                            <td className="px-2 py-1.5 text-slate-600">{l.door_type || "—"}</td>
+                            <td className="px-1 py-1 text-right">
+                              <FractionalInchInput
+                                value={l.width || ""}
+                                onChange={(v) =>
+                                  updateLineDim(l.id, "width", v === "" ? 0 : v)
+                                }
+                                className="h-7 w-24 text-right"
+                              />
+                            </td>
+                            <td className="px-1 py-1 text-right">
+                              <FractionalInchInput
+                                value={l.height || ""}
+                                onChange={(v) =>
+                                  updateLineDim(l.id, "height", v === "" ? 0 : v)
+                                }
+                                className="h-7 w-24 text-right"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-[11px] text-slate-400">
+                Accepts fractions like 23 3/4 or 36-1/2. The order moves to Measured on save.
+              </p>
+            </div>
+          )}
+
           {config.withSqfTable && (
             <div className="space-y-1.5">
               <Label>SQF per piece</Label>
@@ -368,8 +472,9 @@ export const STAGE_WIZARDS: Record<string, StageWizardConfig> = {
     wizard: "indigo.measurement.entry.wizard",
     title: "Enter measurements",
     description:
-      "Confirm that the door measurements have been taken. The order will move to Measured.",
+      "Enter the width and height for each piece. The order moves to Measured on save.",
     submitLabel: "Save & advance to Measured",
+    withMeasureTable: true,
   },
   ready_digitalization: {
     wizard: "indigo.sqf.entry.wizard",
