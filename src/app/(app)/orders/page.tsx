@@ -8,6 +8,8 @@ import {
   Download,
   Printer,
   Table2,
+  Archive,
+  Trash2,
   AlertCircle,
   X,
 } from "lucide-react";
@@ -140,6 +142,41 @@ function OrdersInner() {
     (meQ.data.role.isManager ||
       meQ.data.role.isOffice ||
       !!meQ.data.user?.isAdmin);
+  // Archive: manager/office/admin (write). Delete: manager/admin only (unlink).
+  const canArchive = canCreate;
+  const canDelete = !!(meQ.data?.role?.isManager || meQ.data?.user?.isAdmin);
+
+  async function bulkAction(action: "archive" | "unarchive" | "delete") {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    const n = ids.length;
+    const msg =
+      action === "archive"
+        ? `Archive ${n} order${n === 1 ? "" : "s"}? They'll be hidden from the list but kept, and can be restored later.`
+        : action === "unarchive"
+          ? `Restore ${n} order${n === 1 ? "" : "s"} to the active list?`
+          : `Delete ${n} order${n === 1 ? "" : "s"} permanently? This cannot be undone.`;
+    if (!window.confirm(msg)) return;
+    const p = fetch("/api/orders/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, action }),
+    }).then(async (r) => {
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || "Failed");
+      clearSelection();
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      return j;
+    });
+    const verb =
+      action === "archive" ? "Archived" : action === "unarchive" ? "Restored" : "Deleted";
+    toast.promise(p, {
+      loading:
+        action === "archive" ? "Archiving…" : action === "unarchive" ? "Restoring…" : "Deleting…",
+      success: `${verb} ${n} order${n === 1 ? "" : "s"}`,
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
+    });
+  }
 
   // Pull dealers for the dropdown.
   const dealersQ = useQuery<{ records: Dealer[] }>({
@@ -217,6 +254,7 @@ function OrdersInner() {
       if (payment) url.searchParams.set("payment", payment);
       if (flag === "overdue") url.searchParams.set("overdue", "true");
       if (flag === "on_hold") url.searchParams.set("on_hold", "true");
+      if (flag === "archived") url.searchParams.set("archived", "1");
       if (debouncedQ) url.searchParams.set("q", debouncedQ);
       url.searchParams.set("limit", String(pageSize));
       url.searchParams.set("offset", String(page * pageSize));
@@ -239,6 +277,7 @@ function OrdersInner() {
     if (payment) url.searchParams.set("payment", payment);
     if (flag === "overdue") url.searchParams.set("overdue", "true");
     if (flag === "on_hold") url.searchParams.set("on_hold", "true");
+    if (flag === "archived") url.searchParams.set("archived", "1");
     if (debouncedQ) url.searchParams.set("q", debouncedQ);
     url.searchParams.set("limit", "2000");
     url.searchParams.set("offset", "0");
@@ -359,6 +398,27 @@ function OrdersInner() {
                   qc.invalidateQueries({ queryKey: ["orders"] });
                 }}
               />
+              {canArchive && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => bulkAction(flag === "archived" ? "unarchive" : "archive")}
+                >
+                  <Archive size={14} />
+                  {flag === "archived" ? "Restore" : "Archive"}
+                </Button>
+              )}
+              {canDelete && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => bulkAction("delete")}
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                >
+                  <Trash2 size={14} />
+                  Delete
+                </Button>
+              )}
             </>
           )}
           <Button
@@ -506,6 +566,7 @@ function OrdersInner() {
             options={[
               { value: "overdue", label: "Overdue" },
               { value: "on_hold", label: "On hold" },
+              { value: "archived", label: "Archived" },
             ]}
             onChange={setFlag}
             width="160px"

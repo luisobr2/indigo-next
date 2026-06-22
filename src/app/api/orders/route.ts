@@ -75,6 +75,12 @@ export async function GET(req: NextRequest) {
     const overdue = sp.get("overdue");
     if (overdue === "true") domain.push(["is_overdue", "=", true]);
 
+    // ?archived=1 shows ONLY archived orders (active=false). Needs
+    // active_test:false in the context so Odoo doesn't filter them out.
+    const archived = sp.get("archived") === "1";
+    if (archived) domain.push(["active", "=", false]);
+    const ctx = archived ? { active_test: false } : {};
+
     const payment = sp.get("payment");
     if (payment) {
       const parts = payment.split(",").filter(Boolean);
@@ -147,14 +153,14 @@ export async function GET(req: NextRequest) {
         model: "indigo.order",
         method: "search_read",
         args: [fullDomain, [...ORDER_FIELDS_BASE, ...ORDER_FIELDS_V2_EXTRA]],
-        kwargs: { limit, offset, order },
+        kwargs: { limit, offset, order, context: ctx },
       });
       total = await call<number>({
         session: s.session,
         model: "indigo.order",
         method: "search_count",
         args: [fullDomain],
-        kwargs: {},
+        kwargs: { context: ctx },
       });
     } catch {
       records = await call<Array<Record<string, unknown>>>({
@@ -162,14 +168,14 @@ export async function GET(req: NextRequest) {
         model: "indigo.order",
         method: "search_read",
         args: [domain, ORDER_FIELDS_BASE],
-        kwargs: { limit, offset, order },
+        kwargs: { limit, offset, order, context: ctx },
       });
       total = await call<number>({
         session: s.session,
         model: "indigo.order",
         method: "search_count",
         args: [domain],
-        kwargs: {},
+        kwargs: { context: ctx },
       });
     }
 
