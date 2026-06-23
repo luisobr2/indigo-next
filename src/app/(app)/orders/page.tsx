@@ -8,12 +8,13 @@ import {
   Download,
   Printer,
   Table2,
+  Columns3,
   Archive,
   Trash2,
   AlertCircle,
   X,
 } from "lucide-react";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
 import { paymentLabel } from "@/lib/labels";
@@ -28,6 +29,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Pagination } from "@/components/pagination";
 import { BulkSendToButton } from "@/components/bulk-send-to-button";
 import { NewOrderButton } from "@/components/new-order-button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import type { deriveRole } from "@/lib/odoo/types";
 
 interface Dealer {
@@ -61,8 +71,10 @@ interface OrderRow {
   name: string;
   dealer_id: [number, string] | false;
   dealer_ref: string | false;
+  customer_po: string | false;
   client_name: string;
   client_phone: string | false;
+  client_email: string | false;
   client_address: string;
   notes: string | false;
   stage_id: [number, string] | false;
@@ -100,6 +112,165 @@ const PAY_BADGE: Record<string, string> = {
   unpaid: "bg-rose-50 text-rose-700",
 };
 
+// ----- Configurable columns for the Orders table -----
+// Each column knows how to render its cell and how to print itself (text).
+// `order` is always shown (it's the row link). Visibility is saved per user
+// in localStorage; the Print list follows whatever is visible.
+interface OrderCol {
+  key: string;
+  label: string;
+  thClass?: string;
+  cell: (r: OrderRow) => ReactNode;
+  print: (r: OrderRow) => string;
+}
+
+const ORDER_COLUMNS: OrderCol[] = [
+  {
+    key: "order",
+    label: "Order #",
+    cell: (r) => (
+      <>
+        <Link
+          href={`/orders/${r.id}`}
+          className="flex items-center gap-1.5 font-medium text-indigo-700 hover:underline"
+        >
+          {r.name}
+          {r.is_overdue && <AlertCircle size={12} className="text-rose-500" />}
+        </Link>
+        <div className="text-xs text-slate-400">{fmtDate(r.create_date)}</div>
+      </>
+    ),
+    print: (r) => r.name,
+  },
+  {
+    key: "code",
+    label: "Code",
+    cell: (r) => <span className="text-slate-600">{(r.dealer_ref as string) || "—"}</span>,
+    print: (r) => (r.dealer_ref as string) || "",
+  },
+  {
+    key: "po",
+    label: "PO",
+    cell: (r) => <span className="text-slate-600">{(r.customer_po as string) || "—"}</span>,
+    print: (r) => (r.customer_po as string) || "",
+  },
+  {
+    key: "client",
+    label: "Client",
+    cell: (r) => <span className="font-medium text-slate-800">{r.client_name}</span>,
+    print: (r) => r.client_name,
+  },
+  {
+    key: "phone",
+    label: "Phone",
+    cell: (r) => <span className="whitespace-nowrap text-slate-600">{(r.client_phone as string) || "—"}</span>,
+    print: (r) => (r.client_phone as string) || "",
+  },
+  {
+    key: "email",
+    label: "Email",
+    cell: (r) => <span className="text-slate-600">{(r.client_email as string) || "—"}</span>,
+    print: (r) => (r.client_email as string) || "",
+  },
+  {
+    key: "dealer",
+    label: "Dealer",
+    cell: (r) => <span className="text-slate-600">{m2o(r.dealer_id)?.name ?? "—"}</span>,
+    print: (r) => m2o(r.dealer_id)?.name ?? "",
+  },
+  {
+    key: "stage",
+    label: "Stage",
+    cell: (r) => (
+      <>
+        <Badge
+          variant="secondary"
+          className={`text-[10px] font-bold uppercase tracking-wide ${STAGE_BADGE[r.stage_code] ?? "bg-slate-100 text-slate-700"}`}
+        >
+          {m2o(r.stage_id)?.name ?? "?"}
+        </Badge>
+        {r.on_hold && (
+          <Badge variant="secondary" className="ml-1 bg-amber-100 text-[10px] font-bold uppercase text-amber-800">
+            On hold
+          </Badge>
+        )}
+      </>
+    ),
+    print: (r) => m2o(r.stage_id)?.name ?? "",
+  },
+  {
+    key: "days",
+    label: "Days",
+    thClass: "text-right",
+    cell: (r) => (
+      <span
+        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums ${
+          r.days_in_current_stage >= 7
+            ? "bg-rose-50 text-rose-700"
+            : r.days_in_current_stage >= 4
+              ? "bg-amber-50 text-amber-700"
+              : "text-slate-500"
+        }`}
+      >
+        {r.days_in_current_stage}d
+      </span>
+    ),
+    print: (r) => `${r.days_in_current_stage}d`,
+  },
+  {
+    key: "address",
+    label: "Address",
+    cell: (r) => <div className="line-clamp-2 max-w-[260px] text-slate-500">{r.client_address}</div>,
+    print: (r) => (r.client_address || "").replace(/\n/g, " "),
+  },
+  {
+    key: "note",
+    label: "Note",
+    cell: (r) => <div className="line-clamp-2 max-w-[240px] text-slate-500">{(r.notes as string) || ""}</div>,
+    print: (r) => ((r.notes as string) || "").replace(/\n/g, " "),
+  },
+  {
+    key: "doors",
+    label: "Doors",
+    thClass: "text-right",
+    cell: (r) => <span className="tabular-nums">{r.door_count}</span>,
+    print: (r) => String(r.door_count),
+  },
+  {
+    key: "sqf",
+    label: "SQF",
+    thClass: "text-right",
+    cell: (r) => <span className="tabular-nums">{fmtNum(r.total_sqf)}</span>,
+    print: (r) => String(r.total_sqf),
+  },
+  {
+    key: "total",
+    label: "Total",
+    thClass: "text-right",
+    cell: (r) => <span className="font-semibold tabular-nums text-slate-800">{fmtMoney(r.total_dealer_charge)}</span>,
+    print: (r) => fmtMoney(r.total_dealer_charge),
+  },
+  {
+    key: "payment",
+    label: "Payment",
+    cell: (r) => (
+      <Badge variant="secondary" className={`text-[10px] font-bold uppercase ${PAY_BADGE[r.payment_state]}`}>
+        {paymentLabel(r.payment_state)}
+      </Badge>
+    ),
+    print: (r) => paymentLabel(r.payment_state),
+  },
+];
+
+const ORDER_COL_MAP = Object.fromEntries(ORDER_COLUMNS.map((c) => [c.key, c]));
+const DEFAULT_ORDER_COLS = ["order", "client", "dealer", "stage", "days", "address", "doors", "sqf", "total", "payment"];
+const ORDER_COL_PRESETS: Record<string, string[]> = {
+  "Call list": ["order", "code", "client", "phone", "note"],
+  Production: ["order", "client", "dealer", "stage", "days", "doors"],
+  Billing: ["order", "client", "dealer", "total", "payment"],
+};
+const ORDER_COLS_KEY = "indigo:order-cols";
+
 function OrdersInner() {
   const sp = useSearchParams();
   const [q, setQ] = useState("");
@@ -107,6 +278,41 @@ function OrdersInner() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  // Column visibility — persisted per user in localStorage. "order" is always
+  // shown. The visible columns drive both the table and the Print list.
+  const [colKeys, setColKeys] = useState<string[]>(DEFAULT_ORDER_COLS);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(ORDER_COLS_KEY);
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr) && arr.length) {
+          setColKeys(["order", ...arr.filter((k: string) => k !== "order" && ORDER_COL_MAP[k])]);
+        }
+      }
+    } catch {
+      /* ignore corrupt prefs */
+    }
+  }, []);
+  function persistCols(keys: string[]) {
+    const next = ["order", ...keys.filter((k) => k !== "order" && ORDER_COL_MAP[k])];
+    setColKeys(next);
+    try {
+      localStorage.setItem(ORDER_COLS_KEY, JSON.stringify(next));
+    } catch {
+      /* storage may be blocked; in-memory still works */
+    }
+  }
+  function toggleCol(key: string) {
+    if (key === "order") return;
+    persistCols(
+      colKeys.includes(key) ? colKeys.filter((k) => k !== key) : [...colKeys, key],
+    );
+  }
+  // Columns to actually render, in catalog order (keeps a sensible layout
+  // regardless of toggle order).
+  const visibleCols = ORDER_COLUMNS.filter((c) => colKeys.includes(c.key));
 
   function toggleOne(id: number) {
     setSelected((prev) => {
@@ -311,21 +517,16 @@ function OrdersInner() {
 
       const esc = (v: unknown) =>
         String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
+      // Print follows the columns the user has chosen on screen, + a blank
+      // tick column at the end for marking off as you work the list.
+      const cols = ORDER_COLUMNS.filter((c) => colKeys.includes(c.key));
       const body = rows
         .map(
-          (r) => `<tr>
-            <td class="nw">${esc(r.name)}</td>
-            <td>${esc(r.dealer_ref || "")}</td>
-            <td>${esc(r.client_name)}</td>
-            <td class="nw">${esc(r.client_phone || "")}</td>
-            <td>${esc(m2o(r.dealer_id)?.name ?? "")}</td>
-            <td>${esc(m2o(r.stage_id)?.name ?? "")}</td>
-            <td>${esc(paymentLabel(r.payment_state))}</td>
-            <td>${esc((r.notes || "").replace(/\n/g, " "))}</td>
-            <td class="chk"></td>
-          </tr>`,
+          (r) =>
+            `<tr>${cols.map((c) => `<td>${esc(c.print(r))}</td>`).join("")}<td class="chk"></td></tr>`,
         )
         .join("");
+      const head = `${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}<th>✔</th>`;
 
       w.document.open();
       w.document.write(`<!doctype html><html><head><meta charset="utf-8">
@@ -346,10 +547,7 @@ function OrdersInner() {
         </style></head><body>
         <h1>Indigo Decors — Orders</h1>
         <div class="sub">${esc(subtitle)} · ${rows.length} order${rows.length === 1 ? "" : "s"} · ${esc(new Date().toLocaleString())}</div>
-        <table><thead><tr>
-          <th>Order #</th><th>Code</th><th>Customer</th><th>Phone</th><th>Dealer</th>
-          <th>Stage</th><th>Payment</th><th>Note</th><th>Called</th>
-        </tr></thead><tbody>${body}</tbody></table>
+        <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
         <script>window.onload=function(){setTimeout(function(){window.print();},150);};</script>
         </body></html>`);
       w.document.close();
@@ -468,6 +666,37 @@ function OrdersInner() {
             <Table2 size={14} />
             Print list
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300">
+              <Columns3 size={14} />
+              Columns
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Presets
+              </DropdownMenuLabel>
+              {Object.entries(ORDER_COL_PRESETS).map(([name, keys]) => (
+                <DropdownMenuItem key={name} onClick={() => persistCols(keys)}>
+                  {name}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Columns
+              </DropdownMenuLabel>
+              {ORDER_COLUMNS.map((c) => (
+                <DropdownMenuCheckboxItem
+                  key={c.key}
+                  checked={colKeys.includes(c.key)}
+                  disabled={c.key === "order"}
+                  onSelect={(e) => e.preventDefault()}
+                  onCheckedChange={() => toggleCol(c.key)}
+                >
+                  {c.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="outline"
             size="lg"
@@ -626,29 +855,24 @@ function OrdersInner() {
                   aria-label="Select all on this page"
                 />
               </th>
-              <th className="px-4 py-3">Order #</th>
-              <th className="px-4 py-3">Client</th>
-              <th className="px-4 py-3">Dealer</th>
-              <th className="px-4 py-3">Stage</th>
-              <th className="px-4 py-3 text-right">Days</th>
-              <th className="px-4 py-3">Address</th>
-              <th className="px-4 py-3 text-right">Doors</th>
-              <th className="px-4 py-3 text-right">SQF</th>
-              <th className="px-4 py-3 text-right">Total</th>
-              <th className="px-4 py-3">Payment</th>
+              {visibleCols.map((c) => (
+                <th key={c.key} className={`px-4 py-3 ${c.thClass ?? ""}`}>
+                  {c.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={11} className="p-0">
+                <td colSpan={visibleCols.length + 1} className="p-0">
                   <TableSkeleton rows={6} cols={10} />
                 </td>
               </tr>
             )}
             {!isLoading && records.length === 0 && (
               <tr>
-                <td colSpan={11} className="p-0">
+                <td colSpan={visibleCols.length + 1} className="p-0">
                   <EmptyState
                     title="No orders match"
                     message="Try clearing filters or searching by client name."
@@ -656,9 +880,7 @@ function OrdersInner() {
                 </td>
               </tr>
             )}
-            {records.map((r) => {
-              const dealer = m2o(r.dealer_id);
-              return (
+            {records.map((r) => (
                 <tr
                   key={r.id}
                   className={`border-t border-slate-100 transition hover:bg-slate-50 ${
@@ -672,84 +894,13 @@ function OrdersInner() {
                       aria-label={`Select ${r.name}`}
                     />
                   </td>
-                  <td className="px-4 py-3 font-medium">
-                    <Link
-                      href={`/orders/${r.id}`}
-                      className="flex items-center gap-1.5 text-indigo-700 hover:underline"
-                    >
-                      {r.name}
-                      {r.is_overdue && (
-                        <AlertCircle size={12} className="text-rose-500" />
-                      )}
-                    </Link>
-                    <div className="text-xs text-slate-400">
-                      {fmtDate(r.create_date)}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-slate-800">
-                      {r.client_name}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {dealer?.name ?? "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge
-                      variant="secondary"
-                      className={`text-[10px] font-bold uppercase tracking-wide ${
-                        STAGE_BADGE[r.stage_code] ?? "bg-slate-100 text-slate-700"
-                      }`}
-                    >
-                      {m2o(r.stage_id)?.name ?? "?"}
-                    </Badge>
-                    {r.on_hold && (
-                      <Badge
-                        variant="secondary"
-                        className="ml-1 bg-amber-100 text-[10px] font-bold uppercase text-amber-800"
-                      >
-                        On hold
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {/* Color-coded staleness:
-                        ≤3 d slate (green-ish), 4-6 d amber (warning),
-                        ≥7 d rose (stuck). Helps Majela spot bottlenecks
-                        without opening every order. */}
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums ${
-                        r.days_in_current_stage >= 7
-                          ? "bg-rose-50 text-rose-700"
-                          : r.days_in_current_stage >= 4
-                            ? "bg-amber-50 text-amber-700"
-                            : "text-slate-500"
-                      }`}
-                    >
-                      {r.days_in_current_stage}d
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-500">
-                    <div className="line-clamp-2 max-w-[260px]">
-                      {r.client_address}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">{r.door_count}</td>
-                  <td className="px-4 py-3 text-right">{fmtNum(r.total_sqf)}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-800">
-                    {fmtMoney(r.total_dealer_charge)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge
-                      variant="secondary"
-                      className={`text-[10px] font-bold uppercase ${PAY_BADGE[r.payment_state]}`}
-                    >
-                      {paymentLabel(r.payment_state)}
-                    </Badge>
-                  </td>
+                  {visibleCols.map((c) => (
+                    <td key={c.key} className={`px-4 py-3 ${c.thClass ?? ""}`}>
+                      {c.cell(r)}
+                    </td>
+                  ))}
                 </tr>
-              );
-            })}
+              ))}
           </tbody>
         </table>
         </div>
