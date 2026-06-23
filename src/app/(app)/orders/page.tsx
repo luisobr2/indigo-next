@@ -35,6 +35,7 @@ import {
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
   DropdownMenuItem,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
@@ -672,29 +673,33 @@ function OrdersInner() {
               Columns
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Presets
-              </DropdownMenuLabel>
-              {Object.entries(ORDER_COL_PRESETS).map(([name, keys]) => (
-                <DropdownMenuItem key={name} onClick={() => persistCols(keys)}>
-                  {name}
-                </DropdownMenuItem>
-              ))}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Presets
+                </DropdownMenuLabel>
+                {Object.entries(ORDER_COL_PRESETS).map(([name, keys]) => (
+                  <DropdownMenuItem key={name} onClick={() => persistCols(keys)}>
+                    {name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Columns
-              </DropdownMenuLabel>
-              {ORDER_COLUMNS.map((c) => (
-                <DropdownMenuCheckboxItem
-                  key={c.key}
-                  checked={colKeys.includes(c.key)}
-                  disabled={c.key === "order"}
-                  onSelect={(e) => e.preventDefault()}
-                  onCheckedChange={() => toggleCol(c.key)}
-                >
-                  {c.label}
-                </DropdownMenuCheckboxItem>
-              ))}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Columns
+                </DropdownMenuLabel>
+                {ORDER_COLUMNS.map((c) => (
+                  <DropdownMenuCheckboxItem
+                    key={c.key}
+                    checked={colKeys.includes(c.key)}
+                    disabled={c.key === "order"}
+                    closeOnClick={false}
+                    onCheckedChange={() => toggleCol(c.key)}
+                  >
+                    {c.label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
           <Button
