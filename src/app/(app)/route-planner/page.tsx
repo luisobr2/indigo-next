@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Map,
   MapPin,
   Truck,
   Send,
@@ -237,25 +236,7 @@ export default function RoutePlannerPage() {
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
-          <div className="mb-4 flex items-center gap-2 font-semibold text-slate-800">
-            <Map size={16} className="text-indigo-700" />
-            Route map
-          </div>
-          <div className="relative flex h-[450px] items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-slate-100 via-blue-50 to-slate-100">
-            <div className="text-center">
-              <Map className="mx-auto mb-3 text-slate-300" size={48} />
-              <p className="text-sm font-medium text-slate-500">
-                Mapbox integration pending — set NEXT_PUBLIC_MAPBOX_TOKEN
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                Showing fallback placeholder. Stops list visible on the right.
-              </p>
-            </div>
-          </div>
-        </div>
-
+      <div className="grid grid-cols-1 gap-4">
         <aside className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
           <div className="mb-1 flex items-center gap-2 font-semibold text-slate-800">
             <Truck size={16} className="text-indigo-700" />
