@@ -51,14 +51,22 @@ interface MeResponse {
   } | null;
 }
 
-/** Targets the manager can impersonate. Must match server allow-list. */
-const IMPERSONATE_TARGETS = [
-  { role: "Office", login: "oficina@indigodecors.com", name: "Beatriz", icon: Building2 },
-  { role: "Designer", login: "disenador@indigodecors.com", name: "Pedro", icon: Pencil },
-  { role: "Painter", login: "pintor@indigodecors.com", name: "Mario", icon: Brush },
-  { role: "CNC", login: "cnc@indigodecors.com", name: "Ramon", icon: Hammer },
-  { role: "Installer", login: "instalador@indigodecors.com", name: "Carlos", icon: Truck },
-] as const;
+/** Impersonatable team member (from /api/admin/users) and the icon per role. */
+interface TeamUserLite {
+  id: number;
+  name: string;
+  login: string;
+  active: boolean;
+  role: string;
+  role_label: string;
+}
+const ROLE_ICON: Record<string, typeof Building2> = {
+  office: Building2,
+  designer: Pencil,
+  painter: Brush,
+  cnc: Hammer,
+  installer: Truck,
+};
 
 const COLLAPSE_KEY = "indigo:sidebar-collapsed";
 
@@ -114,6 +122,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const canImpersonate =
     !!user && (role?.isManager || user.isAdmin) && !impersonating;
 
+  // "View as" targets = the real, active team members (not managers/self),
+  // pulled live so the menu always matches the current users.
+  const { data: teamData } = useQuery<{ records: TeamUserLite[] }>({
+    queryKey: ["impersonate-users"],
+    queryFn: () => fetch("/api/admin/users").then((r) => r.json()),
+    enabled: !!canImpersonate,
+  });
+  const impersonateTargets = (teamData?.records ?? []).filter(
+    (u) => u.active && u.role && u.role !== "manager" && u.id !== user?.id,
+  );
+
   const items = role
     ? NAV_ITEMS.filter((it) => !it.show || it.show(role))
     : NAV_ITEMS;
@@ -123,7 +142,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
-  async function startImpersonation(target: (typeof IMPERSONATE_TARGETS)[number]) {
+  async function startImpersonation(target: { login: string; name: string }) {
     const promise = fetch("/api/auth/impersonate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -344,25 +363,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </DropdownMenuLabel>
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
-                  {IMPERSONATE_TARGETS.map((t) => {
-                    const Icon = t.icon;
-                    return (
-                      <DropdownMenuItem
-                        key={t.login}
-                        onClick={() => startImpersonation(t)}
-                      >
-                        <Icon size={14} className="text-slate-500" />
-                        <div className="flex min-w-0 flex-col">
-                          <span className="font-semibold text-slate-800">
-                            {t.name}
-                          </span>
-                          <span className="text-[10px] text-slate-500">
-                            {t.role}
-                          </span>
-                        </div>
-                      </DropdownMenuItem>
-                    );
-                  })}
+                  {impersonateTargets.length === 0 ? (
+                    <DropdownMenuItem disabled>
+                      <span className="text-[11px] text-slate-400">No team members to view as</span>
+                    </DropdownMenuItem>
+                  ) : (
+                    impersonateTargets.map((t) => {
+                      const Icon = ROLE_ICON[t.role] ?? Eye;
+                      return (
+                        <DropdownMenuItem
+                          key={t.login}
+                          onClick={() => startImpersonation(t)}
+                        >
+                          <Icon size={14} className="text-slate-500" />
+                          <div className="flex min-w-0 flex-col">
+                            <span className="font-semibold text-slate-800">
+                              {t.name}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              {t.role_label}
+                            </span>
+                          </div>
+                        </DropdownMenuItem>
+                      );
+                    })
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}

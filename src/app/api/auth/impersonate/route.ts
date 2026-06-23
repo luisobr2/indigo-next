@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticate } from "@/lib/odoo/client";
 import {
   requireSession,
   writeSession,
@@ -11,24 +10,45 @@ import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
 
-/**
- * Allowed impersonation targets and the password used to log in as them.
- *
- * For now the system seeds every test user with the same password
- * (`indigo123`) so the server keeps the list in code. When real per-user
- * passwords land, swap this for a server-side password vault or an
- * Odoo `_uid` swap mechanism.
- */
-const IMPERSONATE_PASSWORD = process.env.IMPERSONATE_PASSWORD ?? "indigo123";
+const ODOO_URL = process.env.ODOO_URL ?? "http://localhost:8069";
 
-const ALLOWED_TARGETS: Array<{ login: string; landing: string }> = [
-  { login: "majela@indigodecors.com", landing: "/dashboard" },
-  { login: "oficina@indigodecors.com", landing: "/dashboard" },
-  { login: "disenador@indigodecors.com", landing: "/digitalization" },
-  { login: "pintor@indigodecors.com", landing: "/paint" },
-  { login: "cnc@indigodecors.com", landing: "/cnc-production" },
-  { login: "instalador@indigodecors.com", landing: "/installs" },
-];
+/** Landing page for an impersonated user, based on their role. */
+function landingFor(groups: string[]): string {
+  const r = deriveRole(groups);
+  if (r.isDesigner) return "/digitalization";
+  if (r.isPainter) return "/paint";
+  if (r.isCnc) return "/cnc-production";
+  if (r.isInstaller) return "/installations";
+  return "/dashboard";
+}
+
+/** Mint a session for `login` via the manager-gated Odoo controller (no
+ *  password — the controller verifies the caller is a manager). */
+async function impersonateViaOdoo(managerSession: string, login: string) {
+  const res = await fetch(`${ODOO_URL}/indigo/impersonate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: `session_id=${managerSession}`,
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", method: "call", params: { login } }),
+  });
+  const json = (await res.json()) as {
+    result?: {
+      session_id?: string;
+      uid?: number;
+      login?: string;
+      name?: string;
+      partner_id?: number;
+      is_admin?: boolean;
+      groups?: string[];
+      error?: string;
+    };
+    error?: { data?: { message?: string } };
+  };
+  if (json.error) throw new Error(json.error.data?.message || "Impersonation failed");
+  return json.result ?? {};
+}
 
 /**
  * POST /api/auth/impersonate
@@ -58,22 +78,29 @@ export async function POST(req: NextRequest) {
     }
 
     const body = (await req.json()) as { login?: string };
-    const target = ALLOWED_TARGETS.find((t) => t.login === body.login);
-    if (!target) {
+    if (!body.login) {
+      return NextResponse.json({ error: "login required" }, { status: 400 });
+    }
+
+    const r = await impersonateViaOdoo(current.session, body.login);
+    if (r.error || !r.session_id) {
       return NextResponse.json(
-        { error: "Target not in allow-list" },
+        { error: r.error || "Impersonation failed" },
         { status: 400 },
       );
     }
-
-    const auth = await authenticate(target.login, IMPERSONATE_PASSWORD);
+    const user = {
+      id: r.uid as number,
+      login: r.login as string,
+      name: r.name as string,
+      partnerId: r.partner_id as number,
+      isAdmin: !!r.is_admin,
+      groups: r.groups ?? [],
+    };
     await pushOriginalSession(current);
-    await writeSession({ session: auth.session, user: auth.user });
+    await writeSession({ session: r.session_id, user });
 
-    return NextResponse.json({
-      user: auth.user,
-      landing: target.landing,
-    });
+    return NextResponse.json({ user, landing: landingFor(user.groups) });
   } catch (e) {
     if (e instanceof Response) return e;
     return NextResponse.json(
