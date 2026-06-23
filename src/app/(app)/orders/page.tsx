@@ -17,7 +17,7 @@ import {
 import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
-import { paymentLabel } from "@/lib/labels";
+import { paymentLabel, STAGE_BADGE } from "@/lib/labels";
 import { TableSkeleton } from "@/components/skeleton";
 import { EmptyState } from "@/components/state-cards";
 import { toCsv, downloadCsv } from "@/lib/csv";
@@ -90,22 +90,6 @@ interface OrderRow {
   installation_date: string | false;
   create_date: string;
 }
-
-const STAGE_BADGE: Record<string, string> = {
-  new: "bg-slate-100 text-slate-700",
-  design_pending: "bg-amber-50 text-amber-700",
-  design_confirmed: "bg-emerald-50 text-emerald-700",
-  measure_pending: "bg-amber-50 text-amber-700",
-  measured: "bg-emerald-50 text-emerald-700",
-  ready_digitalization: "bg-sky-50 text-sky-700",
-  cnc: "bg-violet-50 text-violet-700",
-  painting: "bg-orange-50 text-orange-700",
-  ready_install: "bg-blue-50 text-blue-700",
-  install_scheduled: "bg-blue-50 text-blue-700",
-  installed: "bg-emerald-50 text-emerald-700",
-  invoiced: "bg-emerald-100 text-emerald-800",
-  closed: "bg-slate-100 text-slate-500",
-};
 
 const PAY_BADGE: Record<string, string> = {
   paid: "bg-emerald-50 text-emerald-700",

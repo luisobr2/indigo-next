@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { STAGE_BADGE as STAGE_BADGE_COLOR } from "@/lib/labels";
 import {
   Send,
   X,
@@ -70,21 +71,6 @@ const STAGE_GROUPS: Array<{ label: string; codes: string[] }> = [
   },
 ];
 
-const STAGE_BADGE_COLOR: Record<string, string> = {
-  new: "bg-slate-100 text-slate-700",
-  design_pending: "bg-amber-50 text-amber-700",
-  design_confirmed: "bg-emerald-50 text-emerald-700",
-  measure_pending: "bg-amber-50 text-amber-700",
-  measured: "bg-emerald-50 text-emerald-700",
-  ready_digitalization: "bg-sky-50 text-sky-700",
-  cnc: "bg-violet-50 text-violet-700",
-  painting: "bg-orange-50 text-orange-700",
-  ready_install: "bg-blue-50 text-blue-700",
-  install_scheduled: "bg-blue-50 text-blue-700",
-  installed: "bg-emerald-50 text-emerald-700",
-  invoiced: "bg-emerald-100 text-emerald-800",
-  closed: "bg-slate-100 text-slate-500",
-};
 
 /**
  * Bulk "Move Selected To" button. Shown next to the "N selected" chip
