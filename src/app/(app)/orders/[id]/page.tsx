@@ -10,6 +10,7 @@ import {
   FileText,
   User as UserIcon,
   Play,
+  Pause,
 } from "lucide-react";
 import { AddressLink, PhoneLink } from "@/components/address-link";
 import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
@@ -20,6 +21,7 @@ import { StockMatchBanner } from "@/components/stock-match-banner";
 import { SendToDropdown } from "@/components/send-to-dropdown";
 import { ProductionTimeline } from "@/components/production-timeline";
 import { EditOrderPanel } from "@/components/edit-order-panel";
+import { HoldModal } from "@/components/hold-modal";
 import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal";
 import { OrderDetailSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
@@ -53,6 +55,7 @@ export default function OrderDetailPage({
   const { id } = use(params);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState(false);
+  const [holdOpen, setHoldOpen] = useState(false);
   const qc = useQueryClient();
   const { data, isLoading, isError, error, refetch } = useQuery<OrderDetail>({
     queryKey: ["order", id],
@@ -279,6 +282,19 @@ export default function OrderDetailPage({
             >
               <Play size={14} />
               {wizardCfg.title}
+            </Button>
+          )}
+          {canAssign && (
+            <Button variant="outline" size="lg" onClick={() => setHoldOpen(true)}>
+              {o.on_hold ? (
+                <>
+                  <Play size={14} /> Release from Hold
+                </>
+              ) : (
+                <>
+                  <Pause size={14} /> Move to Hold
+                </>
+              )}
             </Button>
           )}
         </div>
@@ -713,6 +729,19 @@ export default function OrderDetailPage({
           config={wizardCfg}
         />
       )}
+
+      <HoldModal
+        open={holdOpen}
+        onClose={() => setHoldOpen(false)}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ["order", id] });
+          qc.invalidateQueries({ queryKey: ["order-activity", parseInt(id, 10)] });
+          qc.invalidateQueries({ queryKey: ["dashboard"] });
+        }}
+        orderId={parseInt(id, 10)}
+        orderName={o.name}
+        releasing={o.on_hold}
+      />
     </div>
   );
 }
