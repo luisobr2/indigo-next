@@ -510,7 +510,7 @@ export default function OrderDetailPage({
                 <FileText size={16} className="text-indigo-700" />
                 Note
               </div>
-              <div className="min-h-[100px] rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+              <div className="min-h-[100px] whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
                 {o.notes || "No notes yet."}
               </div>
               {/* Use `value` (controlled) instead of `defaultValue` so this

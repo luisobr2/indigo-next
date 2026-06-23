@@ -62,28 +62,38 @@ export async function POST(
       );
     }
 
+    const noteText = (body.note ?? "").trim();
+
+    // If the user typed a note, append it to the order's `notes` field (a dated
+    // log, newest first) so it shows in the prominent "Note" card — that's
+    // where Majela looks for the notes she writes when moving an order.
+    const writeVals: Record<string, unknown> = { stage_id: stageId };
+    if (noteText) {
+      const cur = await call<Array<{ notes: string | false }>>({
+        session: s.session,
+        model: "indigo.order",
+        method: "read",
+        args: [[orderId], ["notes"]],
+        kwargs: {},
+      });
+      const existing = (cur[0]?.notes || "") as string;
+      const dateStr = new Date().toLocaleDateString("en-US");
+      const line = `${dateStr} (→ ${stage.name}): ${noteText}`;
+      writeVals.notes = existing ? `${line}\n${existing}` : line;
+    }
     await call({
       session: s.session,
       model: "indigo.order",
       method: "write",
-      args: [[orderId], { stage_id: stageId }],
+      args: [[orderId], writeVals],
       kwargs: {},
     });
 
-    // Chatter line. Escape user-controlled bits so a note containing
-    // `<script>` or a stage name with `<>` can't break out into HTML.
-    const escapeHtml = (s: string) =>
-      s
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-    const stageName = escapeHtml(stage?.name ?? "stage");
-    const sourceLabel = body.source ? ` (${escapeHtml(body.source)})` : "";
-    const baseLine = `Sent to <b>${stageName}</b>${sourceLabel}.`;
-    const chatterBody = body.note
-      ? `${baseLine} <br/><i>${escapeHtml(body.note)}</i>`
-      : baseLine;
+    // Chatter line — plain text. Odoo turns it into clean HTML; passing our own
+    // <b>/<i> tags got double-escaped and showed the raw tags to the user.
+    const sourceLabel = body.source ? ` (${body.source})` : "";
+    const baseLine = `Sent to ${stage.name}${sourceLabel}.`;
+    const chatterBody = noteText ? `${baseLine}\n${noteText}` : baseLine;
     await call({
       session: s.session,
       model: "indigo.order",
