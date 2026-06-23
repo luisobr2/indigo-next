@@ -173,7 +173,6 @@ export default function OrderDetailPage({
   };
   const uDoorType = uniform((l) => l.door_type);
   const uColor = uniform((l) => l.color);
-  const uGlass = uniform((l) => l.glass_type);
   const uPieces = uniform((l) => l.parts_count ?? 1);
   const firstBrand = m2o(
     (lines[0] as { brand_id?: [number, string] | false } | undefined)?.brand_id,
@@ -446,10 +445,7 @@ export default function OrderDetailPage({
                   value={uPieces.mixed ? "Mixed" : String(lines[0]?.parts_count ?? 1)}
                 />
                 <Row label="Brand" value={firstBrand?.name ?? "—"} />
-                <Row
-                  label="Glass"
-                  value={uGlass.mixed ? "Mixed" : uGlass.value || "—"}
-                />
+                {/* Glass type hidden — not managed by the office. */}
                 <Row
                   label="Privacy"
                   value={lines[0]?.is_privacy_glass ? "Privacy" : "Clear"}
@@ -532,7 +528,6 @@ export default function OrderDetailPage({
                   <th className="py-2">Type</th>
                   <th className="py-2">Color</th>
                   <th className="py-2">Brand</th>
-                  <th className="py-2">Glass</th>
                   <th className="py-2">Privacy</th>
                   <th className="py-2 text-right">W (in)</th>
                   <th className="py-2 text-right">H (in)</th>
@@ -567,7 +562,6 @@ export default function OrderDetailPage({
                       <td className="py-2 font-medium uppercase text-slate-700">
                         {brand?.name ?? "—"}
                       </td>
-                      <td className="py-2">{l.glass_type}</td>
                       <td className="py-2">
                         <Badge
                           variant="secondary"
@@ -649,10 +643,7 @@ export default function OrderDetailPage({
                   )
                 }
               />
-              <Row
-                label="Glass"
-                value={uGlass.mixed ? "Mixed" : uGlass.value || "—"}
-              />
+              {/* Glass type hidden — not managed by the office. */}
               <Row label="SQF" value={fmtNum(o.total_sqf)} />
               {o.installation_fee && o.installation_fee > 0 ? (
                 <Row

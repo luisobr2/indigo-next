@@ -517,15 +517,7 @@ export function NewOrderFromDesignModal({
                 ))}
               </div>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="no-glass">Glass type</Label>
-              <Input
-                id="no-glass"
-                value={glassType}
-                onChange={(e) => setGlassType(e.target.value)}
-                placeholder="e.g. ESW"
-              />
-            </div>
+            {/* Glass type (ESW…) hidden — not managed by the office. */}
           </section>
 
           {/* Dimensions — accepts US fractional inches ("23 3/4") and

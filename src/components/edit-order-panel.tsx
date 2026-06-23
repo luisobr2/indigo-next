@@ -586,12 +586,7 @@ export function EditOrderPanel({
                 }}
               />
             </Field>
-            <Field label="Glass type">
-              <Input
-                value={line.glass_type || ""}
-                onChange={(e) => setLineField(idx, "glass_type", e.target.value)}
-              />
-            </Field>
+            {/* Glass type hidden — not managed by the office. */}
             <Field label="Privacy">
               <SelectInput
                 value={line.glass_privacy}

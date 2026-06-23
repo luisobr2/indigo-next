@@ -1391,15 +1391,14 @@ function SidePanel({
             }
           />
           <Row2
-            label="Glass"
+            label="Privacy"
             value={
               <span>
-                {(firstLine?.glass_type as string) || "—"}
                 {(firstLine?.glass_privacy as string) === "privacy"
-                  ? " · Privacy"
+                  ? "Privacy"
                   : (firstLine?.glass_privacy as string) === "clear"
-                    ? " · Clear"
-                    : ""}
+                    ? "Clear"
+                    : "—"}
               </span>
             }
           />

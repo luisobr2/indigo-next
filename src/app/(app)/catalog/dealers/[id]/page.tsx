@@ -193,16 +193,8 @@ export default function DealerDetailPage({
                 className="h-10"
               />
             </Field>
-            <Field label="Default price / SQF (USD)">
-              <Input
-                type="number"
-                step="0.01"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                placeholder="0.00"
-                className="h-10"
-              />
-            </Field>
+            {/* Price/SQF hidden — billing is a fixed price per door
+                ($300 single / $600 double), not per-SQF. */}
             <Field label="Email" icon={<Mail size={12} />}>
               <Input
                 type="email"

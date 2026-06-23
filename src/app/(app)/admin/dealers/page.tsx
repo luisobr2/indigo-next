@@ -5,7 +5,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, Plus, Power } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
-import { fmtMoney } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 interface Dealer {
@@ -80,7 +79,6 @@ export default function DealersAdminPage() {
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Phone</th>
                 <th className="px-4 py-3">City</th>
-                <th className="px-4 py-3 text-right">$/SQF</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -94,7 +92,6 @@ export default function DealersAdminPage() {
                   <td className="px-4 py-3 text-slate-600">{(d.email as string) || "—"}</td>
                   <td className="px-4 py-3 text-slate-600">{(d.phone as string) || "—"}</td>
                   <td className="px-4 py-3 text-slate-600">{(d.city as string) || "—"}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{fmtMoney(d.indigo_default_price_per_sqf)}</td>
                   <td className="px-4 py-3">
                     {d.active ? <span className="text-emerald-700">Active</span> : <span className="text-slate-400">Inactive</span>}
                   </td>
@@ -107,7 +104,7 @@ export default function DealersAdminPage() {
                 </tr>
               ))}
               {dealers.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">No dealers.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">No dealers.</td></tr>
               )}
             </tbody>
           </table>
