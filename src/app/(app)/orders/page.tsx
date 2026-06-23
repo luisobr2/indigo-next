@@ -60,8 +60,11 @@ interface OrderRow {
   id: number;
   name: string;
   dealer_id: [number, string] | false;
+  dealer_ref: string | false;
   client_name: string;
+  client_phone: string | false;
   client_address: string;
+  notes: string | false;
   stage_id: [number, string] | false;
   stage_code: string;
   on_hold: boolean;
@@ -311,16 +314,15 @@ function OrdersInner() {
       const body = rows
         .map(
           (r) => `<tr>
-            <td>${esc(r.name)}</td>
+            <td class="nw">${esc(r.name)}</td>
+            <td>${esc(r.dealer_ref || "")}</td>
             <td>${esc(r.client_name)}</td>
+            <td class="nw">${esc(r.client_phone || "")}</td>
             <td>${esc(m2o(r.dealer_id)?.name ?? "")}</td>
-            <td>${esc((r.client_address ?? "").replace(/\n/g, " "))}</td>
-            <td class="r">${esc(r.door_count)}</td>
-            <td class="r">${esc(r.total_sqf)}</td>
-            <td class="r">${esc(fmtMoney(r.total_dealer_charge))}</td>
             <td>${esc(m2o(r.stage_id)?.name ?? "")}</td>
             <td>${esc(paymentLabel(r.payment_state))}</td>
-            <td>${esc(fmtDate(r.create_date))}</td>
+            <td>${esc((r.notes || "").replace(/\n/g, " "))}</td>
+            <td class="chk"></td>
           </tr>`,
         )
         .join("");
@@ -336,6 +338,8 @@ function OrdersInner() {
           th,td{border:1px solid #ccc;padding:4px 6px;text-align:left;vertical-align:top;}
           th{background:#1f4486;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
           td.r,th.r{text-align:right;white-space:nowrap;}
+          td.nw{white-space:nowrap;}
+          td.chk{width:34px;}
           thead{display:table-header-group;}
           tr{page-break-inside:avoid;}
           @page{size:landscape;margin:12mm;}
@@ -343,9 +347,8 @@ function OrdersInner() {
         <h1>Indigo Decors — Orders</h1>
         <div class="sub">${esc(subtitle)} · ${rows.length} order${rows.length === 1 ? "" : "s"} · ${esc(new Date().toLocaleString())}</div>
         <table><thead><tr>
-          <th>Order #</th><th>Customer</th><th>Dealer</th><th>Reference</th>
-          <th class="r">Doors</th><th class="r">SQF</th><th class="r">Total</th>
-          <th>Stage</th><th>Payment</th><th>Created</th>
+          <th>Order #</th><th>Code</th><th>Customer</th><th>Phone</th><th>Dealer</th>
+          <th>Stage</th><th>Payment</th><th>Note</th><th>Called</th>
         </tr></thead><tbody>${body}</tbody></table>
         <script>window.onload=function(){setTimeout(function(){window.print();},150);};</script>
         </body></html>`);

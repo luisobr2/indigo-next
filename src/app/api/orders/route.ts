@@ -34,6 +34,7 @@ const ORDER_FIELDS_BASE = [
   "write_date",
   "priv_ref",
   "customer_po",
+  "notes",
 ];
 
 const ORDER_FIELDS_V2_EXTRA = [
