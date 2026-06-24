@@ -70,8 +70,9 @@ export function PhoneField({
   const { code, number } = parse(value);
 
   function emit(nextCode: string, nextNumber: string) {
-    const num = nextNumber.trim();
-    onChange(num ? `${dialOf(nextCode)} ${num}` : "");
+    // Keep the number as typed (don't trim) so spaces between digit groups
+    // survive typing; only collapse to empty when there's nothing real.
+    onChange(nextNumber.trim() ? `${dialOf(nextCode)} ${nextNumber}` : "");
   }
 
   return (
