@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { FractionalInchInput } from "@/components/fractional-inch-input";
+import { PhoneField } from "@/components/phone-field";
 import { cn } from "@/lib/utils";
 import { validateOrderEdit, validateLineEdit } from "@/lib/validation";
 
@@ -420,10 +421,10 @@ export function EditOrderPanel({
             />
           </Field>
           <Field label="Phone">
-            <Input
+            <PhoneField
               value={orderForm.client_phone || ""}
-              onChange={(e) =>
-                setOrderForm({ ...orderForm, client_phone: e.target.value })
+              onChange={(v) =>
+                setOrderForm({ ...orderForm, client_phone: v })
               }
             />
           </Field>

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { fmtDate, fmtMoney, m2o } from "@/lib/utils";
 import { fetchJson } from "@/lib/fetch-json";
 import { ErrorState } from "@/components/state-cards";
+import { PhoneField } from "@/components/phone-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -204,12 +205,7 @@ export default function DealerDetailPage({
               />
             </Field>
             <Field label="Phone" icon={<Phone size={12} />}>
-              <Input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="h-10"
-              />
+              <PhoneField value={phone} onChange={setPhone} />
             </Field>
             <Field label="Street" icon={<MapPin size={12} />}>
               <Input

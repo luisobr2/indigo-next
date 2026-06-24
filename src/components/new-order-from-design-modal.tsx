@@ -27,6 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PhoneField } from "@/components/phone-field";
 import { Textarea } from "@/components/ui/textarea";
 import { FractionalInchInput } from "@/components/fractional-inch-input";
 import { cn } from "@/lib/utils";
@@ -626,10 +627,10 @@ export function NewOrderFromDesignModal({
             </div>
             <div className="space-y-1">
               <Label htmlFor="no-phone">Phone</Label>
-              <Input
+              <PhoneField
                 id="no-phone"
                 value={clientPhone}
-                onChange={(e) => setClientPhone(e.target.value)}
+                onChange={setClientPhone}
               />
             </div>
             <div className="space-y-1">
