@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
@@ -11,6 +11,7 @@ import {
   Search,
   Download,
   Printer,
+  Columns3,
   Plus,
   Calendar,
   ChevronDown,
@@ -33,6 +34,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
 import {
   BarChart,
   Bar,
@@ -154,6 +163,84 @@ const DOOR_TYPE_LABEL: Record<string, string> = {
   sidelite: "Door with Sidelites",
 };
 
+// ----- Configurable columns for the Pending Scheduling table -----
+type PendingRow = DashboardData["unscheduled"][number];
+interface PendCol {
+  key: string;
+  label: string;
+  thClass?: string;
+  cell: (o: PendingRow) => ReactNode;
+  print: (o: PendingRow) => string;
+  sortVal: (o: PendingRow) => string | number;
+}
+const PEND_COLUMNS: PendCol[] = [
+  {
+    key: "order",
+    label: "Order #",
+    cell: (o) => (
+      <Link
+        href={`/orders/${o.id}`}
+        className="font-mono text-xs font-semibold text-indigo-700 hover:underline"
+        title={o.name}
+      >
+        {o.dealer_ref || o.name}
+      </Link>
+    ),
+    print: (o) => o.dealer_ref || o.name,
+    sortVal: (o) => o.dealer_ref || o.name,
+  },
+  {
+    key: "client",
+    label: "Client Name",
+    cell: (o) => <span className="text-slate-700">{o.client_name}</span>,
+    print: (o) => o.client_name,
+    sortVal: (o) => (o.client_name || "").toLowerCase(),
+  },
+  {
+    key: "phone",
+    label: "Phone",
+    cell: (o) => <span className="whitespace-nowrap text-xs text-slate-600">{(o.client_phone as string) || "—"}</span>,
+    print: (o) => (o.client_phone as string) || "",
+    sortVal: (o) => (o.client_phone as string) || "",
+  },
+  {
+    key: "address",
+    label: "Address",
+    cell: (o) => <span className="text-xs text-slate-600">{o.client_address || "—"}</span>,
+    print: (o) => (o.client_address || "").replace(/\n/g, " "),
+    sortVal: (o) => (o.client_address || "").toLowerCase(),
+  },
+  {
+    key: "door",
+    label: "Door Type",
+    cell: (o) => <span className="text-xs text-slate-700">{DOOR_TYPE_LABEL[o.door_type] ?? o.door_type ?? "—"}</span>,
+    print: (o) => DOOR_TYPE_LABEL[o.door_type] ?? o.door_type ?? "",
+    sortVal: (o) => o.door_type || "",
+  },
+  {
+    key: "qty",
+    label: "Qty",
+    thClass: "text-right",
+    cell: (o) => <span className="font-mono text-xs">{o.qty}</span>,
+    print: (o) => String(o.qty),
+    sortVal: (o) => o.qty,
+  },
+  {
+    key: "installer",
+    label: "Installer",
+    cell: (o) =>
+      o.installer === "Unassigned" ? (
+        <span className="text-xs text-amber-700">Unassigned</span>
+      ) : (
+        <span className="text-xs text-slate-600">{o.installer}</span>
+      ),
+    print: (o) => o.installer,
+    sortVal: (o) => (o.installer || "").toLowerCase(),
+  },
+];
+const PEND_COL_DEFAULT = ["order", "client", "phone", "address", "door", "qty", "installer"];
+const PEND_COLS_KEY = "indigo:install-pending-cols";
+
 const COLOR_DOT: Record<string, string> = {
   white: "#fff",
   bronze: "#a16207",
@@ -166,6 +253,42 @@ export default function InstallationsPage() {
   const [week, setWeek] = useState(() => ymd(startOfWeek(new Date())));
   const [q, setQ] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | number>("all");
+
+  // Pending Scheduling — configurable columns (saved per user) + sort.
+  const [pendColKeys, setPendColKeys] = useState<string[]>(PEND_COL_DEFAULT);
+  const [pendSort, setPendSort] = useState<{ key: string; dir: "asc" | "desc" }>({
+    key: "order",
+    dir: "asc",
+  });
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(PEND_COLS_KEY);
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr) && arr.length) {
+          setPendColKeys(arr.filter((k: string) => PEND_COLUMNS.some((c) => c.key === k)));
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  function togglePendCol(key: string) {
+    setPendColKeys((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      const ordered = PEND_COLUMNS.filter((c) => next.includes(c.key)).map((c) => c.key);
+      try {
+        localStorage.setItem(PEND_COLS_KEY, JSON.stringify(ordered));
+      } catch {
+        /* ignore */
+      }
+      return ordered;
+    });
+  }
+  function sortPend(key: string) {
+    setPendSort((p) => (p.key === key ? { key, dir: p.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
+  }
+  const visiblePendCols = PEND_COLUMNS.filter((c) => pendColKeys.includes(c.key));
   const [addInstallerOpen, setAddInstallerOpen] = useState(false);
   const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null);
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
@@ -211,6 +334,20 @@ export default function InstallationsPage() {
         o.client_address.toLowerCase().includes(needle),
     );
   }, [data, q]);
+
+  // Pending rows sorted by the active column/direction.
+  const sortedPending = useMemo(() => {
+    const col = PEND_COLUMNS.find((c) => c.key === pendSort.key);
+    if (!col) return unscheduled;
+    const dir = pendSort.dir === "asc" ? 1 : -1;
+    return [...unscheduled].sort((a, b) => {
+      const va = col.sortVal(a);
+      const vb = col.sortVal(b);
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return 0;
+    });
+  }, [unscheduled, pendSort]);
 
   // Overdue: scheduled in the past, still not installed. Week-agnostic.
   const overdue = useMemo(() => {
@@ -261,7 +398,7 @@ export default function InstallationsPage() {
   // call clients and plan dates on paper. Includes phone + a blank "Scheduled
   // date" column to write the agreed date in.
   function printPending() {
-    const rows = unscheduled;
+    const rows = sortedPending;
     if (!rows.length) {
       toast.warning("Nothing to print in Pending Scheduling.");
       return;
@@ -273,19 +410,18 @@ export default function InstallationsPage() {
     }
     const esc = (v: unknown) =>
       String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
+    // Print follows the columns chosen on screen, + a blank "Scheduled date".
+    const cols = visiblePendCols;
+    const head =
+      `<th>#</th>` +
+      cols.map((c) => `<th${c.thClass ? ' class="r"' : ""}>${esc(c.label)}</th>`).join("") +
+      `<th>Scheduled date</th>`;
     const body = rows
       .map(
-        (o, i) => `<tr>
-          <td>${i + 1}</td>
-          <td class="nw">${esc(o.dealer_ref || o.name)}</td>
-          <td>${esc(o.client_name)}</td>
-          <td class="nw">${esc(o.client_phone || "")}</td>
-          <td>${esc((o.client_address || "").replace(/\n/g, " "))}</td>
-          <td>${esc(DOOR_TYPE_LABEL[o.door_type] ?? o.door_type)}</td>
-          <td class="r">${esc(o.qty)}</td>
-          <td>${esc(o.installer)}</td>
-          <td class="sd"></td>
-        </tr>`,
+        (o, i) =>
+          `<tr><td>${i + 1}</td>` +
+          cols.map((c) => `<td${c.thClass ? ' class="r"' : ""}>${esc(c.print(o))}</td>`).join("") +
+          `<td class="sd"></td></tr>`,
       )
       .join("");
     w.document.write(`<!doctype html><html><head><meta charset="utf-8">
@@ -306,10 +442,7 @@ export default function InstallationsPage() {
       </style></head><body>
       <h1>Indigo Decors — Pending Scheduling</h1>
       <div class="sub">${rows.length} order${rows.length === 1 ? "" : "s"} to schedule${q ? ` · filter “${esc(q)}”` : ""} · ${esc(new Date().toLocaleString())}</div>
-      <table><thead><tr>
-        <th>#</th><th>Order</th><th>Client</th><th>Phone</th><th>Address</th>
-        <th>Door</th><th class="r">Qty</th><th>Installer</th><th>Scheduled date</th>
-      </tr></thead><tbody>${body}</tbody></table>
+      <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
       <script>window.onload=function(){setTimeout(function(){window.print();},150);};</script>
       </body></html>`);
     w.document.close();
@@ -541,55 +674,66 @@ export default function InstallationsPage() {
                 {unscheduled.length}
               </Badge>
             </h3>
-            <span className="text-xs text-amber-700">
-              Ready to install — no date assigned yet. Open an order to schedule it.
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="hidden text-xs text-amber-700 sm:inline">
+                Ready to install — no date yet.
+              </span>
+              <DropdownMenu>
+                <DropdownMenuTrigger className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 text-xs font-medium text-amber-800 transition hover:bg-amber-50 focus-visible:outline-none">
+                  <Columns3 size={13} /> Columns
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Columns
+                    </DropdownMenuLabel>
+                    {PEND_COLUMNS.map((c) => (
+                      <DropdownMenuCheckboxItem
+                        key={c.key}
+                        checked={pendColKeys.includes(c.key)}
+                        closeOnClick={false}
+                        onCheckedChange={() => togglePendCol(c.key)}
+                      >
+                        {c.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[800px] text-sm">
               <thead className="bg-amber-100/60 text-left text-[10px] font-bold uppercase tracking-wide text-amber-800">
                 <tr>
-                  <th className="px-4 py-2.5">Order Number</th>
-                  <th className="px-4 py-2.5">Client Name</th>
-                  <th className="px-4 py-2.5">Address</th>
-                  <th className="px-4 py-2.5">Door Type</th>
-                  <th className="px-4 py-2.5 text-right">Qty</th>
-                  <th className="px-4 py-2.5">Installer</th>
+                  {visiblePendCols.map((c) => (
+                    <th key={c.key} className={`px-4 py-2.5 ${c.thClass ?? ""}`}>
+                      <button
+                        type="button"
+                        onClick={() => sortPend(c.key)}
+                        className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-amber-900"
+                      >
+                        {c.label}
+                        {pendSort.key === c.key && (
+                          <span>{pendSort.dir === "asc" ? "▲" : "▼"}</span>
+                        )}
+                      </button>
+                    </th>
+                  ))}
                   <th className="px-4 py-2.5 w-28"></th>
                 </tr>
               </thead>
               <tbody>
-                {unscheduled.map((o) => (
+                {sortedPending.map((o) => (
                   <tr
                     key={o.id}
                     className="border-t border-amber-100 transition hover:bg-amber-100/40"
                   >
-                    <td className="px-4 py-2.5">
-                      <Link
-                        href={`/orders/${o.id}`}
-                        className="font-mono text-xs font-semibold text-indigo-700 hover:underline"
-                        title={o.name}
-                      >
-                        {o.dealer_ref || o.name}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-700">{o.client_name}</td>
-                    <td className="px-4 py-2.5 text-xs text-slate-600">
-                      {o.client_address || "—"}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-slate-700">
-                      {DOOR_TYPE_LABEL[o.door_type] ?? o.door_type ?? "—"}
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-mono text-xs">
-                      {o.qty}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-slate-600">
-                      {o.installer === "Unassigned" ? (
-                        <span className="text-amber-700">Unassigned</span>
-                      ) : (
-                        o.installer
-                      )}
-                    </td>
+                    {visiblePendCols.map((c) => (
+                      <td key={c.key} className={`px-4 py-2.5 ${c.thClass ?? ""}`}>
+                        {c.cell(o)}
+                      </td>
+                    ))}
                     <td className="px-4 py-2.5">
                       <button
                         type="button"
