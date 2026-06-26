@@ -10,6 +10,7 @@ import {
   PieChart as PieIcon,
   Search,
   Download,
+  Printer,
   Plus,
   Calendar,
   ChevronDown,
@@ -82,6 +83,7 @@ interface DashboardData {
     name: string;
     dealer_ref: string;
     client_name: string;
+    client_phone: string | false;
     client_address: string;
     door_type: string;
     color: string;
@@ -255,6 +257,64 @@ export default function InstallationsPage() {
     toast.success(`Exported ${rows.length} row${rows.length === 1 ? "" : "s"}`);
   }
 
+  // Print the Pending Scheduling worklist (respects the search) as a sheet to
+  // call clients and plan dates on paper. Includes phone + a blank "Scheduled
+  // date" column to write the agreed date in.
+  function printPending() {
+    const rows = unscheduled;
+    if (!rows.length) {
+      toast.warning("Nothing to print in Pending Scheduling.");
+      return;
+    }
+    const w = window.open("", "_blank");
+    if (!w) {
+      toast.error("Allow pop-ups to print the list");
+      return;
+    }
+    const esc = (v: unknown) =>
+      String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
+    const body = rows
+      .map(
+        (o, i) => `<tr>
+          <td>${i + 1}</td>
+          <td class="nw">${esc(o.dealer_ref || o.name)}</td>
+          <td>${esc(o.client_name)}</td>
+          <td class="nw">${esc(o.client_phone || "")}</td>
+          <td>${esc((o.client_address || "").replace(/\n/g, " "))}</td>
+          <td>${esc(DOOR_TYPE_LABEL[o.door_type] ?? o.door_type)}</td>
+          <td class="r">${esc(o.qty)}</td>
+          <td>${esc(o.installer)}</td>
+          <td class="sd"></td>
+        </tr>`,
+      )
+      .join("");
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+      <title>Installations — Pending Scheduling</title>
+      <style>
+        body{margin:22px;color:#111;font-family:Arial,Helvetica,sans-serif;}
+        h1{font-size:17px;margin:0 0 2px;color:#1f4486;}
+        .sub{font-size:11px;color:#555;margin-bottom:12px;}
+        table{width:100%;border-collapse:collapse;font-size:10px;}
+        th,td{border:1px solid #ccc;padding:4px 6px;text-align:left;vertical-align:top;}
+        th{background:#1f4486;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+        td.r,th.r{text-align:right;white-space:nowrap;}
+        td.nw{white-space:nowrap;}
+        td.sd{width:90px;}
+        thead{display:table-header-group;}
+        tr{page-break-inside:avoid;}
+        @page{size:landscape;margin:12mm;}
+      </style></head><body>
+      <h1>Indigo Decors — Pending Scheduling</h1>
+      <div class="sub">${rows.length} order${rows.length === 1 ? "" : "s"} to schedule${q ? ` · filter “${esc(q)}”` : ""} · ${esc(new Date().toLocaleString())}</div>
+      <table><thead><tr>
+        <th>#</th><th>Order</th><th>Client</th><th>Phone</th><th>Address</th>
+        <th>Door</th><th class="r">Qty</th><th>Installer</th><th>Scheduled date</th>
+      </tr></thead><tbody>${body}</tbody></table>
+      <script>window.onload=function(){setTimeout(function(){window.print();},150);};</script>
+      </body></html>`);
+    w.document.close();
+  }
+
   const summary = data?.summary;
 
   // Donut data
@@ -303,6 +363,9 @@ export default function InstallationsPage() {
               className="h-10 pl-10"
             />
           </div>
+          <Button variant="outline" size="lg" onClick={printPending}>
+            <Printer size={14} /> Print list
+          </Button>
           <Button variant="outline" size="lg" onClick={exportCsv}>
             <Download size={14} /> Export CSV
           </Button>

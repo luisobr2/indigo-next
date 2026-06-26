@@ -60,6 +60,7 @@ export async function GET(req: NextRequest) {
       name: string;
       dealer_ref: string;
       client_name: string;
+      client_phone?: string | false;
       client_address: string;
       installer_ids: number[];
       door_count: number;
@@ -85,6 +86,7 @@ export async function GET(req: NextRequest) {
           "name",
           "dealer_ref",
           "client_name",
+          "client_phone",
           "client_address",
           "installer_ids",
           "door_count",
@@ -115,6 +117,7 @@ export async function GET(req: NextRequest) {
           "name",
           "dealer_ref",
           "client_name",
+          "client_phone",
           "client_address",
           "installer_ids",
           "door_count",
@@ -151,6 +154,7 @@ export async function GET(req: NextRequest) {
           "name",
           "dealer_ref",
           "client_name",
+          "client_phone",
           "client_address",
           "installer_ids",
           "door_count",
@@ -306,6 +310,7 @@ export async function GET(req: NextRequest) {
         name: o.name,
         dealer_ref: o.dealer_ref || "",
         client_name: o.client_name,
+        client_phone: o.client_phone || "",
         client_address: o.client_address || "",
         door_type: firstLine?.door_type ?? "",
         color: firstLine?.color ?? "",
