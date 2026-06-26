@@ -435,6 +435,16 @@ export async function GET(req: NextRequest) {
       totalInstallersCount = installerBuckets.filter((b) => b.id !== 0).length;
     }
 
+    // Count of orders that are actually scheduled (have a date — they show on
+    // the calendar), independent of the current week.
+    const scheduledCount = await call<number>({
+      session: s.session,
+      model: "indigo.order",
+      method: "search_count",
+      args: [[["stage_code", "=", "install_scheduled"]]],
+      kwargs: {},
+    });
+
     return NextResponse.json({
       weekStart: mondayStr,
       weekEnd: sundayStr,
@@ -444,6 +454,7 @@ export async function GET(req: NextRequest) {
         doorsToInstall: totalDoors,
         installedThisWeek,
         pendingThisWeek,
+        scheduled: scheduledCount,
         paymentDue,
       },
       installers: installerBuckets,

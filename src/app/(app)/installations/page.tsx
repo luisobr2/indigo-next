@@ -54,6 +54,7 @@ interface DashboardData {
     doorsToInstall: number;
     installedThisWeek: number;
     pendingThisWeek: number;
+    scheduled: number;
     paymentDue: number;
   };
   installers: Array<{
@@ -322,7 +323,7 @@ export default function InstallationsPage() {
       />
 
       {/* KPI tiles */}
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <KpiTile
           label="Total Installers"
           value={fmtNum(summary?.totalInstallers ?? 0)}
@@ -330,6 +331,14 @@ export default function InstallationsPage() {
           icon={Users}
           iconBg="bg-indigo-50"
           iconColor="text-indigo-700"
+        />
+        <KpiTile
+          label="Scheduled"
+          value={fmtNum(summary?.scheduled ?? 0)}
+          hint="On calendar"
+          icon={Calendar}
+          iconBg="bg-sky-50"
+          iconColor="text-sky-600"
         />
         <KpiTile
           label="Doors to Install"
