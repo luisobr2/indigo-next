@@ -56,6 +56,7 @@ export default function DesignApprovalPage() {
         {
           key: "dealer",
           label: "Dealer",
+          sortField: "dealer_id",
           render: (r) => (
             <div className="text-sm">
               <div className="font-medium">{m2o(r.dealer_id)?.name ?? "—"}</div>
@@ -68,17 +69,20 @@ export default function DesignApprovalPage() {
         {
           key: "phone",
           label: "Phone",
+          sortField: "client_phone",
           render: (r) => <PhoneLink phone={r.client_phone} />,
         },
         {
           key: "sqf",
           label: "SQF",
           align: "right",
+          sortField: "total_sqf",
           render: (r) => fmtNum(r.total_sqf),
         },
         {
           key: "created",
           label: "Created",
+          sortField: "create_date",
           render: (r) => fmtDate(r.create_date),
         },
         {

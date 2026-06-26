@@ -115,11 +115,13 @@ export default function CncProductionPage() {
           key: "sqf",
           label: "SQF",
           align: "right",
+          sortField: "total_sqf",
           render: (r) => fmtNum(r.total_sqf),
         },
         {
           key: "due",
           label: "Due Date",
+          sortField: "expected_completion_date",
           render: (r) => fmtDate(r.expected_completion_date as string),
         },
       ]}

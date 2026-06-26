@@ -10,6 +10,7 @@ import {
   Wrench,
   Clock,
   Download,
+  Printer,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -101,6 +102,71 @@ export default function ReportsPage() {
     toast.success(`Exported ${data.topDealers.length} dealers`);
   }
 
+  // Print the full analytics report — all four ranking tables on one sheet.
+  function printReport() {
+    if (!data) return;
+    const w = window.open("", "_blank");
+    if (!w) return toast.error("Allow pop-ups to print the report");
+    const esc = (v: unknown) =>
+      String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
+    const section = (
+      title: string,
+      headers: Array<{ label: string; right?: boolean }>,
+      rows: string[][],
+    ) =>
+      `<h2>${esc(title)}</h2>` +
+      (rows.length
+        ? `<table><thead><tr>${headers.map((h) => `<th${h.right ? ' class="r"' : ""}>${esc(h.label)}</th>`).join("")}</tr></thead>` +
+          `<tbody>${rows
+            .map(
+              (r) =>
+                `<tr>${r.map((cell, i) => `<td${headers[i]?.right ? ' class="r"' : ""}>${esc(cell)}</td>`).join("")}</tr>`,
+            )
+            .join("")}</tbody></table>`
+        : `<p class="empty">No data</p>`);
+    const body =
+      section(
+        "Top dealers",
+        [{ label: "Dealer" }, { label: "Orders", right: true }, { label: "SQF", right: true }, { label: "Paid", right: true }, { label: "Pending", right: true }],
+        data.topDealers.map((d) => [d.name, String(d.orderCount), fmtNum(d.totalSqf), fmtMoney(d.paidRevenue), fmtMoney(d.pendingRevenue)]),
+      ) +
+      section(
+        "Top designs",
+        [{ label: "Design" }, { label: "Orders", right: true }, { label: "Doors", right: true }, { label: "SQF", right: true }],
+        data.topDesigns.map((d) => [d.name, String(d.orderCount), String(d.doors), fmtNum(d.sqf)]),
+      ) +
+      section(
+        "Stage aging (active orders)",
+        [{ label: "Stage" }, { label: "Count", right: true }, { label: "Avg days", right: true }],
+        data.stageAging.map((s) => [s.name, String(s.count), `${s.avgDays}d`]),
+      ) +
+      section(
+        "Contractor performance (8 wks)",
+        [{ label: "Contractor" }, { label: "Type" }, { label: "Payouts", right: true }, { label: "Paid", right: true }],
+        data.contractorPerformance.map((c) => [c.name, c.type, String(c.payoutCount), fmtMoney(c.paid)]),
+      );
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+      <title>Indigo Decors — Reports</title>
+      <style>
+        body{margin:22px;color:#111;font-family:Arial,Helvetica,sans-serif;}
+        h1{font-size:18px;margin:0 0 2px;color:#1f4486;}
+        h2{font-size:13px;margin:18px 0 6px;color:#1f4486;}
+        .sub{font-size:11px;color:#555;margin-bottom:6px;}
+        .empty{font-size:11px;color:#999;}
+        table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:6px;}
+        th,td{border:1px solid #ccc;padding:4px 6px;text-align:left;}
+        th{background:#1f4486;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+        td.r,th.r{text-align:right;white-space:nowrap;}
+        @page{size:portrait;margin:12mm;}
+      </style></head><body>
+      <h1>Indigo Decors — Analytics report</h1>
+      <div class="sub">Last 6 months · Generated ${esc(new Date().toLocaleString())}</div>
+      ${body}
+      <script>window.onload=function(){setTimeout(function(){window.print();},150);};</script>
+      </body></html>`);
+    w.document.close();
+  }
+
   const totalRevenue6m = data?.revenue.reduce((s, m) => s + m.value, 0) ?? 0;
   const currentMonthRev = data?.revenue.find((r) => r.month === NOW_MONTH)?.value ?? 0;
   const prevMonthRev = data?.revenue.find((r) => r.month === PREV_MONTH)?.value ?? 0;
@@ -121,16 +187,28 @@ export default function ReportsPage() {
             Last 6 months · Top dealers, designs, stage aging and contractor performance
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="lg"
-          onClick={exportAll}
-          disabled={!data}
-        >
-          <Download size={14} />
-          Export top dealers
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            onClick={printReport}
+            disabled={!data}
+          >
+            <Printer size={14} />
+            Print report
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            onClick={exportAll}
+            disabled={!data}
+          >
+            <Download size={14} />
+            Export top dealers
+          </Button>
+        </div>
       </header>
 
       {/* ---------- KPIs ---------- */}

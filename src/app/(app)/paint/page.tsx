@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   Download,
   Printer,
+  FileText,
   Filter,
   Search,
   Settings,
@@ -20,6 +21,9 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkSendToButton } from "@/components/bulk-send-to-button";
 import { QuickStageActionButton } from "@/components/quick-stage-action-button";
+import { ColumnsMenu } from "@/components/columns-menu";
+import { useColumnPrefs, sortRows } from "@/hooks/use-table-prefs";
+import { printTable } from "@/lib/print-table";
 import { fmtMoney, fmtNum } from "@/lib/utils";
 import { colorLabel, doorTypeLabel } from "@/lib/labels";
 import { toCsv, downloadCsv } from "@/lib/csv";
@@ -52,11 +56,156 @@ interface Stage {
   sequence: number;
 }
 
+const companyOf = (r: PaintRow) =>
+  (r.dealer_id && Array.isArray(r.dealer_id) && r.dealer_id[1]) || "—";
+
+// ----- Configurable columns for the Paint worksheet -----
+interface PaintCol {
+  key: string;
+  label: string;
+  align?: "left" | "right" | "center";
+  cell: (r: PaintRow) => ReactNode;
+  print: (r: PaintRow) => string;
+  sortVal?: (r: PaintRow) => string | number;
+}
+const PAINT_COLUMNS: PaintCol[] = [
+  {
+    key: "company",
+    label: "Company",
+    cell: (r) => (
+      <span className="font-semibold uppercase tracking-wide text-slate-700">{companyOf(r)}</span>
+    ),
+    print: (r) => String(companyOf(r)),
+    sortVal: (r) => String(companyOf(r)).toLowerCase(),
+  },
+  {
+    key: "refs",
+    label: "Order Refs",
+    cell: (r) => (
+      <div className="space-y-0.5">
+        {r.dealer_ref ? <div className="font-semibold text-slate-800">{r.dealer_ref}</div> : null}
+        <div className={r.dealer_ref ? "text-xs text-slate-400" : "font-semibold text-slate-800"}>
+          {r.name}
+        </div>
+        {r.customer_po ? (
+          <div className="text-[10px] uppercase tracking-wide text-slate-400">PO: {r.customer_po}</div>
+        ) : null}
+      </div>
+    ),
+    print: (r) => [r.dealer_ref, r.name, r.customer_po ? `PO:${r.customer_po}` : ""].filter(Boolean).join(" / "),
+    sortVal: (r) => (r.dealer_ref || r.name || "").toLowerCase(),
+  },
+  {
+    key: "client",
+    label: "Client Name",
+    cell: (r) => (
+      <Link href={`/orders/${r.id}`} className="font-medium text-slate-800 hover:text-indigo-700 hover:underline">
+        {r.client_name}
+      </Link>
+    ),
+    print: (r) => r.client_name,
+    sortVal: (r) => (r.client_name || "").toLowerCase(),
+  },
+  {
+    key: "color",
+    label: "Color",
+    cell: (r) => <span className="text-slate-700">{colorLabel(r.first_line?.color)}</span>,
+    print: (r) => colorLabel(r.first_line?.color),
+    sortVal: (r) => colorLabel(r.first_line?.color),
+  },
+  {
+    key: "doorType",
+    label: "Door Type",
+    cell: (r) => <span className="text-slate-700">{doorTypeLabel(r.first_line?.door_type)}</span>,
+    print: (r) => doorTypeLabel(r.first_line?.door_type),
+    sortVal: (r) => doorTypeLabel(r.first_line?.door_type),
+  },
+  {
+    key: "sqf",
+    label: "SQF",
+    align: "right",
+    cell: (r) => <span className="font-mono">{r.total_sqf?.toFixed(2)}</span>,
+    print: (r) => (r.total_sqf || 0).toFixed(2),
+    sortVal: (r) => r.total_sqf || 0,
+  },
+  {
+    key: "sides",
+    label: "Door Sides",
+    align: "center",
+    cell: (r) => (
+      <span className="font-mono font-semibold text-indigo-700">{r.first_line?.paint_sides ?? 2}</span>
+    ),
+    print: (r) => String(r.first_line?.paint_sides ?? 2),
+    sortVal: (r) => r.first_line?.paint_sides ?? 2,
+  },
+  {
+    key: "price",
+    label: "Price (USD) / SQF",
+    align: "right",
+    cell: () => <span className="font-mono">${PAINT_RATE.toFixed(2)}</span>,
+    print: () => PAINT_RATE.toFixed(2),
+  },
+  {
+    key: "total",
+    label: "Total (USD)",
+    align: "right",
+    cell: (r) => (
+      <span className="font-bold text-emerald-700">{fmtMoney((r.total_sqf || 0) * PAINT_RATE)}</span>
+    ),
+    print: (r) => ((r.total_sqf || 0) * PAINT_RATE).toFixed(2),
+    sortVal: (r) => (r.total_sqf || 0) * PAINT_RATE,
+  },
+  {
+    key: "design",
+    label: "Design Preview",
+    align: "center",
+    cell: (r) => {
+      const designId =
+        r.first_line?.design_id && Array.isArray(r.first_line.design_id) ? r.first_line.design_id[0] : null;
+      return (
+        <div className="mx-auto flex h-14 w-14 items-center justify-center overflow-hidden rounded-md bg-slate-50 ring-1 ring-slate-200">
+          {designId ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={`/api/catalog/designs/${designId}/image?${new URLSearchParams({ ...(r.first_line?.color ? { color: r.first_line.color } : {}), ...(r.first_line?.door_type ? { type: r.first_line.door_type } : {}) }).toString()}`}
+              alt="Design"
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          ) : (
+            <span className="text-[10px] text-slate-300">—</span>
+          )}
+        </div>
+      );
+    },
+    print: () => "",
+  },
+];
+const PAINT_COL_DEFAULT = PAINT_COLUMNS.map((c) => c.key);
+const PAINT_COLS_KEY = "indigo:paint-cols";
+
 export default function PaintPage() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [marking, setMarking] = useState(false);
+
+  const { colKeys, toggle: toggleCol } = useColumnPrefs(
+    PAINT_COLS_KEY,
+    PAINT_COL_DEFAULT,
+    PAINT_COL_DEFAULT,
+  );
+  const visiblePaintCols = PAINT_COLUMNS.filter((c) => colKeys.includes(c.key));
+  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
+  function toggleSort(key: string) {
+    const col = PAINT_COLUMNS.find((c) => c.key === key);
+    if (!col?.sortVal) return;
+    setSort((p) =>
+      !p || p.key !== key ? { key, dir: "asc" } : p.dir === "asc" ? { key, dir: "desc" } : null,
+    );
+  }
 
   const { data, isLoading } = useQuery<{ records: PaintRow[]; total: number }>({
     queryKey: ["paint", q],
@@ -77,6 +226,12 @@ export default function PaintPage() {
   });
 
   const rows = data?.records ?? [];
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows;
+    const col = PAINT_COLUMNS.find((c) => c.key === sort.key);
+    if (!col?.sortVal) return rows;
+    return sortRows(rows, col.sortVal, sort.dir);
+  }, [rows, sort]);
   const totalSqf = rows.reduce((s, r) => s + (r.total_sqf || 0), 0);
   const totalAmount = totalSqf * PAINT_RATE;
 
@@ -151,6 +306,24 @@ export default function PaintPage() {
     clearSelection();
   }
 
+  function printList() {
+    if (!sortedRows.length) return toast.warning("Nothing to print");
+    const cols = visiblePaintCols
+      .filter((c) => c.key !== "design")
+      .map((c) => ({
+        label: c.label,
+        align: (c.align === "right" ? "right" : "left") as "left" | "right",
+        print: c.print,
+      }));
+    const ok = printTable({
+      title: "Indigo Decors — Paint worksheet",
+      subtitle: `${sortedRows.length} order${sortedRows.length === 1 ? "" : "s"}${q ? ` · filter “${q}”` : ""} · Total SQF ${fmtNum(totalSqf)} · ${fmtMoney(totalAmount)}`,
+      columns: cols,
+      rows: sortedRows,
+    });
+    if (!ok) toast.error("Allow pop-ups to print the list");
+  }
+
   return (
     <div className="mx-auto max-w-[1700px] space-y-4">
       {/* Header */}
@@ -177,6 +350,15 @@ export default function PaintPage() {
               className="h-10 w-72 pl-10"
             />
           </div>
+          <ColumnsMenu
+            columns={PAINT_COLUMNS.map((c) => ({ key: c.key, label: c.label }))}
+            visible={colKeys}
+            onToggle={toggleCol}
+            triggerClassName="inline-flex h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none"
+          />
+          <Button variant="outline" size="lg" onClick={printList}>
+            <FileText size={14} /> Print list
+          </Button>
           <Button
             size="lg"
             className="bg-emerald-600 text-white shadow shadow-emerald-600/30 hover:bg-emerald-700"
@@ -308,47 +490,44 @@ export default function PaintPage() {
                   />
                 </th>
                 <th className="px-3 py-3 w-8">#</th>
-                <th className="px-4 py-3">Company</th>
-                <th className="px-4 py-3">Order Refs</th>
-                <th className="px-4 py-3">Client Name</th>
-                <th className="px-4 py-3">Color</th>
-                <th className="px-4 py-3">Door Type</th>
-                <th className="px-4 py-3 text-right">SQF</th>
-                <th className="px-4 py-3 text-center">Door Sides</th>
-                <th className="px-4 py-3 text-right">Price (USD) / SQF</th>
-                <th className="px-4 py-3 text-right">Total (USD)</th>
-                <th className="px-4 py-3 text-center w-24">Design Preview</th>
+                {visiblePaintCols.map((c) => (
+                  <th
+                    key={c.key}
+                    className={`px-4 py-3 ${c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : ""}`}
+                  >
+                    {c.sortVal ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(c.key)}
+                        className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-slate-900"
+                      >
+                        {c.label}
+                        {sort?.key === c.key && <span>{sort.dir === "asc" ? "▲" : "▼"}</span>}
+                      </button>
+                    ) : (
+                      c.label
+                    )}
+                  </th>
+                ))}
                 <th className="px-4 py-3 text-center w-32">Action</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={13} className="p-12 text-center text-slate-400">
+                  <td colSpan={3 + visiblePaintCols.length} className="p-12 text-center text-slate-400">
                     Loading...
                   </td>
                 </tr>
               )}
               {!isLoading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="p-12 text-center text-slate-400">
+                  <td colSpan={3 + visiblePaintCols.length} className="p-12 text-center text-slate-400">
                     No orders in painting stage
                   </td>
                 </tr>
               )}
-              {rows.map((r, i) => {
-                const designId =
-                  r.first_line?.design_id &&
-                  Array.isArray(r.first_line.design_id)
-                    ? r.first_line.design_id[0]
-                    : null;
-                const company =
-                  (r.dealer_id && Array.isArray(r.dealer_id) && r.dealer_id[1]) ||
-                  "—";
-                const colorText = colorLabel(r.first_line?.color);
-                const doorTypeText = doorTypeLabel(r.first_line?.door_type);
-                const sides = r.first_line?.paint_sides ?? 2;
-                const total = (r.total_sqf || 0) * PAINT_RATE;
+              {sortedRows.map((r, i) => {
                 const isSelected = selected.has(r.id);
                 return (
                   <tr
@@ -365,80 +544,14 @@ export default function PaintPage() {
                       />
                     </td>
                     <td className="px-3 py-3 text-slate-400">{i + 1}</td>
-                    <td className="px-4 py-3 font-semibold uppercase tracking-wide text-slate-700">
-                      {company}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {/* Stack the 3 reference codes so the painter can
-                          cross-check whichever the dealer / system / end
-                          customer used. dealer_ref is what Lock Tight (etc.)
-                          assigns; r.name is the canonical Indigo id; PO is
-                          the end customer's purchase order. */}
-                      <div className="space-y-0.5">
-                        {r.dealer_ref ? (
-                          <div className="font-semibold text-slate-800">
-                            {r.dealer_ref}
-                          </div>
-                        ) : null}
-                        <div
-                          className={
-                            r.dealer_ref
-                              ? "text-xs text-slate-400"
-                              : "font-semibold text-slate-800"
-                          }
-                        >
-                          {r.name}
-                        </div>
-                        {r.customer_po ? (
-                          <div className="text-[10px] uppercase tracking-wide text-slate-400">
-                            PO: {r.customer_po}
-                          </div>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-medium">
-                      <Link
-                        href={`/orders/${r.id}`}
-                        className="text-slate-800 hover:text-indigo-700 hover:underline"
+                    {visiblePaintCols.map((c) => (
+                      <td
+                        key={c.key}
+                        className={`px-4 py-3 ${c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : ""}`}
                       >
-                        {r.client_name}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {colorText}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {doorTypeText}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono">
-                      {r.total_sqf?.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-center font-mono font-semibold text-indigo-700">
-                      {sides}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono">
-                      ${PAINT_RATE.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold text-emerald-700">
-                      {fmtMoney(total)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="mx-auto flex h-14 w-14 items-center justify-center overflow-hidden rounded-md bg-slate-50 ring-1 ring-slate-200">
-                        {designId ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={`/api/catalog/designs/${designId}/image?${new URLSearchParams({ ...(r.first_line?.color ? { color: r.first_line.color } : {}), ...(r.first_line?.door_type ? { type: r.first_line.door_type } : {}) }).toString()}`}
-                            alt="Design"
-                            className="h-full w-full object-cover"
-                            onError={(e) => {
-                              e.currentTarget.style.display = "none";
-                            }}
-                          />
-                        ) : (
-                          <span className="text-[10px] text-slate-300">—</span>
-                        )}
-                      </div>
-                    </td>
+                        {c.cell(r)}
+                      </td>
+                    ))}
                     <td className="px-4 py-3 text-center">
                       <QuickStageActionButton
                         orderId={r.id}

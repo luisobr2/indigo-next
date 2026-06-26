@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Plus, Power } from "lucide-react";
+import { Building2, Plus, Power, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
+import { sortRows } from "@/hooks/use-table-prefs";
+import { printTable } from "@/lib/print-table";
 import { Button } from "@/components/ui/button";
 
 interface Dealer {
@@ -25,6 +28,42 @@ export default function DealersAdminPage() {
     retry: 1,
   });
   const dealers = data?.records ?? [];
+
+  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
+  const SORT_VAL: Record<string, (d: Dealer) => string | number> = {
+    name: (d) => (d.name || "").toLowerCase(),
+    email: (d) => String(d.email || "").toLowerCase(),
+    phone: (d) => String(d.phone || ""),
+    city: (d) => String(d.city || "").toLowerCase(),
+    status: (d) => (d.active ? 0 : 1),
+  };
+  function toggleSort(key: string) {
+    setSort((p) =>
+      !p || p.key !== key ? { key, dir: "asc" } : p.dir === "asc" ? { key, dir: "desc" } : null,
+    );
+  }
+  const sortedDealers = useMemo(
+    () => (sort && SORT_VAL[sort.key] ? sortRows(dealers, SORT_VAL[sort.key], sort.dir) : dealers),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dealers, sort],
+  );
+
+  function printList() {
+    if (!sortedDealers.length) return toast.warning("Nothing to print");
+    const ok = printTable({
+      title: "Indigo Decors — Dealers",
+      subtitle: `${sortedDealers.length} dealer${sortedDealers.length === 1 ? "" : "s"} · ${new Date().toLocaleString()}`,
+      rows: sortedDealers,
+      columns: [
+        { label: "Name", print: (d) => d.name },
+        { label: "Email", print: (d) => String(d.email || "") },
+        { label: "Phone", print: (d) => String(d.phone || "") },
+        { label: "City", print: (d) => String(d.city || "") },
+        { label: "Status", print: (d) => (d.active ? "Active" : "Inactive") },
+      ],
+    });
+    if (!ok) toast.error("Allow pop-ups to print the list");
+  }
 
   function toggleActive(d: Dealer) {
     const verb = d.active ? "Deactivate" : "Reactivate";
@@ -57,9 +96,14 @@ export default function DealersAdminPage() {
             <p className="text-sm text-slate-500">Companies that place orders.</p>
           </div>
         </div>
-        <Link href="/catalog/dealers/new">
-          <Button size="lg"><Plus size={14} /> New dealer</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="lg" onClick={printList}>
+            <Printer size={14} /> Print list
+          </Button>
+          <Link href="/catalog/dealers/new">
+            <Button size="lg"><Plus size={14} /> New dealer</Button>
+          </Link>
+        </div>
       </div>
 
       {isLoading && <div className="p-12 text-center text-slate-400">Loading…</div>}
@@ -75,16 +119,29 @@ export default function DealersAdminPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 text-left text-xs font-semibold uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Email</th>
-                <th className="px-4 py-3">Phone</th>
-                <th className="px-4 py-3">City</th>
-                <th className="px-4 py-3">Status</th>
+                {[
+                  { key: "name", label: "Name" },
+                  { key: "email", label: "Email" },
+                  { key: "phone", label: "Phone" },
+                  { key: "city", label: "City" },
+                  { key: "status", label: "Status" },
+                ].map((h) => (
+                  <th key={h.key} className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(h.key)}
+                      className="inline-flex items-center gap-1 uppercase hover:text-slate-900"
+                    >
+                      {h.label}
+                      {sort?.key === h.key && <span>{sort.dir === "asc" ? "▲" : "▼"}</span>}
+                    </button>
+                  </th>
+                ))}
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {dealers.map((d) => (
+              {sortedDealers.map((d) => (
                 <tr key={d.id} className={`border-b border-slate-50 last:border-0 ${d.active ? "" : "opacity-50"}`}>
                   <td className="px-4 py-3 font-medium text-indigo-700">
                     <Link href={`/catalog/dealers/${d.id}`} className="hover:underline">{d.name}</Link>

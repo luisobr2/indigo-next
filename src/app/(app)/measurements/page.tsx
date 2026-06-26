@@ -55,22 +55,26 @@ export default function MeasurementsPage() {
         {
           key: "phone",
           label: "Phone",
+          sortField: "client_phone",
           render: (r) => <PhoneLink phone={r.client_phone} />,
         },
         {
           key: "dealer",
           label: "Dealer",
+          sortField: "dealer_id",
           render: (r) => m2o(r.dealer_id)?.name ?? "—",
         },
         {
           key: "doors",
           label: "Doors",
           align: "right",
+          sortField: "door_count",
           render: (r) => fmtNum(r.door_count),
         },
         {
           key: "due",
           label: "Due",
+          sortField: "expected_completion_date",
           render: (r) => fmtDate(r.expected_completion_date as string),
         },
       ]}

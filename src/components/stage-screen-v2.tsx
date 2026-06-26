@@ -40,6 +40,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toCsv, downloadCsv } from "@/lib/csv";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
+import { ColumnsMenu } from "@/components/columns-menu";
+import { useColumnPrefs } from "@/hooks/use-table-prefs";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                              */
@@ -114,6 +116,8 @@ export interface StageScreenV2Column {
   label: string;
   align?: "left" | "right" | "center";
   render: (row: StageOrderV2) => React.ReactNode;
+  /** Odoo field name to sort by server-side when this header is clicked. */
+  sortField?: string;
 }
 
 export interface StageScreenV2Props {
@@ -230,6 +234,30 @@ export function StageScreenV2({
   const stageParam = Array.isArray(stageCode) ? stageCode.join(",") : stageCode;
   const paramKey = Array.isArray(stageCode) ? "stages" : "stage";
 
+  // Configurable columns (per stage, saved per user) + server-side sort.
+  const allColKeys = useMemo(() => columns.map((c) => c.key), [columns]);
+  const { colKeys, toggle: toggleCol } = useColumnPrefs(
+    `indigo:stagecols:${stageParam}`,
+    allColKeys,
+    allColKeys,
+  );
+  const visibleColumns = useMemo(
+    () => columns.filter((c) => colKeys.includes(c.key)),
+    [columns, colKeys],
+  );
+  // Sort cycles: click → asc, again → desc, again → back to default.
+  const [sort, setSort] = useState<{ field: string; dir: "asc" | "desc" } | null>(null);
+  function toggleSort(field: string) {
+    setPage(0);
+    setSort((p) =>
+      !p || p.field !== field
+        ? { field, dir: "asc" }
+        : p.dir === "asc"
+          ? { field, dir: "desc" }
+          : null,
+    );
+  }
+
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedQ(q);
@@ -250,6 +278,7 @@ export function StageScreenV2({
     if (debouncedQ) url.searchParams.set("q", debouncedQ);
     url.searchParams.set("limit", String(limit));
     url.searchParams.set("offset", String(offset));
+    if (sort && limit > 1) url.searchParams.set("order", `${sort.field} ${sort.dir}`);
     if (includeLines && limit > 1) url.searchParams.set("include", "lines");
 
     const tab = tabs.find((t) => t.key === tabKey);
@@ -266,7 +295,15 @@ export function StageScreenV2({
     records: StageOrderV2[];
     total: number;
   }>({
-    queryKey: ["stage-v2", stageParam, activeTab, debouncedQ, page, pageSize],
+    queryKey: [
+      "stage-v2",
+      stageParam,
+      activeTab,
+      debouncedQ,
+      page,
+      pageSize,
+      sort ? `${sort.field} ${sort.dir}` : "default",
+    ],
     queryFn: async () => {
       const url = buildUrl(activeTab, pageSize, page * pageSize);
       const r = await fetch(url);
@@ -498,6 +535,14 @@ export function StageScreenV2({
               />
             </>
           )}
+          {columns.length > 0 && (
+            <ColumnsMenu
+              columns={columns.map((c) => ({ key: c.key, label: c.label }))}
+              visible={colKeys}
+              onToggle={toggleCol}
+              triggerClassName="inline-flex h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none"
+            />
+          )}
           <Button
             variant="outline"
             size="lg"
@@ -678,7 +723,7 @@ export function StageScreenV2({
               records={records}
               grouped={grouped}
               groupBy={groupBy}
-              columns={columns}
+              columns={visibleColumns}
               designPreview={designPreview}
               selected={selected}
               setSelected={setSelected}
@@ -686,6 +731,8 @@ export function StageScreenV2({
               toggleBulk={toggleBulk}
               toggleAll={toggleAll}
               subStatusPrefix={subStatusPrefix}
+              sort={sort}
+              onSort={toggleSort}
             />
           ) : (
             <GridBody
@@ -951,6 +998,8 @@ function ListBody({
   toggleBulk,
   toggleAll,
   subStatusPrefix,
+  sort,
+  onSort,
 }: {
   loading: boolean;
   records: StageOrderV2[];
@@ -964,6 +1013,8 @@ function ListBody({
   toggleBulk: (id: number) => void;
   toggleAll: () => void;
   subStatusPrefix: "digi" | "cnc" | "paint" | undefined;
+  sort: { field: string; dir: "asc" | "desc" } | null;
+  onSort: (field: string) => void;
 }) {
   const [openGroups, setOpenGroups] = useState<Set<string>>(
     new Set(grouped.map((g) => g.key)),
@@ -992,21 +1043,20 @@ function ListBody({
                 onCheckedChange={toggleAll}
               />
             </th>
-            <th className="px-3 py-2.5"># Order</th>
-            <th className="px-3 py-2.5">Client / Name</th>
+            <SortableTh field="name" label="# Order" sort={sort} onSort={onSort} />
+            <SortableTh field="client_name" label="Client / Name" sort={sort} onSort={onSort} />
             {designPreview && (
               <th className="px-3 py-2.5">Design Preview</th>
             )}
             {columns.map((c) => (
-              <th
+              <SortableTh
                 key={c.key}
-                className={cn(
-                  "px-3 py-2.5",
-                  c.align === "right" && "text-right",
-                )}
-              >
-                {c.label}
-              </th>
+                field={c.sortField}
+                label={c.label}
+                align={c.align}
+                sort={sort}
+                onSort={onSort}
+              />
             ))}
             <th className="px-3 py-2.5">Status</th>
             <th className="px-3 py-2.5">Actions</th>
@@ -1100,6 +1150,37 @@ function ListBody({
 
 function FragmentRows({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
+}
+
+function SortableTh({
+  field,
+  label,
+  align,
+  sort,
+  onSort,
+}: {
+  field?: string;
+  label: string;
+  align?: "left" | "right" | "center";
+  sort: { field: string; dir: "asc" | "desc" } | null;
+  onSort: (field: string) => void;
+}) {
+  return (
+    <th className={cn("px-3 py-2.5", align === "right" && "text-right")}>
+      {field ? (
+        <button
+          type="button"
+          onClick={() => onSort(field)}
+          className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-slate-900"
+        >
+          {label}
+          {sort?.field === field && <span>{sort.dir === "asc" ? "▲" : "▼"}</span>}
+        </button>
+      ) : (
+        label
+      )}
+    </th>
+  );
 }
 
 function Row({

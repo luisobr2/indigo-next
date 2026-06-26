@@ -34,6 +34,7 @@ import {
   STAGE_WIZARDS,
 } from "@/components/stage-wizard-modal";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
+import { printTable } from "@/lib/print-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/pagination";
@@ -174,6 +175,71 @@ export default function BillingPage() {
     });
   }
 
+  // Print the FULL list (not just the current page) — fetch all then print.
+  async function printToInvoice() {
+    const t = toast.loading("Preparing list…");
+    try {
+      const j = await fetchJson<{ records: OrderRow[] }>(
+        "/api/billing/to-invoice?limit=1000&offset=0",
+      );
+      const rows = j.records ?? [];
+      toast.dismiss(t);
+      if (!rows.length) return toast.warning("Nothing to invoice");
+      const ok = printTable({
+        title: "Indigo Decors — To invoice",
+        subtitle: `${rows.length} order${rows.length === 1 ? "" : "s"} · ${new Date().toLocaleString()}`,
+        rows,
+        columns: [
+          { label: "Order", print: (o) => o.name },
+          { label: "Client", print: (o) => o.client_name },
+          { label: "Dealer", print: (o) => m2o(o.dealer_id)?.name ?? "" },
+          { label: "Doors", align: "right", print: (o) => String(o.door_count) },
+          { label: "Amount", align: "right", print: (o) => (o.total_dealer_charge || 0).toFixed(2) },
+        ],
+        blankCols: ["Invoice #"],
+      });
+      if (!ok) toast.error("Allow pop-ups to print the list");
+    } catch {
+      toast.dismiss(t);
+      toast.error("Couldn't load the list");
+    }
+  }
+
+  async function printOutstanding() {
+    const t = toast.loading("Preparing list…");
+    try {
+      const j = await fetchJson<{ records: OrderRow[] }>(
+        "/api/billing/outstanding?limit=1000&offset=0",
+      );
+      const rows = j.records ?? [];
+      toast.dismiss(t);
+      if (!rows.length) return toast.warning("Nothing outstanding");
+      const daysOf = (o: OrderRow) => {
+        const ref = o.invoiced_at as string | false;
+        if (typeof ref !== "string") return "";
+        const since = ref.replace(" ", "T") + (/[zZ]|[+-]\d\d:\d\d$/.test(ref) ? "" : "Z");
+        return String(Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 86_400_000)));
+      };
+      const ok = printTable({
+        title: "Indigo Decors — Outstanding balances",
+        subtitle: `${rows.length} order${rows.length === 1 ? "" : "s"} · ${new Date().toLocaleString()}`,
+        rows,
+        columns: [
+          { label: "Order", print: (o) => o.name },
+          { label: "Client", print: (o) => o.client_name },
+          { label: "Dealer", print: (o) => m2o(o.dealer_id)?.name ?? "" },
+          { label: "Days", align: "right", print: daysOf },
+          { label: "Status", print: (o) => paymentLabel(o.payment_state) },
+          { label: "Amount", align: "right", print: (o) => (o.total_dealer_charge || 0).toFixed(2) },
+        ],
+      });
+      if (!ok) toast.error("Allow pop-ups to print the list");
+    } catch {
+      toast.dismiss(t);
+      toast.error("Couldn't load the list");
+    }
+  }
+
   const summary = summaryQ.data;
 
   return (
@@ -264,6 +330,9 @@ export default function BillingPage() {
               <Receipt size={16} className="text-amber-600" />
               To invoice ({toInvoiceQ.data?.total ?? 0})
             </h2>
+            <Button variant="outline" size="sm" onClick={printToInvoice}>
+              <Printer size={13} /> Print list
+            </Button>
           </div>
           {toInvoiceQ.isLoading && <Skeleton className="h-40 rounded-xl" />}
           {!toInvoiceQ.isLoading && !toInvoiceQ.data?.records?.length && (
@@ -322,6 +391,9 @@ export default function BillingPage() {
               <FileText size={16} className="text-rose-600" />
               Outstanding ({outstandingQ.data?.total ?? 0})
             </h2>
+            <Button variant="outline" size="sm" onClick={printOutstanding}>
+              <Printer size={13} /> Print list
+            </Button>
           </div>
           {outstandingQ.isLoading && <Skeleton className="h-40 rounded-xl" />}
           {!outstandingQ.isLoading && !outstandingQ.data?.records?.length && (

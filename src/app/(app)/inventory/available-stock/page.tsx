@@ -3,10 +3,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { Package, Search, Calendar, Clock, ArrowRight } from "lucide-react";
+import { Package, Search, Calendar, Clock, ArrowRight, Printer } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fmtDate, fmtNum, m2o } from "@/lib/utils";
 import { fetchJson } from "@/lib/fetch-json";
+import { printTable } from "@/lib/print-table";
 import { ErrorState } from "@/components/state-cards";
 
 interface StockRecord {
@@ -76,6 +79,35 @@ export default function AvailableStockPage() {
 
   const records = data?.records ?? [];
 
+  function printList() {
+    if (!records.length) return toast.warning("Nothing to print");
+    const designLabel = (r: StockRecord) =>
+      r.first_line?.design_id && Array.isArray(r.first_line.design_id) ? r.first_line.design_id[1] : "—";
+    const ok = printTable({
+      title: "Indigo Decors — Available Stock",
+      subtitle: `${records.length} door${records.length === 1 ? "" : "s"} · ${new Date().toLocaleString()}`,
+      rows: records,
+      columns: [
+        { label: "Nickname", print: (r) => r.stock_label || "" },
+        { label: "Design", print: designLabel },
+        { label: "Type", print: (r) => DOOR_TYPE_LABEL[r.first_line?.door_type ?? ""] ?? "" },
+        { label: "Color", print: (r) => (r.first_line?.color || "").replace("_", " ") },
+        {
+          label: "Dimensions",
+          print: (r) =>
+            `${r.first_line?.width_label || r.first_line?.width || "?"} x ${r.first_line?.height_label || r.first_line?.height || "?"}`,
+        },
+        { label: "Glass", print: (r) => r.first_line?.glass_type || "" },
+        { label: "Days", align: "right", print: (r) => String(daysSince(r.stock_at)) },
+        { label: "Since", print: (r) => (r.stock_at ? fmtDate(r.stock_at as string) : "") },
+        { label: "Originally for", print: (r) => r.original_client_name || "" },
+        { label: "Dealer", print: (r) => m2o(r.dealer_id)?.name ?? "" },
+        { label: "Order", print: (r) => r.name },
+      ],
+    });
+    if (!ok) toast.error("Allow pop-ups to print the list");
+  }
+
   return (
     <div className="mx-auto max-w-[1500px] space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -90,9 +122,14 @@ export default function AvailableStockPage() {
             match is found.
           </p>
         </div>
-        <div className="rounded-2xl bg-indigo-50 px-4 py-2 text-sm">
-          <span className="text-indigo-700/70">Doors available: </span>
-          <span className="font-bold text-indigo-900">{fmtNum(records.length)}</span>
+        <div className="flex items-center gap-2">
+          <div className="rounded-2xl bg-indigo-50 px-4 py-2 text-sm">
+            <span className="text-indigo-700/70">Doors available: </span>
+            <span className="font-bold text-indigo-900">{fmtNum(records.length)}</span>
+          </div>
+          <Button variant="outline" size="lg" onClick={printList}>
+            <Printer size={14} /> Print list
+          </Button>
         </div>
       </header>
 

@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users, Plus, KeyRound, Power, Pencil } from "lucide-react";
+import { Users, Plus, KeyRound, Power, Pencil, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
+import { sortRows } from "@/hooks/use-table-prefs";
+import { printTable } from "@/lib/print-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -36,6 +39,40 @@ export default function UsersAdminPage() {
   });
 
   const users = data?.records ?? [];
+
+  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
+  const SORT_VAL: Record<string, (u: TeamUser) => string | number> = {
+    name: (u) => (u.name || "").toLowerCase(),
+    email: (u) => (u.email || "").toLowerCase(),
+    role: (u) => (u.role_label || "").toLowerCase(),
+    status: (u) => (u.active ? 0 : 1),
+  };
+  function toggleSort(key: string) {
+    setSort((p) =>
+      !p || p.key !== key ? { key, dir: "asc" } : p.dir === "asc" ? { key, dir: "desc" } : null,
+    );
+  }
+  const sortedUsers = useMemo(
+    () => (sort && SORT_VAL[sort.key] ? sortRows(users, SORT_VAL[sort.key], sort.dir) : users),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [users, sort],
+  );
+
+  function printList() {
+    if (!sortedUsers.length) return toast.warning("Nothing to print");
+    const ok = printTable({
+      title: "Indigo Decors — Users",
+      subtitle: `${sortedUsers.length} user${sortedUsers.length === 1 ? "" : "s"} · ${new Date().toLocaleString()}`,
+      rows: sortedUsers,
+      columns: [
+        { label: "Name", print: (u) => u.name },
+        { label: "Email", print: (u) => u.email },
+        { label: "Role", print: (u) => u.role_label },
+        { label: "Status", print: (u) => (u.active ? "Active" : "Inactive") },
+      ],
+    });
+    if (!ok) toast.error("Allow pop-ups to print the list");
+  }
 
   function act(u: TeamUser, body: Record<string, unknown>, loading: string, ok: string) {
     const p = fetch(`/api/admin/users/${u.id}`, {
@@ -74,9 +111,14 @@ export default function UsersAdminPage() {
             <p className="text-sm text-slate-500">Team members and their roles.</p>
           </div>
         </div>
-        <Link href="/admin/users/new">
-          <Button size="lg"><Plus size={14} /> New user</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="lg" onClick={printList}>
+            <Printer size={14} /> Print list
+          </Button>
+          <Link href="/admin/users/new">
+            <Button size="lg"><Plus size={14} /> New user</Button>
+          </Link>
+        </div>
       </div>
 
       {isLoading && <div className="p-12 text-center text-slate-400">Loading…</div>}
@@ -92,15 +134,28 @@ export default function UsersAdminPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 text-left text-xs font-semibold uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Email</th>
-                <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Status</th>
+                {[
+                  { key: "name", label: "Name" },
+                  { key: "email", label: "Email" },
+                  { key: "role", label: "Role" },
+                  { key: "status", label: "Status" },
+                ].map((h) => (
+                  <th key={h.key} className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(h.key)}
+                      className="inline-flex items-center gap-1 uppercase hover:text-slate-900"
+                    >
+                      {h.label}
+                      {sort?.key === h.key && <span>{sort.dir === "asc" ? "▲" : "▼"}</span>}
+                    </button>
+                  </th>
+                ))}
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
+              {sortedUsers.map((u) => (
                 <tr key={u.id} className={`border-b border-slate-50 last:border-0 ${u.active ? "" : "opacity-50"}`}>
                   <td className="px-4 py-3 font-medium text-slate-800">{u.name}</td>
                   <td className="px-4 py-3 text-slate-600">{u.email}</td>
