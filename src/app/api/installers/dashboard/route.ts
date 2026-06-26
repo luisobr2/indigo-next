@@ -441,7 +441,9 @@ export async function GET(req: NextRequest) {
       session: s.session,
       model: "indigo.order",
       method: "search_count",
-      args: [[["stage_code", "=", "install_scheduled"]]],
+      // stage_code is a non-stored computed field; search via the stored
+      // relation path (same pattern the orders API uses).
+      args: [[["stage_id.code", "=", "install_scheduled"]]],
       kwargs: {},
     });
 
