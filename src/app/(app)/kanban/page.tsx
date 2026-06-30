@@ -18,6 +18,7 @@ import {
 } from "@dnd-kit/core";
 import {
   AlertCircle,
+  AlertTriangle,
   Pause,
   GripVertical,
   RefreshCw,
@@ -49,6 +50,7 @@ interface Card {
   days_in_current_stage: number;
   is_overdue: boolean;
   on_hold: boolean;
+  incidence?: boolean;
   payment_state: "paid" | "partial" | "unpaid";
 }
 
@@ -376,6 +378,9 @@ function KanbanCard({
             )}
             {card.on_hold && (
               <Pause size={12} className="text-amber-500" />
+            )}
+            {card.incidence && (
+              <AlertTriangle size={12} className="text-rose-600" aria-label="Incidencia" />
             )}
           </div>
           <div className="mt-0.5 truncate text-xs text-slate-800">

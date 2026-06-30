@@ -46,6 +46,7 @@ export async function GET(req: Request) {
       days_in_current_stage: number;
       is_overdue: boolean;
       on_hold: boolean;
+      incidence?: boolean;
       payment_state: "paid" | "partial" | "unpaid";
     }
     const domain: unknown[] = includeArchived
@@ -69,6 +70,7 @@ export async function GET(req: Request) {
           "days_in_current_stage",
           "is_overdue",
           "on_hold",
+          "incidence",
           "payment_state",
         ],
       ],

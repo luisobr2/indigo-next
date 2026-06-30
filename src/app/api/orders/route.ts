@@ -45,6 +45,7 @@ const ORDER_FIELDS_V2_EXTRA = [
   "paint_started_at",
   "paint_done_at",
   "cancelled_at",
+  "incidence",
 ];
 
 /**
@@ -75,6 +76,9 @@ export async function GET(req: NextRequest) {
 
     const overdue = sp.get("overdue");
     if (overdue === "true") domain.push(["is_overdue", "=", true]);
+
+    const incidence = sp.get("incidence");
+    if (incidence === "true") domain.push(["incidence", "=", true]);
 
     // ?archived=1 shows ONLY archived orders (active=false). Needs
     // active_test:false in the context so Odoo doesn't filter them out.

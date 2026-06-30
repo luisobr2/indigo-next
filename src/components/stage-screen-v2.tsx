@@ -12,6 +12,7 @@ import {
   PauseCircle,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Clock,
   X,
   Eye,
@@ -65,6 +66,7 @@ export interface StageOrderV2 {
   stage_id: [number, string] | false;
   stage_code: string;
   on_hold: boolean;
+  incidence?: boolean;
   door_count: number;
   total_sqf: number;
   total_dealer_charge: number;
@@ -1269,6 +1271,13 @@ function Row({
             size={12}
             className="ml-1 inline text-rose-500"
             aria-label="Overdue"
+          />
+        )}
+        {row.incidence && (
+          <AlertTriangle
+            size={12}
+            className="ml-1 inline text-rose-600"
+            aria-label="Incidencia"
           />
         )}
       </td>
