@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   Users,
@@ -20,6 +20,7 @@ import {
   Info,
   CircleDollarSign,
   AlertTriangle,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { fmtMoney, fmtNum, fmtDate, cn } from "@/lib/utils";
@@ -34,6 +35,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BulkSendToButton } from "@/components/bulk-send-to-button";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -293,6 +296,76 @@ export default function InstallationsPage() {
   const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null);
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
 
+  // Bulk selection of orders (to mark several as Installed / send to a stage).
+  const qc = useQueryClient();
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [marking, setMarking] = useState(false);
+  const stagesQ = useQuery<{ records: Array<{ id: number; name: string; code: string; sequence: number }> }>({
+    queryKey: ["stages-list"],
+    queryFn: () => fetch("/api/stages").then((r) => r.json()),
+    staleTime: 10 * 60_000,
+  });
+  function toggleSel(id: number) {
+    setSelected((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+  function selectMany(ids: number[], on: boolean) {
+    setSelected((p) => {
+      const n = new Set(p);
+      ids.forEach((i) => (on ? n.add(i) : n.delete(i)));
+      return n;
+    });
+  }
+  function clearSel() {
+    setSelected(new Set());
+  }
+  function refreshDash() {
+    qc.invalidateQueries({ queryKey: ["installers-dashboard"] });
+    qc.invalidateQueries({ queryKey: ["dashboard"] });
+  }
+
+  // Mark the selected orders as Installed (the "terminado" bulk action).
+  async function markInstalled() {
+    if (marking) return;
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    const installed = stagesQ.data?.records?.find((s) => s.code === "installed");
+    if (!installed) {
+      toast.error("Stage 'Installed' not found. Reload and try again.");
+      return;
+    }
+    if (!confirm(`Mark ${ids.length} order${ids.length === 1 ? "" : "s"} as Installed (terminado)?`)) return;
+    setMarking(true);
+    const results = await Promise.allSettled(
+      ids.map((id) =>
+        fetch(`/api/orders/${id}/stage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            stage_id: installed.id,
+            note: "Marked installed (bulk)",
+            source: `Mark installed (${ids.length})`,
+          }),
+        }).then(async (r) => {
+          const j = await r.json();
+          if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+          return j;
+        }),
+      ),
+    );
+    setMarking(false);
+    const failed = results.filter((r) => r.status === "rejected").length;
+    refreshDash();
+    clearSel();
+    if (failed === 0) toast.success(`${ids.length} marked as Installed`);
+    else if (failed === ids.length) toast.error(`All ${ids.length} updates failed.`);
+    else toast.warning(`${ids.length - failed} of ${ids.length} marked. ${failed} failed.`);
+  }
+
   const { data, isLoading, isError, refetch } = useQuery<DashboardData>({
     queryKey: ["installers-dashboard", week],
     queryFn: () => fetchJson<DashboardData>(`/api/installers/dashboard?week=${week}`),
@@ -518,6 +591,48 @@ export default function InstallationsPage() {
         onClose={() => setScheduleTarget(null)}
       />
 
+      {/* Bulk action bar — appears when orders are selected. Mark several as
+          Installed ("terminado") at once, or send them to another stage. */}
+      {selected.size > 0 && (
+        <div className="sticky top-2 z-20 flex flex-wrap items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 shadow-sm">
+          <Badge variant="secondary" className="bg-indigo-100 text-xs font-bold uppercase tracking-wide text-indigo-700">
+            {selected.size} selected
+            <button
+              type="button"
+              onClick={clearSel}
+              aria-label="Clear selection"
+              className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-indigo-200"
+            >
+              <X size={10} />
+            </button>
+          </Badge>
+          <Button
+            size="sm"
+            onClick={markInstalled}
+            disabled={marking}
+            className="bg-emerald-600 text-white shadow shadow-emerald-600/30 hover:bg-emerald-700 disabled:opacity-60"
+          >
+            <CheckSquare size={13} />
+            {marking ? "Marking…" : "Mark as Installed"}
+          </Button>
+          <BulkSendToButton
+            orderIds={Array.from(selected)}
+            stages={stagesQ.data?.records ?? []}
+            onSuccess={() => {
+              clearSel();
+              refreshDash();
+            }}
+          />
+          <button
+            type="button"
+            onClick={clearSel}
+            className="ml-auto text-xs font-medium text-slate-500 hover:text-slate-800"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* KPI tiles */}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <KpiTile
@@ -587,6 +702,13 @@ export default function InstallationsPage() {
             <table className="w-full min-w-[820px] text-sm">
               <thead className="bg-rose-100/60 text-left text-[10px] font-bold uppercase tracking-wide text-rose-800">
                 <tr>
+                  <th className="px-3 py-2.5 w-8">
+                    <Checkbox
+                      checked={overdue.length > 0 && overdue.every((o) => selected.has(o.id))}
+                      onCheckedChange={(v) => selectMany(overdue.map((o) => o.id), !!v)}
+                      aria-label="Select all overdue"
+                    />
+                  </th>
                   <th className="px-4 py-2.5">Order Number</th>
                   <th className="px-4 py-2.5">Client Name</th>
                   <th className="px-4 py-2.5">Address</th>
@@ -600,8 +722,18 @@ export default function InstallationsPage() {
                 {overdue.map((o) => (
                   <tr
                     key={o.id}
-                    className="border-t border-rose-100 transition hover:bg-rose-100/40"
+                    className={cn(
+                      "border-t border-rose-100 transition hover:bg-rose-100/40",
+                      selected.has(o.id) && "bg-rose-100/60",
+                    )}
                   >
+                    <td className="px-3 py-2.5">
+                      <Checkbox
+                        checked={selected.has(o.id)}
+                        onCheckedChange={() => toggleSel(o.id)}
+                        aria-label={`Select ${o.dealer_ref || o.name}`}
+                      />
+                    </td>
                     <td className="px-4 py-2.5">
                       <Link
                         href={`/orders/${o.id}`}
@@ -706,6 +838,13 @@ export default function InstallationsPage() {
             <table className="w-full min-w-[800px] text-sm">
               <thead className="bg-amber-100/60 text-left text-[10px] font-bold uppercase tracking-wide text-amber-800">
                 <tr>
+                  <th className="px-3 py-2.5 w-8">
+                    <Checkbox
+                      checked={sortedPending.length > 0 && sortedPending.every((o) => selected.has(o.id))}
+                      onCheckedChange={(v) => selectMany(sortedPending.map((o) => o.id), !!v)}
+                      aria-label="Select all pending"
+                    />
+                  </th>
                   {visiblePendCols.map((c) => (
                     <th key={c.key} className={`px-4 py-2.5 ${c.thClass ?? ""}`}>
                       <button
@@ -727,8 +866,18 @@ export default function InstallationsPage() {
                 {sortedPending.map((o) => (
                   <tr
                     key={o.id}
-                    className="border-t border-amber-100 transition hover:bg-amber-100/40"
+                    className={cn(
+                      "border-t border-amber-100 transition hover:bg-amber-100/40",
+                      selected.has(o.id) && "bg-amber-100/70",
+                    )}
                   >
+                    <td className="px-3 py-2.5">
+                      <Checkbox
+                        checked={selected.has(o.id)}
+                        onCheckedChange={() => toggleSel(o.id)}
+                        aria-label={`Select ${o.dealer_ref || o.name}`}
+                      />
+                    </td>
                     {visiblePendCols.map((c) => (
                       <td key={c.key} className={`px-4 py-2.5 ${c.thClass ?? ""}`}>
                         {c.cell(o)}
