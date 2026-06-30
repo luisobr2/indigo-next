@@ -249,7 +249,11 @@ export default function DesignEditorPage({
         });
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || "Failed");
-        toast.success("Design created");
+        toast.success(
+          j.published
+            ? "Design created and published to the website. Add an image so it shows with a photo."
+            : "Design created (couldn't auto-publish the web product — check it manually).",
+        );
         qc.invalidateQueries({ queryKey: ["catalog-designs"] });
         router.replace(`/catalog/designs/${j.id}`);
       } else {

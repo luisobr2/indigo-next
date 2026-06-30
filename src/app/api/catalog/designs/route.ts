@@ -115,7 +115,43 @@ export async function POST(req: NextRequest) {
         kwargs: {},
       });
     }
-    return NextResponse.json({ id });
+
+    // Create a PUBLISHED storefront product linked to this design so it shows on
+    // the customer website (/shop). website_sale renders product.template with
+    // is_published=true; we link it via indigo_design_id so the image route can
+    // later push the cover image onto it. Non-fatal: if it fails the design is
+    // still created (the product can be (re)created later).
+    let productId: number | null = null;
+    const baseProd: Record<string, unknown> = {
+      name: body.name || code,
+      type: "consu",
+      list_price: 0,
+      sale_ok: true,
+      is_indigo_design: true,
+      indigo_design_id: id,
+    };
+    // Try richest publish payload first; fall back if a publish field isn't
+    // directly writable on this Odoo build.
+    const attempts: Record<string, unknown>[] = [
+      { ...baseProd, is_published: true, website_published: true },
+      { ...baseProd, is_published: true },
+      { ...baseProd },
+    ];
+    for (const pvals of attempts) {
+      try {
+        productId = await call<number>({
+          session: s.session,
+          model: "product.template",
+          method: "create",
+          args: [pvals],
+          kwargs: {},
+        });
+        break;
+      } catch {
+        productId = null;
+      }
+    }
+    return NextResponse.json({ id, productId, published: productId != null });
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "Error";
