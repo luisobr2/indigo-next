@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 import { deriveRole } from "@/lib/odoo/types";
+import { getPublicBaseUrl } from "@/lib/odoo/public-url";
 
 /**
  * POST /api/catalog/designs/:id/publish  body: { published: boolean }
@@ -104,7 +105,6 @@ export async function POST(
     }
 
     // Read back the resulting URL/state for the first product.
-    const ODOO_URL = process.env.ODOO_URL ?? "http://localhost:8069";
     let product: { id: number; is_published: boolean; website_url: string } | null = null;
     if (productIds.length) {
       const read = await call<
@@ -118,10 +118,11 @@ export async function POST(
       });
       if (read.length) {
         const p = read[0];
+        const base = await getPublicBaseUrl(s.session);
         product = {
           id: p.id,
           is_published: !!p.is_published,
-          website_url: p.website_url ? `${ODOO_URL}${p.website_url}` : `${ODOO_URL}/shop`,
+          website_url: p.website_url ? `${base}${p.website_url}` : `${base}/shop`,
         };
       }
     }

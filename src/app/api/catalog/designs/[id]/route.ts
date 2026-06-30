@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 import { deriveRole } from "@/lib/odoo/types";
+import { getPublicBaseUrl } from "@/lib/odoo/public-url";
 
 export const runtime = "nodejs";
 
@@ -97,7 +98,6 @@ export async function GET(
     const imageUrl = attId ? `/api/catalog/designs/${id}/image?v=${attId}` : null;
 
     // Linked storefront product (visibility state + public URL for the panel).
-    const ODOO_URL = process.env.ODOO_URL ?? "http://localhost:8069";
     let product: { id: number; is_published: boolean; website_url: string } | null = null;
     try {
       const prods = await call<
@@ -114,10 +114,11 @@ export async function GET(
       });
       if (prods.length) {
         const p = prods[0];
+        const base = await getPublicBaseUrl(s.session);
         product = {
           id: p.id,
           is_published: !!p.is_published,
-          website_url: p.website_url ? `${ODOO_URL}${p.website_url}` : `${ODOO_URL}/shop`,
+          website_url: p.website_url ? `${base}${p.website_url}` : `${base}/shop`,
         };
       }
     } catch {
