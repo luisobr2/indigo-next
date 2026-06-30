@@ -24,6 +24,8 @@ interface DesignVariant {
   door_type: string;
   hasImage: boolean;
   favorite: boolean;
+  /** Whether the linked storefront product is published (visible on the web). */
+  published: boolean;
   /** Design dimension range (inches). 0 = no constraint. Used to
    *  prefill the New Order width/height when the design defines a size. */
   min_width: number;
@@ -129,6 +131,27 @@ export async function GET(_req: NextRequest) {
       attachmentDesignIds = new Set(attachments.map((a) => a.res_id));
     }
 
+    // Which designs have a PUBLISHED storefront product (visible on the web).
+    const publishedDesignIds = new Set<number>();
+    if (records.length) {
+      const prods = await call<
+        Array<{ indigo_design_id: [number, string] | false; is_published: boolean }>
+      >({
+        session: s.session,
+        model: "product.template",
+        method: "search_read",
+        args: [
+          [["indigo_design_id", "in", records.map((d) => d.id)]],
+          ["indigo_design_id", "is_published"],
+        ],
+        kwargs: { limit: 5000 },
+      }).catch(() => [] as Array<{ indigo_design_id: [number, string] | false; is_published: boolean }>);
+      for (const p of prods) {
+        const did = Array.isArray(p.indigo_design_id) ? p.indigo_design_id[0] : 0;
+        if (did && p.is_published) publishedDesignIds.add(did);
+      }
+    }
+
     const me = s.user.id;
 
     // Group by family code.
@@ -145,6 +168,7 @@ export async function GET(_req: NextRequest) {
         door_type: (d.door_type as string) || "",
         hasImage: attachmentDesignIds.has(d.id),
         favorite: (d.favorite_user_ids || []).includes(me),
+        published: publishedDesignIds.has(d.id),
         min_width: Number(d.min_width) || 0,
         max_width: Number(d.max_width) || 0,
         min_height: Number(d.min_height) || 0,

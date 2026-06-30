@@ -21,6 +21,8 @@ import {
   LayoutDashboard,
   Sparkles,
   Plus,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   generateCatalogSheetPdf,
@@ -39,6 +41,7 @@ interface FamilyVariant {
   door_type: string;
   hasImage: boolean;
   favorite: boolean;
+  published?: boolean;
   min_width?: number;
   max_width?: number;
   min_height?: number;
@@ -168,6 +171,65 @@ export default function CatalogPage() {
       qc.invalidateQueries({ queryKey: ["catalog-families"] });
       toast.error("Could not update favourite");
     }
+  }
+
+  // Publish / hide ALL variants of one family (web visibility), optimistic.
+  async function toggleFamilyPublish(family: FamilyOut) {
+    const willPublish = !family.variants.every((v) => v.published);
+    qc.setQueryData<CatalogResponse>(["catalog-families"], (prev) =>
+      prev
+        ? {
+            ...prev,
+            families: prev.families.map((f) =>
+              f.family === family.family
+                ? { ...f, variants: f.variants.map((v) => ({ ...v, published: willPublish })) }
+                : f,
+            ),
+          }
+        : prev,
+    );
+    try {
+      const r = await fetch(`/api/catalog/designs/publish-bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ design_ids: family.variants.map((v) => v.id), published: willPublish }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+      // Bulk only flips EXISTING products. If a design has no web product yet
+      // (count 0 while publishing), revert the optimistic flip + tell the user.
+      if (willPublish && j.count === 0) {
+        qc.invalidateQueries({ queryKey: ["catalog-families"] });
+        toast.warning(`${family.family}: no web product yet — open the design and press Publish.`);
+        return;
+      }
+      toast.success(willPublish ? `${family.family} published` : `${family.family} hidden`);
+    } catch {
+      qc.invalidateQueries({ queryKey: ["catalog-families"] });
+      toast.error("Could not change visibility");
+    }
+  }
+
+  // Bulk publish/hide everything in the current view (tab + filters + search).
+  async function bulkPublishView(publish: boolean) {
+    const ids = filtered.flatMap((f) => f.variants.map((v) => v.id));
+    if (!ids.length) return toast.warning("Nothing in view");
+    if (!confirm(`${publish ? "Publish" : "Hide"} ${ids.length} design(s) in the current view?`)) return;
+    const p = fetch(`/api/catalog/designs/publish-bulk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ design_ids: ids, published: publish }),
+    }).then(async (r) => {
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+      qc.invalidateQueries({ queryKey: ["catalog-families"] });
+      return j;
+    });
+    toast.promise(p, {
+      loading: publish ? "Publishing…" : "Hiding…",
+      success: (j) => `${publish ? "Published" : "Hid"} ${j.count} product(s) on the web`,
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
+    });
   }
 
   // Exports respect the active view (tab + filters + search) so the
@@ -351,6 +413,23 @@ export default function CatalogPage() {
           >
             <Plus size={16} /> New Design
           </Link>
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => bulkPublishView(true)}
+            title="Publish all designs in the current view to the website"
+            className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+          >
+            <Eye size={14} /> Publish view
+          </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => bulkPublishView(false)}
+            title="Hide all designs in the current view from the website"
+          >
+            <EyeOff size={14} /> Hide view
+          </Button>
           <Button variant="outline" size="lg" onClick={exportCatalog}>
             <Download size={14} /> Export CSV
           </Button>
@@ -544,6 +623,7 @@ export default function CatalogPage() {
                   family={f}
                   onSelect={() => setSelectedFamily(f)}
                   onToggleFavorite={() => toggleFavorite(f)}
+                  onTogglePublish={() => toggleFamilyPublish(f)}
                 />
               ))}
             </div>
@@ -556,6 +636,7 @@ export default function CatalogPage() {
                     family={f}
                     onSelect={() => setSelectedFamily(f)}
                     onToggleFavorite={() => toggleFavorite(f)}
+                    onTogglePublish={() => toggleFamilyPublish(f)}
                   />
                 ))}
               </ul>
@@ -720,14 +801,70 @@ export default function CatalogPage() {
   );
 }
 
+function familyPubState(f: FamilyOut): "all" | "none" | "some" {
+  const pub = f.variants.filter((v) => v.published).length;
+  if (pub === 0) return "none";
+  if (pub === f.variants.length) return "all";
+  return "some";
+}
+
+/** Web-visibility indicator + toggle (publishes/hides ALL variants of the family). */
+function PublishToggle({ family, onToggle }: { family: FamilyOut; onToggle: () => void }) {
+  const st = familyPubState(family);
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      aria-label="Toggle web visibility"
+      title={
+        st === "all"
+          ? "Visible on the web — click to hide"
+          : st === "some"
+            ? "Partially visible — click to publish all"
+            : "Hidden from the web — click to publish"
+      }
+      className={cn(
+        "rounded-full p-1.5 transition",
+        st === "all"
+          ? "text-emerald-600 hover:bg-emerald-50"
+          : st === "some"
+            ? "text-amber-600 hover:bg-amber-50"
+            : "text-slate-400 hover:bg-slate-100",
+      )}
+    >
+      {st === "none" ? <EyeOff size={14} /> : <Eye size={14} />}
+    </button>
+  );
+}
+
+function PublishPill({ family }: { family: FamilyOut }) {
+  const st = familyPubState(family);
+  if (st === "all") return null; // only flag the ones not fully visible
+  return (
+    <span
+      className={cn(
+        "rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide",
+        st === "some" ? "bg-amber-100 text-amber-700" : "bg-slate-200 text-slate-600",
+      )}
+    >
+      {st === "some" ? "Parcial" : "Oculto"}
+    </span>
+  );
+}
+
 function DesignCard({
   family,
   onSelect,
   onToggleFavorite,
+  onTogglePublish,
 }: {
   family: FamilyOut;
   onSelect: () => void;
   onToggleFavorite: () => void;
+  onTogglePublish: () => void;
 }) {
   const isCustom = family.family.toUpperCase() === "CUSTOM";
   return (
@@ -770,6 +907,8 @@ function DesignCard({
             ? "Attach your own"
             : `${family.variants.length} config${family.variants.length === 1 ? "" : "s"}`}
         </span>
+        <PublishPill family={family} />
+        <PublishToggle family={family} onToggle={onTogglePublish} />
         <button
           type="button"
           onClick={onToggleFavorite}
@@ -865,10 +1004,12 @@ function DesignRow({
   family,
   onSelect,
   onToggleFavorite,
+  onTogglePublish,
 }: {
   family: FamilyOut;
   onSelect: () => void;
   onToggleFavorite: () => void;
+  onTogglePublish: () => void;
 }) {
   return (
     <li className="flex items-center gap-3 px-4 py-3">
@@ -908,13 +1049,15 @@ function DesignRow({
         ))}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="font-mono text-sm font-bold text-slate-800">
+        <div className="flex items-center gap-2 font-mono text-sm font-bold text-slate-800">
           {family.family}
+          <PublishPill family={family} />
         </div>
         <div className="flex flex-wrap gap-1 text-[10px] text-slate-500">
           {family.variants.length} configs · {family.colors.length} colors
         </div>
       </div>
+      <PublishToggle family={family} onToggle={onTogglePublish} />
       <Link
         href={`/catalog/designs/${family.variants[0]?.id}`}
         className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-indigo-300"
