@@ -36,6 +36,8 @@ export interface ScheduleTarget {
   /** True when the order is already on the calendar (enables "Remove from
    *  calendar"). Set it from Reschedule / calendar-event triggers. */
   scheduled?: boolean;
+  /** Current installation date (YYYY-MM-DD) to pre-fill when rescheduling. */
+  date?: string;
 }
 
 function todayYmd() {
@@ -66,7 +68,10 @@ export function ScheduleInstallationModal({
   // Reset the form each time a new order is opened.
   useEffect(() => {
     if (target) {
-      setDate(todayYmd());
+      // When rescheduling, pre-fill the existing date so it isn't moved to
+      // today by accident; otherwise default to today for a fresh schedule.
+      const d = target.date && /^\d{4}-\d{2}-\d{2}/.test(target.date) ? target.date.slice(0, 10) : todayYmd();
+      setDate(d);
       setInstallerIds(target.installerIds ?? []);
     }
   }, [target]);

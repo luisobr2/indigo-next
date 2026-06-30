@@ -775,6 +775,7 @@ export default function InstallationsPage() {
                             clientName: o.client_name,
                             installerIds: o.installer_ids,
                             scheduled: true,
+                            date: o.scheduled_date,
                           })
                         }
                         className="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-rose-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-rose-700"
@@ -957,19 +958,20 @@ export default function InstallationsPage() {
                   <th className="px-4 py-3 text-right">Qty</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Scheduled Date</th>
+                  <th className="px-4 py-3 w-28"></th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading && (
                   <tr>
-                    <td colSpan={8} className="p-12 text-center text-xs text-slate-400">
+                    <td colSpan={9} className="p-12 text-center text-xs text-slate-400">
                       Loading…
                     </td>
                   </tr>
                 )}
                 {!isLoading && filteredInstallers.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="p-12 text-center text-xs text-slate-400">
+                    <td colSpan={9} className="p-12 text-center text-xs text-slate-400">
                       No installer assignments for this week.
                     </td>
                   </tr>
@@ -979,7 +981,7 @@ export default function InstallationsPage() {
                   return (
                     <FragmentRows key={inst.id}>
                       <tr className="bg-slate-50/60 border-t border-slate-100">
-                        <td colSpan={8} className="px-4 py-2.5">
+                        <td colSpan={9} className="px-4 py-2.5">
                           <button
                             type="button"
                             onClick={() =>
@@ -1064,6 +1066,26 @@ export default function InstallationsPage() {
                             </td>
                             <td className="px-4 py-2.5 text-xs text-slate-600">
                               {fmtDate(o.scheduled_date as string)}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              {o.status === "scheduled" && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setScheduleTarget({
+                                      id: o.id,
+                                      label: o.dealer_ref || o.name,
+                                      clientName: o.client_name,
+                                      installerIds: [inst.id],
+                                      scheduled: true,
+                                      date: (o.scheduled_date as string) || undefined,
+                                    })
+                                  }
+                                  className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50"
+                                >
+                                  <Calendar size={11} /> Reschedule
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ))}
