@@ -13,6 +13,8 @@ import {
   Play,
   Pause,
   CalendarX,
+  AlertTriangle,
+  StickyNote,
 } from "lucide-react";
 import { AddressLink, PhoneLink } from "@/components/address-link";
 import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
@@ -22,6 +24,7 @@ import { FilesDocumentsPanel } from "@/components/files-documents-panel";
 import { StockMatchBanner } from "@/components/stock-match-banner";
 import { SendToDropdown } from "@/components/send-to-dropdown";
 import { ProductionTimeline } from "@/components/production-timeline";
+import { NoteIncidentModal } from "@/components/note-incident-modal";
 import { EditOrderPanel } from "@/components/edit-order-panel";
 import { HoldModal } from "@/components/hold-modal";
 import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal";
@@ -58,6 +61,7 @@ export default function OrderDetailPage({
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState(false);
   const [holdOpen, setHoldOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
   const [unscheduling, setUnscheduling] = useState(false);
   const qc = useQueryClient();
   const { data, isLoading, isError, error, refetch } = useQuery<OrderDetail>({
@@ -155,6 +159,7 @@ export default function OrderDetailPage({
     payment_state: string;
     create_date: string;
     notes: string;
+    incidence?: boolean;
     priv_ref: string;
     customer_po: string;
     painter_id: [number, string] | false;
@@ -241,6 +246,11 @@ export default function OrderDetailPage({
                 On hold
               </span>
             )}
+            {o.incidence && (
+              <span className="flex items-center gap-1 rounded-full bg-rose-50 px-3 py-1 text-xs font-bold uppercase text-rose-700">
+                <AlertTriangle size={12} /> Incidencia
+              </span>
+            )}
           </div>
           <p className="ml-9 mt-1 text-sm text-slate-500">
             Created {fmtDate(o.create_date)} ·{" "}
@@ -304,6 +314,16 @@ export default function OrderDetailPage({
             >
               <Play size={14} />
               {wizardCfg.title}
+            </Button>
+          )}
+          {canAssign && (
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => setNoteOpen(true)}
+              className={o.incidence ? "border-rose-200 text-rose-700 hover:bg-rose-50" : ""}
+            >
+              <StickyNote size={14} /> Nota / Incidencia
             </Button>
           )}
           {canAssign && (
@@ -775,6 +795,20 @@ export default function OrderDetailPage({
         orderId={parseInt(id, 10)}
         orderName={o.name}
         releasing={o.on_hold}
+      />
+
+      <NoteIncidentModal
+        orderId={parseInt(id, 10)}
+        orderName={o.name}
+        currentIncidence={!!o.incidence}
+        open={noteOpen}
+        onClose={() => setNoteOpen(false)}
+        onSaved={() => {
+          qc.invalidateQueries({ queryKey: ["order", id] });
+          qc.invalidateQueries({ queryKey: ["order-activity", parseInt(id, 10)] });
+          qc.invalidateQueries({ queryKey: ["dashboard"] });
+          refetch();
+        }}
       />
     </div>
   );

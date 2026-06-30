@@ -59,6 +59,7 @@ const ORDER_FIELDS_V2_EXTRA = [
   "paint_done_at",
   "cancelled_at",
   "cancellation_reason",
+  "incidence",
 ];
 
 const LINE_FIELDS_BASE = [
