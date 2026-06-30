@@ -96,7 +96,35 @@ export async function GET(
     const attId = attachments[0]?.id ?? null;
     const imageUrl = attId ? `/api/catalog/designs/${id}/image?v=${attId}` : null;
 
-    return NextResponse.json({ design, usedIn, imageUrl, supportsVariations });
+    // Linked storefront product (visibility state + public URL for the panel).
+    const ODOO_URL = process.env.ODOO_URL ?? "http://localhost:8069";
+    let product: { id: number; is_published: boolean; website_url: string } | null = null;
+    try {
+      const prods = await call<
+        Array<{ id: number; is_published: boolean; website_url: string }>
+      >({
+        session: s.session,
+        model: "product.template",
+        method: "search_read",
+        args: [
+          [["indigo_design_id", "=", id]],
+          ["id", "is_published", "website_url"],
+        ],
+        kwargs: { limit: 1, order: "id" },
+      });
+      if (prods.length) {
+        const p = prods[0];
+        product = {
+          id: p.id,
+          is_published: !!p.is_published,
+          website_url: p.website_url ? `${ODOO_URL}${p.website_url}` : `${ODOO_URL}/shop`,
+        };
+      }
+    } catch {
+      product = null;
+    }
+
+    return NextResponse.json({ design, usedIn, imageUrl, supportsVariations, product });
   } catch (e) {
     if (e instanceof Response) return e;
     return NextResponse.json(

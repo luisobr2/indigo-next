@@ -13,6 +13,9 @@ import {
   Image as ImageIcon,
   Boxes,
   Hash,
+  Eye,
+  EyeOff,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -42,6 +45,7 @@ interface DesignPayload {
   usedIn: number;
   imageUrl: string | null;
   supportsVariations: boolean;
+  product: { id: number; is_published: boolean; website_url: string } | null;
 }
 
 interface Brand {
@@ -118,6 +122,9 @@ export default function DesignEditorPage({
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Linked storefront product (web visibility state + public URL).
+  const [product, setProduct] = useState<DesignPayload["product"]>(null);
+  const [pubBusy, setPubBusy] = useState(false);
 
   const brandsQ = useQuery<{ records: Brand[] }>({
     queryKey: ["catalog-brands"],
@@ -155,8 +162,31 @@ export default function DesignEditorPage({
     setMaxWidth(d.max_width ? String(d.max_width) : "");
     setMinHeight(d.min_height ? String(d.min_height) : "");
     setMaxHeight(d.max_height ? String(d.max_height) : "");
+    setProduct(data.product ?? null);
     setDirty(false);
   }, [data]);
+
+  // Publish / unpublish the linked storefront product (creates one if needed).
+  async function togglePublish() {
+    if (isNew || pubBusy) return;
+    const next = !(product?.is_published ?? false);
+    setPubBusy(true);
+    try {
+      const r = await fetch(`/api/catalog/designs/${id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ published: next }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+      setProduct(j.product ?? null);
+      toast.success(next ? "Published — visible on the website" : "Hidden from the website");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't change visibility");
+    } finally {
+      setPubBusy(false);
+    }
+  }
 
   // Auto-fill the display name from code + door type while the user hasn't
   // customized it — keeps the label truthful without manual typing.
@@ -459,7 +489,50 @@ export default function DesignEditorPage({
             </p>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {!isNew && (
+            <>
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={togglePublish}
+                disabled={pubBusy}
+                title={
+                  product?.is_published
+                    ? "Visible on the website — click to hide"
+                    : "Hidden from the website — click to publish"
+                }
+                className={
+                  product?.is_published
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                }
+              >
+                {product?.is_published ? <Eye size={14} /> : <EyeOff size={14} />}
+                {pubBusy
+                  ? "Saving…"
+                  : product?.is_published
+                    ? "Visible on web"
+                    : "Hidden — Publish"}
+              </Button>
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => product && window.open(product.website_url, "_blank")}
+                disabled={!product || !product.is_published}
+                title={
+                  !product
+                    ? "Publish first to get a public page"
+                    : product.is_published
+                      ? "Open the public product page"
+                      : "Publish first to view it publicly"
+                }
+              >
+                <ExternalLink size={14} />
+                View on web
+              </Button>
+            </>
+          )}
           {!isNew && (
             <Button
               variant="outline"
