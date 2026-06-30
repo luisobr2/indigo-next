@@ -9,6 +9,7 @@ import {
   Brush,
   DollarSign,
   Activity,
+  AlertTriangle,
   Building2,
   ChevronRight,
   Calendar,
@@ -81,6 +82,7 @@ interface DashboardData {
       week_installed: number;
     };
     generated_at: string;
+    openIncidences?: number;
   };
 }
 
@@ -515,6 +517,14 @@ export default function DashboardPage() {
               value={d.health.overdue_count.toString()}
               label="Orders overdue"
               href="/orders?overdue=1"
+            />
+            <HealthCard
+              icon={AlertTriangle}
+              iconBg="bg-rose-50"
+              iconColor="text-rose-600"
+              value={(d.openIncidences ?? 0).toString()}
+              label="Incidencias abiertas"
+              href="/orders?incidence=true"
             />
             <HealthCard
               icon={Building2}

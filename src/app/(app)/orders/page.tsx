@@ -331,7 +331,9 @@ function OrdersInner() {
       ? "overdue"
       : sp.get("on_hold") === "true"
         ? "on_hold"
-        : "",
+        : sp.get("incidence") === "true"
+          ? "incidence"
+          : "",
   );
 
   // Who am I? Gates the "New Order" button to roles allowed to create
@@ -419,6 +421,7 @@ function OrdersInner() {
     if (payment) params.set("payment", payment);
     if (flag === "overdue") params.set("overdue", "true");
     if (flag === "on_hold") params.set("on_hold", "true");
+    if (flag === "incidence") params.set("incidence", "true");
     const qs = params.toString();
     const next = qs ? `?${qs}` : "";
     window.history.replaceState(null, "", `/orders${next}`);
@@ -458,6 +461,7 @@ function OrdersInner() {
       if (payment) url.searchParams.set("payment", payment);
       if (flag === "overdue") url.searchParams.set("overdue", "true");
       if (flag === "on_hold") url.searchParams.set("on_hold", "true");
+      if (flag === "incidence") url.searchParams.set("incidence", "true");
       if (flag === "archived") url.searchParams.set("archived", "1");
       if (debouncedQ) url.searchParams.set("q", debouncedQ);
       url.searchParams.set("limit", String(pageSize));
@@ -481,6 +485,7 @@ function OrdersInner() {
     if (payment) url.searchParams.set("payment", payment);
     if (flag === "overdue") url.searchParams.set("overdue", "true");
     if (flag === "on_hold") url.searchParams.set("on_hold", "true");
+    if (flag === "incidence") url.searchParams.set("incidence", "true");
     if (flag === "archived") url.searchParams.set("archived", "1");
     if (debouncedQ) url.searchParams.set("q", debouncedQ);
     url.searchParams.set("limit", "2000");
@@ -797,6 +802,7 @@ function OrdersInner() {
             options={[
               { value: "overdue", label: "Overdue" },
               { value: "on_hold", label: "On hold" },
+              { value: "incidence", label: "Incidencia" },
               { value: "archived", label: "Archived" },
             ]}
             onChange={setFlag}
