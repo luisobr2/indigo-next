@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar, Truck, CheckCircle2 } from "lucide-react";
+import { Calendar, Truck, CheckCircle2, CalendarX } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -33,6 +33,9 @@ export interface ScheduleTarget {
   clientName: string;
   /** Installer ids already on the order, to pre-check. */
   installerIds?: number[];
+  /** True when the order is already on the calendar (enables "Remove from
+   *  calendar"). Set it from Reschedule / calendar-event triggers. */
+  scheduled?: boolean;
 }
 
 function todayYmd() {
@@ -109,6 +112,27 @@ export function ScheduleInstallationModal({
     });
   }
 
+  async function unschedule() {
+    if (!target) return;
+    if (!confirm("Remove this installation from the calendar? It goes back to Pending Scheduling.")) return;
+    setBusy(true);
+    const promise = fetch(`/api/orders/${target.id}/unschedule`, { method: "POST" })
+      .then(async (r) => {
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+        qc.invalidateQueries({ queryKey: ["installers-dashboard"] });
+        qc.invalidateQueries({ queryKey: ["calendar"] });
+        qc.invalidateQueries({ queryKey: ["dashboard"] });
+        onClose();
+      })
+      .finally(() => setBusy(false));
+    toast.promise(promise, {
+      loading: "Removing…",
+      success: "Removed from calendar",
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
+    });
+  }
+
   const installers = contractors?.installers ?? [];
 
   return (
@@ -173,19 +197,35 @@ export function ScheduleInstallationModal({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={submit}
-            disabled={busy}
-            className="bg-amber-600 text-white shadow shadow-amber-600/30 hover:bg-amber-700"
-          >
-            <CheckCircle2 size={14} />
-            {busy ? "Scheduling…" : "Schedule"}
-          </Button>
+        <DialogFooter className="sm:justify-between">
+          {target?.scheduled ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={unschedule}
+              disabled={busy}
+              className="border-rose-200 text-rose-700 hover:bg-rose-50"
+            >
+              <CalendarX size={14} />
+              Remove from calendar
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={submit}
+              disabled={busy}
+              className="bg-amber-600 text-white shadow shadow-amber-600/30 hover:bg-amber-700"
+            >
+              <CheckCircle2 size={14} />
+              {busy ? "Saving…" : target?.scheduled ? "Reschedule" : "Schedule"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

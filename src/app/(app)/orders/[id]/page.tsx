@@ -2,6 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { use, useState } from "react";
+import { toast } from "sonner";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -11,6 +12,7 @@ import {
   User as UserIcon,
   Play,
   Pause,
+  CalendarX,
 } from "lucide-react";
 import { AddressLink, PhoneLink } from "@/components/address-link";
 import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
@@ -56,6 +58,7 @@ export default function OrderDetailPage({
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState(false);
   const [holdOpen, setHoldOpen] = useState(false);
+  const [unscheduling, setUnscheduling] = useState(false);
   const qc = useQueryClient();
   const { data, isLoading, isError, error, refetch } = useQuery<OrderDetail>({
     queryKey: ["order", id],
@@ -81,6 +84,25 @@ export default function OrderDetailPage({
   });
   const role = me?.user ? deriveRole(me.user.groups) : null;
   const canAssign = !!(role?.isManager || role?.isOffice || me?.user?.isAdmin);
+
+  async function unschedule() {
+    if (unscheduling) return;
+    if (!confirm("Remove this installation from the calendar? It goes back to Pending Scheduling.")) return;
+    setUnscheduling(true);
+    try {
+      const r = await fetch(`/api/orders/${id}/unschedule`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+      qc.invalidateQueries({ queryKey: ["installers-dashboard"] });
+      qc.invalidateQueries({ queryKey: ["calendar"] });
+      toast.success("Removed from calendar");
+      refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setUnscheduling(false);
+    }
+  }
 
   if (isLoading) return <OrderDetailSkeleton />;
 
@@ -295,6 +317,18 @@ export default function OrderDetailPage({
                   <Pause size={14} /> Move to Hold
                 </>
               )}
+            </Button>
+          )}
+          {canAssign && o.stage_code === "install_scheduled" && (
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={unschedule}
+              disabled={unscheduling}
+              className="border-rose-200 text-rose-700 hover:bg-rose-50"
+            >
+              <CalendarX size={14} />
+              {unscheduling ? "Removing…" : "Remove from calendar"}
             </Button>
           )}
         </div>

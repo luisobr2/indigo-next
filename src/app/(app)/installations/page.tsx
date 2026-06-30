@@ -774,6 +774,7 @@ export default function InstallationsPage() {
                             label: o.dealer_ref || o.name,
                             clientName: o.client_name,
                             installerIds: o.installer_ids,
+                            scheduled: true,
                           })
                         }
                         className="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-rose-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-rose-700"
