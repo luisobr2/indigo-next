@@ -124,7 +124,7 @@ const ORDER_COLUMNS: OrderCol[] = [
           {r.name}
           {r.is_overdue && <AlertCircle size={12} className="text-rose-500" />}
           {r.incidence && (
-            <AlertTriangle size={12} className="text-rose-600" aria-label="Incidencia" />
+            <AlertTriangle size={12} className="text-rose-600" aria-label="Incident" />
           )}
         </Link>
         <div className="text-xs text-slate-400">{fmtDate(r.create_date)}</div>
@@ -186,7 +186,7 @@ const ORDER_COLUMNS: OrderCol[] = [
         )}
         {r.incidence && (
           <Badge variant="secondary" className="ml-1 bg-rose-100 text-[10px] font-bold uppercase text-rose-700">
-            Incidencia
+            Incident
           </Badge>
         )}
       </>
@@ -802,7 +802,7 @@ function OrdersInner() {
             options={[
               { value: "overdue", label: "Overdue" },
               { value: "on_hold", label: "On hold" },
-              { value: "incidence", label: "Incidencia" },
+              { value: "incidence", label: "Incident" },
               { value: "archived", label: "Archived" },
             ]}
             onChange={setFlag}

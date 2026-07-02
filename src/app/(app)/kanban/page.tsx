@@ -380,7 +380,7 @@ function KanbanCard({
               <Pause size={12} className="text-amber-500" />
             )}
             {card.incidence && (
-              <AlertTriangle size={12} className="text-rose-600" aria-label="Incidencia" />
+              <AlertTriangle size={12} className="text-rose-600" aria-label="Incident" />
             )}
           </div>
           <div className="mt-0.5 truncate text-xs text-slate-800">

@@ -248,7 +248,7 @@ export default function OrderDetailPage({
             )}
             {o.incidence && (
               <span className="flex items-center gap-1 rounded-full bg-rose-50 px-3 py-1 text-xs font-bold uppercase text-rose-700">
-                <AlertTriangle size={12} /> Incidencia
+                <AlertTriangle size={12} /> Incident
               </span>
             )}
           </div>
@@ -323,7 +323,7 @@ export default function OrderDetailPage({
               onClick={() => setNoteOpen(true)}
               className={o.incidence ? "border-rose-200 text-rose-700 hover:bg-rose-50" : ""}
             >
-              <StickyNote size={14} /> Nota / Incidencia
+              <StickyNote size={14} /> Note / Incident
             </Button>
           )}
           {canAssign && (

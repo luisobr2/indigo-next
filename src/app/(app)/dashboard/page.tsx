@@ -523,7 +523,7 @@ export default function DashboardPage() {
               iconBg="bg-rose-50"
               iconColor="text-rose-600"
               value={(d.openIncidences ?? 0).toString()}
-              label="Incidencias abiertas"
+              label="Open incidents"
               href="/orders?incidence=true"
             />
             <HealthCard

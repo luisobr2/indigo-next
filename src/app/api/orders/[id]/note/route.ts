@@ -45,7 +45,7 @@ export async function POST(
       });
       const existing = (cur[0]?.notes || "") as string;
       const dateStr = new Date().toLocaleDateString("en-US");
-      const tag = isIncidence ? " ⚠️ INCIDENCIA" : "";
+      const tag = isIncidence ? " ⚠️ INCIDENT" : "";
       const line = `${dateStr}${tag}: ${noteText}`;
       await call({
         session: s.session,
@@ -62,7 +62,7 @@ export async function POST(
         method: "message_post",
         args: [[orderId]],
         kwargs: {
-          body: `${isIncidence ? "⚠️ Incidencia: " : "Nota: "}${noteText}`,
+          body: `${isIncidence ? "⚠️ Incident: " : "Note: "}${noteText}`,
           message_type: "comment",
         },
       }).catch(() => undefined);

@@ -130,8 +130,8 @@ export default function UsersAdminPage() {
       )}
 
       {!isLoading && !isError && (
-        <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="border-b border-slate-200 text-left text-xs font-semibold uppercase text-slate-500">
               <tr>
                 {[

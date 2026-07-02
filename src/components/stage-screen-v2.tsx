@@ -1275,7 +1275,7 @@ function Row({
           <AlertTriangle
             size={12}
             className="ml-1 inline text-rose-600"
-            aria-label="Incidencia"
+            aria-label="Incident"
           />
         )}
       </td>
