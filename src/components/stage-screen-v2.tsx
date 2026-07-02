@@ -312,7 +312,7 @@ export function StageScreenV2({
     placeholderData: (prev) => prev,
   });
 
-  const records = data?.records ?? [];
+  const records = useMemo(() => data?.records ?? [], [data]);
   const total = data?.total ?? 0;
 
   // Cached stage list for the SendTo picker. We share this between all

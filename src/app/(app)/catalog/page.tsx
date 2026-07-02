@@ -95,7 +95,7 @@ export default function CatalogPage() {
     staleTime: 60_000,
   });
 
-  const families = data?.families ?? [];
+  const families = useMemo(() => data?.families ?? [], [data]);
   const summary = data?.summary;
 
   const filtered = useMemo(() => {

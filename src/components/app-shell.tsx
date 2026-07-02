@@ -183,7 +183,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
    * Inner nav body — re-used by desktop aside + mobile drawer.
    * `isCollapsed` only applies to desktop; the mobile drawer is always full.
    */
-  function NavBody({ isCollapsed }: { isCollapsed: boolean }) {
+  // Render helper (NOT a component) so it isn't re-created on every render —
+  // it inlines into AppShell's tree and keeps the closure (pathname/items/…).
+  function renderNavBody(isCollapsed: boolean) {
     return (
       <>
         {/* ---------- Logo ---------- */}
@@ -314,7 +316,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           collapsed ? "w-16" : "w-60",
         )}
       >
-        <NavBody isCollapsed={collapsed} />
+        {renderNavBody(collapsed)}
       </aside>
 
       {/* Mobile drawer — overlays the page when the hamburger is tapped. */}
@@ -331,7 +333,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="absolute inset-0 bg-slate-900/40"
           />
           <aside className="relative flex w-64 max-w-[80%] flex-col bg-white shadow-2xl">
-            <NavBody isCollapsed={false} />
+            {renderNavBody(false)}
           </aside>
         </div>
       )}

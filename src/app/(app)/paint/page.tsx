@@ -225,7 +225,7 @@ export default function PaintPage() {
     staleTime: 10 * 60_000,
   });
 
-  const rows = data?.records ?? [];
+  const rows = useMemo(() => data?.records ?? [], [data]);
   const sortedRows = useMemo(() => {
     if (!sort) return rows;
     const col = PAINT_COLUMNS.find((c) => c.key === sort.key);
