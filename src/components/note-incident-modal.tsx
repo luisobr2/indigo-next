@@ -14,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 
 /**
  * Add a note to an order WITHOUT changing its stage. Optionally flag/clear an

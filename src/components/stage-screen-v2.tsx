@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,11 +9,9 @@ import {
   Printer,
   Play,
   Pause,
-  PauseCircle,
   CheckCircle2,
   AlertCircle,
   AlertTriangle,
-  Clock,
   X,
   Eye,
   ChevronDown,
@@ -767,9 +765,9 @@ export function StageScreenV2({
                 >
                   <ChevronLeft size={14} />
                 </NavBtn>
-                {pageButtons(page, totalPages).map((p) =>
+                {pageButtons(page, totalPages).map((p, i) =>
                   p === "…" ? (
-                    <span key={`gap-${Math.random()}`} className="px-2">
+                    <span key={`gap-${i}`} className="px-2">
                       …
                     </span>
                   ) : (
@@ -1394,9 +1392,6 @@ function SidePanel({
   const firstLine = (data?.lines ?? [])[0] ?? null;
   const designId = (firstLine?.design_id as [number, string] | false) || false;
   const designLabel = designId ? designId[1] : "—";
-  const orderRow = (data?.order ?? {}) as {
-    line_ids?: number[];
-  };
 
   return (
     <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
@@ -1517,8 +1512,8 @@ function SidePanel({
               label="Margins"
               value={
                 <span>
-                  L: {fmtNum(Number(firstLine?.sidelite_margin_left) || 0)}" · R:{" "}
-                  {fmtNum(Number(firstLine?.sidelite_margin_right) || 0)}"
+                  L: {fmtNum(Number(firstLine?.sidelite_margin_left) || 0)}″ · R:{" "}
+                  {fmtNum(Number(firstLine?.sidelite_margin_right) || 0)}″
                 </span>
               }
             />

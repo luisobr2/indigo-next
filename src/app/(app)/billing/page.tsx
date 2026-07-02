@@ -33,7 +33,7 @@ import {
   StageWizardModal,
   STAGE_WIZARDS,
 } from "@/components/stage-wizard-modal";
-import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
+import { openOdooReport } from "@/lib/odoo-pdf";
 import { printTable } from "@/lib/print-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";

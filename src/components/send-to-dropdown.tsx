@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Send, X, Check, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { STAGE_BADGE as STAGE_BADGE_COLOR } from "@/lib/labels";

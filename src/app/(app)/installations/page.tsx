@@ -55,7 +55,6 @@ import {
   Cell,
   PieChart as RPieChart,
   Pie,
-  Legend,
 } from "recharts";
 
 interface DashboardData {
@@ -930,7 +929,7 @@ export default function InstallationsPage() {
           <div className="flex flex-wrap items-center gap-1 border-b border-slate-100 px-3 pt-2 text-xs">
             <TabChip
               label="All Installers"
-              count={data?.installers.reduce((s, i) => s + 1, 0) ?? 0}
+              count={data?.installers.length ?? 0}
               active={activeTab === "all"}
               onClick={() => setActiveTab("all")}
             />
