@@ -336,6 +336,12 @@ function OrdersInner() {
           : "",
   );
 
+  // Clear the row selection whenever the visible set changes (filters/page),
+  // so a bulk action can never run against stale, off-view order ids.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [stage, dealer, payment, flag, page]);
+
   // Who am I? Gates the "New Order" button to roles allowed to create
   // orders (manager / office / admin) — the POST endpoint enforces the same.
   const meQ = useQuery<MeResponse>({

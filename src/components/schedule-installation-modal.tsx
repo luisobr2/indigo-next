@@ -106,6 +106,8 @@ export function ScheduleInstallationModal({
         if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
         qc.invalidateQueries({ queryKey: ["installers-dashboard"] });
         qc.invalidateQueries({ queryKey: ["dashboard"] });
+        qc.invalidateQueries({ queryKey: ["orders"] });
+        qc.invalidateQueries({ queryKey: ["calendar"] });
         onClose();
       })
       .finally(() => setBusy(false));
@@ -128,6 +130,7 @@ export function ScheduleInstallationModal({
         qc.invalidateQueries({ queryKey: ["installers-dashboard"] });
         qc.invalidateQueries({ queryKey: ["calendar"] });
         qc.invalidateQueries({ queryKey: ["dashboard"] });
+        qc.invalidateQueries({ queryKey: ["orders"] });
         onClose();
       })
       .finally(() => setBusy(false));

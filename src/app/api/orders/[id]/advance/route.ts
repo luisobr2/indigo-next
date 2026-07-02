@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
+import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
+
+/** Wizards that move money or drive contractor payouts — office/manager only. */
+const SENSITIVE_WIZARDS = new Set([
+  "indigo.invoiced.paid.wizard",
+  "indigo.installed.wizard",
+]);
 
 /**
  * Only the known Indigo stage wizards may be driven from the panel.
@@ -61,6 +68,14 @@ export async function POST(
         { status: 400 },
       );
     }
+    // Money / payout wizards are office/manager only (Odoo ACLs alone don't
+    // stop an internal contractor from invoicing or driving payouts here).
+    if (SENSITIVE_WIZARDS.has(wizardModel)) {
+      const role = deriveRole(s.user.groups);
+      if (!role.isManager && !role.isOffice && !s.user.isAdmin) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    }
     // Guard the collected amount when present (invoice/paid wizard).
     if ("amount_collected" in payload) {
       const amt = Number(payload.amount_collected);
@@ -77,18 +92,20 @@ export async function POST(
     // related fields (total_sqf etc.) reflect the new values.
     const lineSqfs = payload.line_sqfs as Record<string, number> | undefined;
     if (lineSqfs) {
-      for (const [lineIdStr, sqf] of Object.entries(lineSqfs)) {
-        const lineId = Number(lineIdStr);
-        const n = Number(sqf);
-        if (!Number.isFinite(lineId) || !Number.isFinite(n)) continue;
-        await call({
-          session: s.session,
-          model: "indigo.order.line",
-          method: "write",
-          args: [[lineId], { sqf: n }],
-          kwargs: {},
-        });
-      }
+      await Promise.all(
+        Object.entries(lineSqfs).map(([lineIdStr, sqf]) => {
+          const lineId = Number(lineIdStr);
+          const n = Number(sqf);
+          if (!Number.isFinite(lineId) || !Number.isFinite(n)) return null;
+          return call({
+            session: s.session,
+            model: "indigo.order.line",
+            method: "write",
+            args: [[lineId], { sqf: n }],
+            kwargs: {},
+          });
+        }),
+      );
       delete payload.line_sqfs;
     }
 
@@ -99,19 +116,21 @@ export async function POST(
       | Record<string, { width: number; height: number }>
       | undefined;
     if (lineDims) {
-      for (const [lineIdStr, dim] of Object.entries(lineDims)) {
-        const lineId = Number(lineIdStr);
-        const w = Number(dim?.width);
-        const h = Number(dim?.height);
-        if (!Number.isFinite(lineId) || !Number.isFinite(w) || !Number.isFinite(h)) continue;
-        await call({
-          session: s.session,
-          model: "indigo.order.line",
-          method: "write",
-          args: [[lineId], { width: w, height: h }],
-          kwargs: {},
-        });
-      }
+      await Promise.all(
+        Object.entries(lineDims).map(([lineIdStr, dim]) => {
+          const lineId = Number(lineIdStr);
+          const w = Number(dim?.width);
+          const h = Number(dim?.height);
+          if (!Number.isFinite(lineId) || !Number.isFinite(w) || !Number.isFinite(h)) return null;
+          return call({
+            session: s.session,
+            model: "indigo.order.line",
+            method: "write",
+            args: [[lineId], { width: w, height: h }],
+            kwargs: {},
+          });
+        }),
+      );
       delete payload.line_dims;
     }
 

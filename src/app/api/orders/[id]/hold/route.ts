@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
+import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
+
+const escapeHtml = (str: string) =>
+  str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
 /**
  * POST /api/orders/[id]/hold
@@ -17,6 +26,10 @@ export async function POST(
 ) {
   try {
     const s = await requireSession();
+    const role = deriveRole(s.user.groups);
+    if (!role.isManager && !role.isOffice && !s.user.isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const { id: idStr } = await params;
     const id = parseInt(idStr, 10);
     const body = await req.json();
@@ -40,7 +53,7 @@ export async function POST(
     const note = release
       ? "Order released from hold."
       : reason
-        ? `Moved to hold — <b>${reason}</b>`
+        ? `Moved to hold — <b>${escapeHtml(reason)}</b>`
         : "Moved to hold.";
 
     await call({

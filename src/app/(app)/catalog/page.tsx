@@ -196,11 +196,13 @@ export default function CatalogPage() {
       });
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
-      // Bulk only flips EXISTING products. If a design has no web product yet
-      // (count 0 while publishing), revert the optimistic flip + tell the user.
-      if (willPublish && j.count === 0) {
-        qc.invalidateQueries({ queryKey: ["catalog-families"] });
-        toast.warning(`${family.family}: no web product yet — open the design and press Publish.`);
+      // Bulk only flips products that EXIST. Always reconcile with the server so
+      // variants without a web product don't stay falsely marked "published".
+      qc.invalidateQueries({ queryKey: ["catalog-families"] });
+      if (willPublish && j.count < family.variants.length) {
+        toast.warning(
+          `${family.family}: ${j.count}/${family.variants.length} published — the rest have no web product yet (open the design and press Publish).`,
+        );
         return;
       }
       toast.success(willPublish ? `${family.family} published` : `${family.family} hidden`);
@@ -238,18 +240,18 @@ export default function CatalogPage() {
   function exportCatalog() {
     const scope = filtered;
     if (!scope.length) return toast.warning("Nothing to export — try clearing filters");
+    const q = (val: unknown) => `"${String(val ?? "").replace(/"/g, '""')}"`;
     const lines = [
-      "family,code,name,door_type,colors,variants_in_family,has_image,favorite",
+      "family,code,door_type,colors,variants_in_family,has_image,favorite",
     ];
     for (const f of scope) {
       for (const v of f.variants) {
         lines.push(
           [
-            f.family,
-            v.code,
-            `"${(f.family).replace(/"/g, '""')}"`,
-            v.door_type,
-            f.colors.join("|"),
+            q(f.family),
+            q(v.code),
+            q(v.door_type),
+            q(f.colors.join("|")),
             f.variants.length,
             v.hasImage ? "1" : "0",
             v.favorite ? "1" : "0",

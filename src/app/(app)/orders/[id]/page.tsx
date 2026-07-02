@@ -99,6 +99,7 @@ export default function OrderDetailPage({
       if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
       qc.invalidateQueries({ queryKey: ["installers-dashboard"] });
       qc.invalidateQueries({ queryKey: ["calendar"] });
+      qc.invalidateQueries({ queryKey: ["orders"] });
       toast.success("Removed from calendar");
       refetch();
     } catch (e) {

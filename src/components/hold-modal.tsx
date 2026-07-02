@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -37,6 +37,12 @@ export function HoldModal({
 }: HoldModalProps) {
   const [reason, setReason] = useState(defaultReason ?? "");
   const [busy, setBusy] = useState(false);
+
+  // The modal stays mounted between opens — reset the reason each time it opens
+  // so a stale reason from a previous order isn't submitted by accident.
+  useEffect(() => {
+    if (open) setReason(defaultReason ?? "");
+  }, [open, defaultReason]);
 
   async function submit() {
     setBusy(true);

@@ -62,14 +62,35 @@ export async function GET(
 
 export async function DELETE(
   req: NextRequest,
-  _ctx: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const s = await requireSession();
+    const { id: idStr } = await params;
+    const orderId = parseInt(idStr, 10);
     const sp = req.nextUrl.searchParams;
     const attId = Number(sp.get("att"));
-    if (!Number.isFinite(attId)) {
+    if (!Number.isFinite(attId) || !Number.isFinite(orderId)) {
       return NextResponse.json({ error: "att=N required" }, { status: 400 });
+    }
+    // Ownership guard: only delete an attachment that actually belongs to THIS
+    // order (prevents deleting arbitrary ir.attachment rows by guessing ids).
+    const owned = await call<Array<{ id: number }>>({
+      session: s.session,
+      model: "ir.attachment",
+      method: "search_read",
+      args: [
+        [
+          ["id", "=", attId],
+          ["res_model", "=", "indigo.order"],
+          ["res_id", "=", orderId],
+        ],
+        ["id"],
+      ],
+      kwargs: { limit: 1 },
+    });
+    if (!owned.length) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     await call({
       session: s.session,

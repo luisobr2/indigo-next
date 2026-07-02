@@ -200,16 +200,15 @@ export async function POST() {
         kwargs: { limit: 5000 },
       });
       if (orphans.length) {
-        // Many2many command (6, 0, ids) replaces the set.
-        for (const o of orphans) {
-          await call({
-            session: s.session,
-            model: "indigo.order",
-            method: "write",
-            args: [[o.id], { installer_ids: [[6, 0, [defaultInstaller.id]]] }],
-            kwargs: {},
-          });
-        }
+        // Single batched write over all orphan ids (Many2many (6,0,ids) replaces
+        // the set) — mirrors the painter branch above; avoids one call per order.
+        await call({
+          session: s.session,
+          model: "indigo.order",
+          method: "write",
+          args: [orphans.map((o) => o.id), { installer_ids: [[6, 0, [defaultInstaller.id]]] }],
+          kwargs: {},
+        });
         installerUpdates = orphans.length;
       }
     }

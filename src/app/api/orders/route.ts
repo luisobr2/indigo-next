@@ -153,35 +153,39 @@ export async function GET(req: NextRequest) {
     let records: Array<Record<string, unknown>>;
     let total: number;
     try {
-      records = await call<Array<Record<string, unknown>>>({
-        session: s.session,
-        model: "indigo.order",
-        method: "search_read",
-        args: [fullDomain, [...ORDER_FIELDS_BASE, ...ORDER_FIELDS_V2_EXTRA]],
-        kwargs: { limit, offset, order, context: ctx },
-      });
-      total = await call<number>({
-        session: s.session,
-        model: "indigo.order",
-        method: "search_count",
-        args: [fullDomain],
-        kwargs: { context: ctx },
-      });
+      [records, total] = await Promise.all([
+        call<Array<Record<string, unknown>>>({
+          session: s.session,
+          model: "indigo.order",
+          method: "search_read",
+          args: [fullDomain, [...ORDER_FIELDS_BASE, ...ORDER_FIELDS_V2_EXTRA]],
+          kwargs: { limit, offset, order, context: ctx },
+        }),
+        call<number>({
+          session: s.session,
+          model: "indigo.order",
+          method: "search_count",
+          args: [fullDomain],
+          kwargs: { context: ctx },
+        }),
+      ]);
     } catch {
-      records = await call<Array<Record<string, unknown>>>({
-        session: s.session,
-        model: "indigo.order",
-        method: "search_read",
-        args: [domain, ORDER_FIELDS_BASE],
-        kwargs: { limit, offset, order, context: ctx },
-      });
-      total = await call<number>({
-        session: s.session,
-        model: "indigo.order",
-        method: "search_count",
-        args: [domain],
-        kwargs: { context: ctx },
-      });
+      [records, total] = await Promise.all([
+        call<Array<Record<string, unknown>>>({
+          session: s.session,
+          model: "indigo.order",
+          method: "search_read",
+          args: [domain, ORDER_FIELDS_BASE],
+          kwargs: { limit, offset, order, context: ctx },
+        }),
+        call<number>({
+          session: s.session,
+          model: "indigo.order",
+          method: "search_count",
+          args: [domain],
+          kwargs: { context: ctx },
+        }),
+      ]);
     }
 
     // ?include=lines hydrates each order with its first order-line summary.
@@ -218,7 +222,7 @@ export async function GET(req: NextRequest) {
               "parts_count",
             ],
           ],
-          kwargs: { order: "order_id, id" },
+          kwargs: { order: "order_id, sequence, id", limit: orderIds.length * 20 },
         });
         const byOrder = new Map<number, (typeof lines)[number]>();
         for (const l of lines) {
@@ -246,7 +250,7 @@ export async function GET(req: NextRequest) {
             [["order_id", "in", orderIds]],
             ["id", "order_id", "design_id", "door_type", "color"],
           ],
-          kwargs: { order: "order_id, id" },
+          kwargs: { order: "order_id, sequence, id", limit: orderIds.length * 20 },
         });
         const byOrder = new Map<number, (typeof lines)[number]>();
         for (const l of lines) {
