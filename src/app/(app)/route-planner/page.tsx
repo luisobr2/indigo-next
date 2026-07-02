@@ -109,11 +109,16 @@ export default function RoutePlannerPage() {
       ),
   });
 
-  const installersQ = useQuery<{ records: Array<{ id: number; name: string }> }>({
-    queryKey: ["installers"],
-    queryFn: () => fetchJson<{ records: Array<{ id: number; name: string }> }>("/api/installers"),
+  // Installer options come from /api/contractors (which returns the users in
+  // the Installer/Contractor Odoo groups). /api/installers has no GET handler,
+  // so hitting it returned an empty list and the picker showed no installers.
+  const installersQ = useQuery<{ installers: Array<{ id: number; name: string }> }>({
+    queryKey: ["contractors"],
+    queryFn: () =>
+      fetchJson<{ installers: Array<{ id: number; name: string }> }>("/api/contractors"),
     staleTime: 5 * 60_000,
   });
+  const installerList = installersQ.data?.installers ?? [];
 
   // Only the orders scheduled for the chosen day (and installer, if set).
   const records = useMemo(() => {
@@ -267,7 +272,7 @@ export default function RoutePlannerPage() {
             className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm focus:border-indigo-400 focus:outline-none"
           >
             <option value="">All installers</option>
-            {installersQ.data?.records?.map((i) => (
+            {installerList.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.name}
               </option>
@@ -322,7 +327,7 @@ export default function RoutePlannerPage() {
                     order={o}
                     index={i}
                     total={stops.length}
-                    installers={installersQ.data?.records ?? []}
+                    installers={installerList}
                     saving={savingId === o.id}
                     onAssign={(iid) => assignInstaller(o, iid)}
                     onUp={() => nudge(i, -1)}
