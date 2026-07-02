@@ -13,6 +13,7 @@ import {
   Play,
   Pause,
   CalendarX,
+  Calendar,
   AlertTriangle,
   StickyNote,
 } from "lucide-react";
@@ -25,6 +26,10 @@ import { StockMatchBanner } from "@/components/stock-match-banner";
 import { SendToDropdown } from "@/components/send-to-dropdown";
 import { ProductionTimeline } from "@/components/production-timeline";
 import { NoteIncidentModal } from "@/components/note-incident-modal";
+import {
+  ScheduleInstallationModal,
+  type ScheduleTarget,
+} from "@/components/schedule-installation-modal";
 import { EditOrderPanel } from "@/components/edit-order-panel";
 import { HoldModal } from "@/components/hold-modal";
 import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal";
@@ -62,6 +67,7 @@ export default function OrderDetailPage({
   const [editingOrder, setEditingOrder] = useState(false);
   const [holdOpen, setHoldOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [schedTarget, setSchedTarget] = useState<ScheduleTarget | null>(null);
   const [unscheduling, setUnscheduling] = useState(false);
   const qc = useQueryClient();
   const { data, isLoading, isError, error, refetch } = useQuery<OrderDetail>({
@@ -165,6 +171,7 @@ export default function OrderDetailPage({
     customer_po: string;
     painter_id: [number, string] | false;
     installer_ids: number[] | Array<[number, string]>;
+    installation_date?: string | false;
   };
 
   const lines = data.lines as Array<{
@@ -338,6 +345,27 @@ export default function OrderDetailPage({
                   <Pause size={14} /> Move to Hold
                 </>
               )}
+            </Button>
+          )}
+          {canAssign && ["ready_install", "install_scheduled"].includes(o.stage_code) && (
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() =>
+                setSchedTarget({
+                  id: o.id,
+                  label: o.name,
+                  clientName: o.client_name,
+                  installerIds: (o.installer_ids as unknown[]).map((x) =>
+                    Array.isArray(x) ? (x[0] as number) : (x as number),
+                  ),
+                  scheduled: o.stage_code === "install_scheduled",
+                  date: (o.installation_date as string) || undefined,
+                })
+              }
+            >
+              <Calendar size={14} />
+              {o.stage_code === "install_scheduled" ? "Reschedule / installer" : "Schedule"}
             </Button>
           )}
           {canAssign && o.stage_code === "install_scheduled" && (
@@ -796,6 +824,14 @@ export default function OrderDetailPage({
         orderId={parseInt(id, 10)}
         orderName={o.name}
         releasing={o.on_hold}
+      />
+
+      <ScheduleInstallationModal
+        target={schedTarget}
+        onClose={() => {
+          setSchedTarget(null);
+          refetch();
+        }}
       />
 
       <NoteIncidentModal

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   MapPin,
   Truck,
@@ -11,6 +11,7 @@ import {
   GripVertical,
   ChevronUp,
   ChevronDown,
+  User,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -57,6 +58,38 @@ export default function RoutePlannerPage() {
   // can pick another date and (optionally) narrow to a single installer.
   const [day, setDay] = useState<string>(todayStr());
   const [installerId, setInstallerId] = useState<number | "">("");
+  const qc = useQueryClient();
+  const [savingId, setSavingId] = useState<number | null>(null);
+
+  // Assign / change / clear the installer for one stop WITHOUT leaving the
+  // planner. Reuses the schedule endpoint (keeps the existing date, replaces
+  // installer_ids) so a day's route can mix installers per stop.
+  async function assignInstaller(order: RouteOrder, newId: number | "") {
+    const keepDate = order.installation_date
+      ? String(order.installation_date).slice(0, 10)
+      : day;
+    setSavingId(order.id);
+    try {
+      await fetchJson(`/api/orders/${order.id}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          installation_date: keepDate,
+          installer_ids: newId === "" ? [] : [newId],
+        }),
+      });
+      toast.success(newId === "" ? "Installer removed" : "Installer assigned");
+      qc.invalidateQueries({ queryKey: ["route-planner"] });
+      qc.invalidateQueries({ queryKey: ["installers-dashboard"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["calendar"] });
+      qc.invalidateQueries({ queryKey: ["orders"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't update installer");
+    } finally {
+      setSavingId(null);
+    }
+  }
 
   const { data, isLoading, isError } = useQuery<{ records: RouteOrder[] }>({
     queryKey: ["route-planner"],
@@ -279,6 +312,9 @@ export default function RoutePlannerPage() {
                     order={o}
                     index={i}
                     total={stops.length}
+                    installers={installersQ.data?.records ?? []}
+                    saving={savingId === o.id}
+                    onAssign={(iid) => assignInstaller(o, iid)}
                     onUp={() => nudge(i, -1)}
                     onDown={() => nudge(i, 1)}
                   />
@@ -296,12 +332,18 @@ function SortableStop({
   order: o,
   index,
   total,
+  installers,
+  saving,
+  onAssign,
   onUp,
   onDown,
 }: {
   order: RouteOrder;
   index: number;
   total: number;
+  installers: Array<{ id: number; name: string }>;
+  saving: boolean;
+  onAssign: (installerId: number | "") => void;
   onUp: () => void;
   onDown: () => void;
 }) {
@@ -359,6 +401,33 @@ function SortableStop({
           {index < total - 1 && (
             <ArrowRight size={10} className="text-slate-300" />
           )}
+        </div>
+
+        {/* Per-stop installer assignment — a day's route can mix installers. */}
+        <div className="mt-2 flex items-center gap-2">
+          <User size={12} className="shrink-0 text-slate-400" />
+          <select
+            value={o.installer_ids?.[0] ?? ""}
+            disabled={saving}
+            onChange={(e) =>
+              onAssign(e.target.value ? Number(e.target.value) : "")
+            }
+            onPointerDown={(e) => e.stopPropagation()}
+            className={cn(
+              "h-8 w-full max-w-[220px] rounded-lg border px-2 text-xs focus:outline-none",
+              o.installer_ids?.length
+                ? "border-slate-200 bg-white text-slate-700"
+                : "border-amber-300 bg-amber-50 text-amber-800",
+              saving && "opacity-50",
+            )}
+          >
+            <option value="">— No installer —</option>
+            {installers.map((inst) => (
+              <option key={inst.id} value={inst.id}>
+                {inst.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
