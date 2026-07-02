@@ -79,6 +79,16 @@ export default function RoutePlannerPage() {
         }),
       });
       toast.success(newId === "" ? "Installer removed" : "Installer assigned");
+      // Optimistically patch the local stop so the <select> reflects the new
+      // installer immediately. A plain refetch wouldn't: `stops` only resyncs
+      // when the id-set signature changes, and reassigning keeps the same ids.
+      setStops((items) =>
+        items.map((it) =>
+          it.id === order.id
+            ? { ...it, installer_ids: newId === "" ? [] : [newId] }
+            : it,
+        ),
+      );
       qc.invalidateQueries({ queryKey: ["route-planner"] });
       qc.invalidateQueries({ queryKey: ["installers-dashboard"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
