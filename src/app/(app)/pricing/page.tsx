@@ -311,7 +311,7 @@ export default function PricingPage() {
                         onKeyDown={(e) => {
                           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                         }}
-                        className="h-9 w-24 bg-transparent text-right text-sm font-semibold text-indigo-800 focus:outline-none"
+                        className="h-9 w-24 bg-transparent text-right text-sm font-semibold text-indigo-800 placeholder:font-normal placeholder:text-slate-300 focus:outline-none"
                       />
                     </div>
                   </div>
