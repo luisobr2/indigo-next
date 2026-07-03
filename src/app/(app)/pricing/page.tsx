@@ -20,7 +20,7 @@ interface DesignRow {
   code: string;
   name: string | false;
   door_type: string | false;
-  dealer_tier: string;
+  dealer_price_override: number;
 }
 interface PricingData {
   matrix: MatrixRow[];
@@ -32,84 +32,71 @@ const DOOR_LABEL: Record<string, string> = {
   DD: "Double Door",
   sidelite: "Door with Sidelites",
 };
-const TIER_LABEL: Record<string, string> = {
-  basic: "Basic",
-  full_partial: "Full / Partial",
-};
-const TIER_ORDER = ["basic", "full_partial"];
 
 export default function PricingPage() {
   const qc = useQueryClient();
   const { data, isLoading, isError } = useQuery<PricingData>({
     queryKey: ["pricing"],
     queryFn: () => fetchJson<PricingData>("/api/pricing"),
-    // Editing screen — don't refetch under the user mid-edit.
     refetchOnWindowFocus: false,
     staleTime: 30_000,
   });
 
-  // ---- Matrix editor (draft prices keyed by row id) ----
+  // ---- Base price editor (the "basic" row per door type) ----
+  const baseRows = useMemo(
+    () => (data?.matrix ?? []).filter((r) => r.tier === "basic"),
+    [data?.matrix],
+  );
   const [draft, setDraft] = useState<Record<number, string>>({});
-  const [savingMatrix, setSavingMatrix] = useState(false);
-  // Seed the draft only when the SET of rows changes (first load), not on
-  // every refetch — otherwise a background refetch (e.g. window refocus)
-  // would wipe the user's unsaved edits. After a save the values already
-  // match the server, so not re-seeding is correct.
-  const matrixSig = (data?.matrix ?? []).map((r) => r.id).join(",");
+  const [savingBase, setSavingBase] = useState(false);
+  const baseSig = baseRows.map((r) => r.id).join(",");
   useEffect(() => {
-    const rows = data?.matrix ?? [];
     const d: Record<number, string> = {};
-    for (const r of rows) d[r.id] = String(r.price ?? 0);
+    for (const r of baseRows) d[r.id] = String(r.price ?? 0);
     setDraft(d);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matrixSig]);
+  }, [baseSig]);
 
-  const matrix = data?.matrix ?? [];
-  const doorTypes = useMemo(
-    () => [...new Set(matrix.map((r) => r.door_type))],
-    [matrix],
+  const dirty = baseRows.some(
+    (r) => String(r.price) !== (draft[r.id] ?? String(r.price)),
   );
-  const cell = (dt: string, tier: string) =>
-    matrix.find((r) => r.door_type === dt && r.tier === tier);
 
-  const dirty = matrix.some((r) => String(r.price) !== (draft[r.id] ?? String(r.price)));
+  // Live base price for a door type (from the draft), for design placeholders.
+  const basePriceOf = (dt: string | false) => {
+    if (!dt) return null;
+    const r = baseRows.find((x) => x.door_type === dt);
+    if (!r) return null;
+    const v = parseFloat(draft[r.id] ?? String(r.price));
+    return Number.isFinite(v) ? v : r.price;
+  };
 
-  async function saveMatrix() {
-    const rows = matrix
+  async function saveBase() {
+    const rows = baseRows
       .map((r) => ({ id: r.id, price: parseFloat(draft[r.id] ?? "") }))
       .filter((r) => Number.isFinite(r.price));
-    setSavingMatrix(true);
+    setSavingBase(true);
     try {
       await fetchJson("/api/pricing", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rows }),
       });
-      toast.success("Prices saved");
+      toast.success("Base prices saved");
       qc.invalidateQueries({ queryKey: ["pricing"] });
-      qc.invalidateQueries({ queryKey: ["catalog-families"] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't save prices");
     } finally {
-      setSavingMatrix(false);
+      setSavingBase(false);
     }
   }
 
-  // Price for a (door_type, tier) from the CURRENT draft, for live previews.
-  const priceOf = (dt: string | false, tier: string) => {
-    if (!dt) return null;
-    const c = cell(dt, tier);
-    if (!c) return null;
-    const v = parseFloat(draft[c.id] ?? String(c.price));
-    return Number.isFinite(v) ? v : c.price;
-  };
-
-  // ---- Designs list (per-design tier, auto-saved) ----
+  // ---- Per-design own price (override), auto-saved on blur ----
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [savingId, setSavingId] = useState<number | null>(null);
-  // Optimistic local tier overrides so a toggle reflects immediately.
-  const [tierOverride, setTierOverride] = useState<Record<number, string>>({});
+  // Local text draft per design + optimistic saved override.
+  const [ovDraft, setOvDraft] = useState<Record<number, string>>({});
+  const [ovSaved, setOvSaved] = useState<Record<number, number>>({});
 
   const designs = data?.designs ?? [];
   const filtered = useMemo(() => {
@@ -124,30 +111,50 @@ export default function PricingPage() {
     });
   }, [designs, q, typeFilter]);
 
-  async function setTier(d: DesignRow, tier: string) {
-    setSavingId(d.id);
-    setTierOverride((m) => ({ ...m, [d.id]: tier }));
-    try {
-      await fetchJson(`/api/pricing/design/${d.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dealer_tier: tier }),
-      });
-      toast.success(`${d.code} → ${TIER_LABEL[tier]}`);
-      qc.invalidateQueries({ queryKey: ["pricing"] });
-      qc.invalidateQueries({ queryKey: ["catalog-families"] });
-    } catch (e) {
-      setTierOverride((m) => {
+  const overrideOf = (d: DesignRow) => ovSaved[d.id] ?? d.dealer_price_override ?? 0;
+  const draftValue = (d: DesignRow) => {
+    if (d.id in ovDraft) return ovDraft[d.id];
+    const ov = overrideOf(d);
+    return ov > 0 ? String(ov) : "";
+  };
+
+  async function saveOverride(d: DesignRow) {
+    const raw = ovDraft[d.id];
+    if (raw === undefined) return; // not edited
+    const parsed = raw.trim() === "" ? 0 : parseFloat(raw);
+    const value = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 100) / 100 : 0;
+    if (value === overrideOf(d)) {
+      // no change — just drop the draft
+      setOvDraft((m) => {
         const n = { ...m };
         delete n[d.id];
         return n;
       });
-      toast.error(e instanceof Error ? e.message : "Couldn't update tier");
+      return;
+    }
+    setSavingId(d.id);
+    try {
+      await fetchJson(`/api/pricing/design/${d.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dealer_price_override: value }),
+      });
+      setOvSaved((m) => ({ ...m, [d.id]: value }));
+      setOvDraft((m) => {
+        const n = { ...m };
+        delete n[d.id];
+        return n;
+      });
+      toast.success(
+        value > 0 ? `${d.code} → $${value.toLocaleString()}` : `${d.code} → base price`,
+      );
+      qc.invalidateQueries({ queryKey: ["pricing"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save price");
     } finally {
       setSavingId(null);
     }
   }
-  const tierOf = (d: DesignRow) => tierOverride[d.id] ?? d.dealer_tier;
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-6">
@@ -157,8 +164,9 @@ export default function PricingPage() {
           Pricing
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Base price charged to dealers per door. This is what logged-in dealers
-          see on the catalog and what new orders are billed at.
+          Base price charged to dealers per door type. Optionally give a specific
+          design its own price. This is what dealers see on the catalog and what
+          new orders are billed.
         </p>
       </div>
 
@@ -173,82 +181,60 @@ export default function PricingPage() {
 
       {data && (
         <>
-          {/* Base price matrix */}
+          {/* Base price per door type */}
           <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <h2 className="font-semibold text-slate-800">Base prices</h2>
+                <h2 className="font-semibold text-slate-800">Base price</h2>
                 <p className="text-xs text-slate-500">
-                  Two levels per door type. Assign each design to a level below.
+                  The standard price every design of that door type uses.
                 </p>
               </div>
               <Button
                 size="lg"
-                onClick={saveMatrix}
-                disabled={!dirty || savingMatrix}
+                onClick={saveBase}
+                disabled={!dirty || savingBase}
                 className="bg-indigo-700 text-white hover:bg-indigo-800 disabled:opacity-40"
               >
                 <Save size={15} />
-                {savingMatrix ? "Saving…" : "Save prices"}
+                {savingBase ? "Saving…" : "Save"}
               </Button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
-                    <th className="px-3 py-2 font-semibold">Door type</th>
-                    {TIER_ORDER.map((t) => (
-                      <th key={t} className="px-3 py-2 font-semibold">
-                        {TIER_LABEL[t]}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {doorTypes.map((dt) => (
-                    <tr key={dt} className="border-t border-slate-100">
-                      <td className="px-3 py-3 font-medium text-slate-800">
-                        {DOOR_LABEL[dt] ?? dt}
-                      </td>
-                      {TIER_ORDER.map((t) => {
-                        const c = cell(dt, t);
-                        return (
-                          <td key={t} className="px-3 py-3">
-                            {c ? (
-                              <div className="flex items-center gap-1">
-                                <span className="text-slate-400">$</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={draft[c.id] ?? ""}
-                                  onChange={(e) =>
-                                    setDraft((m) => ({ ...m, [c.id]: e.target.value }))
-                                  }
-                                  className="h-9 w-28 rounded-lg border border-slate-200 px-2 text-sm focus:border-indigo-400 focus:outline-none"
-                                />
-                              </div>
-                            ) : (
-                              <span className="text-slate-300">—</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {baseRows.map((r) => (
+                <div
+                  key={r.id}
+                  className="rounded-xl border border-slate-100 bg-slate-50/60 p-3"
+                >
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {DOOR_LABEL[r.door_type] ?? r.door_type}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-lg font-bold text-slate-400">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={draft[r.id] ?? ""}
+                      onChange={(e) =>
+                        setDraft((m) => ({ ...m, [r.id]: e.target.value }))
+                      }
+                      className="h-10 w-full rounded-lg border border-slate-200 px-2 text-lg font-bold text-slate-800 focus:border-indigo-400 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
 
-          {/* Per-design tier */}
+          {/* Per-design own price */}
           <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="font-semibold text-slate-800">Design price level</h2>
+                <h2 className="font-semibold text-slate-800">Special design prices</h2>
                 <p className="text-xs text-slate-500">
-                  Mark elaborate designs as Full / Partial to charge the higher
-                  price. Saves as you toggle.
+                  Optional. Give a design its own price. Leave blank to use the
+                  base price. Saves when you click away.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -280,20 +266,17 @@ export default function PricingPage() {
             <div className="mb-2 flex items-start gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
               <Info size={14} className="mt-0.5 shrink-0" />
               <span>
-                {filtered.length} design{filtered.length === 1 ? "" : "s"}. The
-                price shown is the base for that door type at the chosen level.
+                {filtered.length} design{filtered.length === 1 ? "" : "s"}. Blank =
+                uses the base price shown next to each.
               </span>
             </div>
 
             <div className="divide-y divide-slate-100">
               {filtered.map((d) => {
-                const tier = tierOf(d);
-                const price = priceOf(d.door_type, tier);
+                const base = basePriceOf(d.door_type);
+                const ov = overrideOf(d);
                 return (
-                  <div
-                    key={d.id}
-                    className="flex flex-wrap items-center gap-3 py-2.5"
-                  >
+                  <div key={d.id} className="flex flex-wrap items-center gap-3 py-2.5">
                     <div className="min-w-0 flex-1">
                       <span className="font-semibold text-slate-800">{d.code}</span>
                       {d.name && (
@@ -303,27 +286,33 @@ export default function PricingPage() {
                         {d.door_type ? DOOR_LABEL[d.door_type] ?? d.door_type : "—"}
                       </span>
                     </div>
-                    <div className="w-20 text-right font-bold text-indigo-700">
-                      {price != null ? `$${price.toLocaleString()}` : "—"}
+                    <div className="w-28 text-right text-xs text-slate-400">
+                      base {base != null ? `$${base.toLocaleString()}` : "—"}
                     </div>
-                    <div className="inline-flex overflow-hidden rounded-lg border border-slate-200">
-                      {TIER_ORDER.map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          disabled={savingId === d.id || tier === t || !d.door_type}
-                          onClick={() => setTier(d, t)}
-                          className={cn(
-                            "px-3 py-1.5 text-xs font-semibold transition",
-                            tier === t
-                              ? "bg-indigo-700 text-white"
-                              : "bg-white text-slate-600 hover:bg-slate-50",
-                            (savingId === d.id || !d.door_type) && "opacity-50",
-                          )}
-                        >
-                          {TIER_LABEL[t]}
-                        </button>
-                      ))}
+                    <div
+                      className={cn(
+                        "flex items-center gap-1 rounded-lg border px-2",
+                        ov > 0 ? "border-indigo-300 bg-indigo-50" : "border-slate-200 bg-white",
+                        savingId === d.id && "opacity-50",
+                      )}
+                    >
+                      <span className="text-slate-400">$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        disabled={savingId === d.id}
+                        value={draftValue(d)}
+                        placeholder={base != null ? String(base) : ""}
+                        onChange={(e) =>
+                          setOvDraft((m) => ({ ...m, [d.id]: e.target.value }))
+                        }
+                        onBlur={() => saveOverride(d)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                        }}
+                        className="h-9 w-24 bg-transparent text-right text-sm font-semibold text-indigo-800 focus:outline-none"
+                      />
                     </div>
                   </div>
                 );

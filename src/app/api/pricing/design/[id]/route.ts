@@ -6,10 +6,9 @@ import { deriveRole } from "@/lib/odoo/types";
 export const runtime = "nodejs";
 
 /**
- * PATCH /api/pricing/design/[id] — set one design's price tier.
- * Body: { dealer_tier: "basic" | "full_partial" }
- * Manager / office / admin only. Used by the auto-saving toggle on the
- * Pricing screen.
+ * PATCH /api/pricing/design/[id] — set one design's own price.
+ * Body: { dealer_price_override: number }  (0 clears it → design uses base)
+ * Manager / office / admin only. Auto-saved from the Pricing screen input.
  */
 export async function PATCH(
   req: NextRequest,
@@ -26,10 +25,11 @@ export async function PATCH(
     if (!Number.isInteger(id)) {
       return NextResponse.json({ error: "Bad id" }, { status: 400 });
     }
-    const { dealer_tier } = (await req.json()) as { dealer_tier?: string };
-    if (dealer_tier !== "basic" && dealer_tier !== "full_partial") {
+    const body = (await req.json()) as { dealer_price_override?: number };
+    const price = Number(body.dealer_price_override);
+    if (!Number.isFinite(price) || price < 0) {
       return NextResponse.json(
-        { error: "dealer_tier must be 'basic' or 'full_partial'" },
+        { error: "dealer_price_override must be a number >= 0" },
         { status: 400 },
       );
     }
@@ -37,7 +37,7 @@ export async function PATCH(
       session: s.session,
       model: "indigo.design",
       method: "write",
-      args: [[id], { dealer_tier }],
+      args: [[id], { dealer_price_override: Math.round(price * 100) / 100 }],
       kwargs: {},
     });
     return NextResponse.json({ ok: true });

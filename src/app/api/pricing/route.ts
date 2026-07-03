@@ -26,7 +26,7 @@ interface DesignRow {
   code: string;
   name: string | false;
   door_type: string | false;
-  dealer_tier: string;
+  dealer_price_override: number;
 }
 
 export async function GET() {
@@ -48,7 +48,10 @@ export async function GET() {
         session: s.session,
         model: "indigo.design",
         method: "search_read",
-        args: [[["active", "=", true]], ["id", "code", "name", "door_type", "dealer_tier"]],
+        args: [
+          [["active", "=", true]],
+          ["id", "code", "name", "door_type", "dealer_price_override"],
+        ],
         kwargs: { order: "code", limit: 2000 },
       }),
     ]);
