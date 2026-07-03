@@ -43,18 +43,26 @@ export default function PricingPage() {
   const { data, isLoading, isError } = useQuery<PricingData>({
     queryKey: ["pricing"],
     queryFn: () => fetchJson<PricingData>("/api/pricing"),
+    // Editing screen — don't refetch under the user mid-edit.
+    refetchOnWindowFocus: false,
+    staleTime: 30_000,
   });
 
   // ---- Matrix editor (draft prices keyed by row id) ----
   const [draft, setDraft] = useState<Record<number, string>>({});
   const [savingMatrix, setSavingMatrix] = useState(false);
+  // Seed the draft only when the SET of rows changes (first load), not on
+  // every refetch — otherwise a background refetch (e.g. window refocus)
+  // would wipe the user's unsaved edits. After a save the values already
+  // match the server, so not re-seeding is correct.
+  const matrixSig = (data?.matrix ?? []).map((r) => r.id).join(",");
   useEffect(() => {
-    if (data?.matrix) {
-      const d: Record<number, string> = {};
-      for (const r of data.matrix) d[r.id] = String(r.price ?? 0);
-      setDraft(d);
-    }
-  }, [data?.matrix]);
+    const rows = data?.matrix ?? [];
+    const d: Record<number, string> = {};
+    for (const r of rows) d[r.id] = String(r.price ?? 0);
+    setDraft(d);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matrixSig]);
 
   const matrix = data?.matrix ?? [];
   const doorTypes = useMemo(
