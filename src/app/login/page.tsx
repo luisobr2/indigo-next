@@ -28,6 +28,32 @@ function LoginInner() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
+  // "login" = credentials form; "forgot" = request a reset link.
+  const [mode, setMode] = useState<"login" | "forgot">("login");
+  const [sent, setSent] = useState(false);
+
+  async function onForgot(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const r = await fetch("/api/auth/forgot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login: login.trim() }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        setError(data?.error || "Couldn't send the reset link. Try again.");
+        return;
+      }
+      setSent(true);
+    } catch {
+      setError("Network error — check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -72,77 +98,173 @@ function LoginInner() {
           <p className="text-sm text-slate-500">Production ERP</p>
         </div>
 
-        <form
-          onSubmit={onSubmit}
-          className="space-y-5 rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-100"
-        >
-          <div className="space-y-2">
-            <Label htmlFor="login">Email</Label>
-            <Input
-              id="login"
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              spellCheck={false}
-              value={login}
-              onChange={(e) => setLogin(e.target.value)}
-              aria-invalid={!!error}
-              autoFocus
-              required
-              className="h-11"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <div className="relative">
-              <Input
-                ref={passwordRef}
-                id="password"
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                aria-invalid={!!error}
-                className="h-11 pr-11"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                title={showPassword ? "Hide password" : "Show password"}
-                tabIndex={-1}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div
-              role="alert"
-              aria-live="assertive"
-              className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 ring-1 ring-rose-200"
-            >
-              {error}
-            </div>
-          )}
-
-          <Button
-            type="submit"
-            disabled={busy}
-            size="lg"
-            className="h-11 w-full text-base font-semibold shadow-lg shadow-indigo-700/30"
+        {mode === "forgot" ? (
+          <form
+            onSubmit={onForgot}
+            className="space-y-5 rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-100"
           >
-            {busy ? "Signing in…" : "Sign in"}
-          </Button>
+            {sent ? (
+              <>
+                <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800 ring-1 ring-emerald-200">
+                  If an account exists for <strong>{login.trim()}</strong>,
+                  we&apos;ve sent a link to reset your password. Check your email
+                  — the link is valid for 24 hours.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("login");
+                    setSent(false);
+                    setError(null);
+                  }}
+                  className="mx-auto block text-sm font-medium text-indigo-700 hover:underline"
+                >
+                  ← Back to sign in
+                </button>
+              </>
+            ) : (
+              <>
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-800">
+                    Reset your password
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Enter your account email and we&apos;ll send you a link to set
+                    a new password.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="login">Email</Label>
+                  <Input
+                    id="login"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    spellCheck={false}
+                    value={login}
+                    onChange={(e) => setLogin(e.target.value)}
+                    aria-invalid={!!error}
+                    autoFocus
+                    required
+                    className="h-11"
+                  />
+                </div>
+                {error && (
+                  <div
+                    role="alert"
+                    aria-live="assertive"
+                    className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 ring-1 ring-rose-200"
+                  >
+                    {error}
+                  </div>
+                )}
+                <Button
+                  type="submit"
+                  disabled={busy}
+                  size="lg"
+                  className="h-11 w-full text-base font-semibold shadow-lg shadow-indigo-700/30"
+                >
+                  {busy ? "Sending…" : "Send reset link"}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("login");
+                    setError(null);
+                  }}
+                  className="mx-auto block text-sm font-medium text-indigo-700 hover:underline"
+                >
+                  ← Back to sign in
+                </button>
+              </>
+            )}
+          </form>
+        ) : (
+          <form
+            onSubmit={onSubmit}
+            className="space-y-5 rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-100"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="login">Email</Label>
+              <Input
+                id="login"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                spellCheck={false}
+                value={login}
+                onChange={(e) => setLogin(e.target.value)}
+                aria-invalid={!!error}
+                autoFocus
+                required
+                className="h-11"
+              />
+            </div>
 
-          <p className="text-center text-xs text-slate-400">
-            Trouble signing in? Contact your administrator.
-          </p>
-        </form>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("forgot");
+                    setError(null);
+                    setPassword("");
+                  }}
+                  className="text-xs font-medium text-indigo-700 hover:underline"
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <div className="relative">
+                <Input
+                  ref={passwordRef}
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  aria-invalid={!!error}
+                  className="h-11 pr-11"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  title={showPassword ? "Hide password" : "Show password"}
+                  tabIndex={-1}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 ring-1 ring-rose-200"
+              >
+                {error}
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              disabled={busy}
+              size="lg"
+              className="h-11 w-full text-base font-semibold shadow-lg shadow-indigo-700/30"
+            >
+              {busy ? "Signing in…" : "Sign in"}
+            </Button>
+
+            <p className="text-center text-xs text-slate-400">
+              Trouble signing in? Contact your administrator.
+            </p>
+          </form>
+        )}
 
         <p className="mt-6 text-center text-xs text-slate-400">
           © {new Date().getFullYear()} Indigo Publicity Corp · Indigo Decors
