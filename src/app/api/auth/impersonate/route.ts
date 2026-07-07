@@ -18,7 +18,7 @@ function landingFor(groups: string[]): string {
   if (r.isDesigner) return "/digitalization";
   if (r.isPainter) return "/paint";
   if (r.isCnc) return "/cnc-production";
-  if (r.isInstaller) return "/installations";
+  if (r.isInstaller) return "/installs";
   return "/dashboard";
 }
 

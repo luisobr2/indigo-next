@@ -44,7 +44,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/digitalization", label: "Digitalization", icon: Pencil, show: (r) => allManagerOrOffice(r) || r.isDesigner },
   { href: "/cnc-production", label: "CNC Production", icon: Hammer, show: (r) => allManagerOrOffice(r) || r.isCnc },
   { href: "/paint", label: "Paint", icon: Brush, show: (r) => allManagerOrOffice(r) || r.isPainter },
-  { href: "/installations", label: "Installations", icon: Truck },
+  { href: "/installations", label: "Installations", icon: Truck, show: allManagerOrOffice },
   { href: "/calendar", label: "Calendar", icon: CalendarDays, show: allManagerOrOffice },
   { href: "/route-planner", label: "Route Planner", icon: Map, show: allManagerOrOffice },
   { href: "/billing", label: "Billing", icon: Receipt, show: allManagerOrOffice },
