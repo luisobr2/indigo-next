@@ -336,7 +336,9 @@ export default function DealerDetailPage({
           </section>
         )}
 
-        {!isNew && data && (
+        {/* portal is non-null only for managers/office (the GET route gates it),
+            so this also hides the card from viewers who can't set the password. */}
+        {!isNew && data?.portal && (
           <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
             <h2 className="mb-1 font-semibold text-slate-800">Acceso portal</h2>
             <p className="mb-4 text-xs text-slate-500">
