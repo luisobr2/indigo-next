@@ -90,7 +90,27 @@ export async function GET(
         })
       : [];
 
-    return NextResponse.json({ dealer: records[0], orders });
+    // Portal-access status — only for users who can manage it (managers/office).
+    // Fetching it for others would trip the Odoo guard and 500 the whole page.
+    const role = deriveRole(s.user.groups);
+    let portal:
+      | { has_user: boolean; login: string | false; active: boolean }
+      | null = null;
+    if (role.isManager || role.isOffice || s.user.isAdmin) {
+      portal = await call<{
+        has_user: boolean;
+        login: string | false;
+        active: boolean;
+      }>({
+        session: s.session,
+        model: "res.partner",
+        method: "indigo_dealer_portal_info",
+        args: [id],
+        kwargs: {},
+      });
+    }
+
+    return NextResponse.json({ dealer: records[0], orders, portal });
   } catch (e) {
     if (e instanceof Response) return e;
     return NextResponse.json(
