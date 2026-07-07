@@ -758,30 +758,10 @@ export default function DesignEditorPage({
                     </p>
                   </>
                 ) : (
-                  <>
-                    <div className="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
-                      {doorTypeLabel(doorType)}
-                    </div>
-                    <p className="text-[11px] text-slate-400">
-                      {doorType === "SD" || doorType === "DD" ? (
-                        <>
-                          Fixed for this design. To work the{" "}
-                          {doorType === "DD" ? "single" : "double"}-door version,
-                          open its own card in the catalog (e.g.{" "}
-                          <span className="font-medium">
-                            {(code || "ID01").replace(/-(SD|DD|SDL|sidelite)$/i, "")}{" "}
-                            {doorType === "DD" ? "Single Door" : "Double Door"}
-                          </span>
-                          ).
-                        </>
-                      ) : (
-                        <>
-                          Fixed for this design. Other door types are managed as
-                          their own cards in the catalog.
-                        </>
-                      )}
-                    </p>
-                  </>
+                  <FamilyTypes
+                    family={stripFamilySuffix(data?.design.code || code)}
+                    currentId={id}
+                  />
                 )}
               </div>
               {!isNew && (
@@ -1021,6 +1001,105 @@ export default function DesignEditorPage({
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * Family door-type manager shown on an existing design (edit mode). Makes edit
+ * coherent with create: shows all three types with their state — open the one
+ * that exists, create the one that's missing — instead of a dead "fixed" label.
+ */
+function FamilyTypes({ family, currentId }: { family: string; currentId: number }) {
+  const router = useRouter();
+  const qc = useQueryClient();
+  const [creating, setCreating] = useState<string | null>(null);
+
+  const { data } = useQuery<{
+    records: Array<{ id: number; code: string; door_type: string | false }>;
+  }>({
+    queryKey: ["design-family", family],
+    queryFn: () =>
+      fetch(`/api/catalog/designs?q=${encodeURIComponent(family)}&limit=100`).then((r) =>
+        r.json(),
+      ),
+    enabled: !!family,
+    staleTime: 30_000,
+  });
+
+  // Keep only records that truly belong to this family (exact match once the
+  // -SD/-DD/-SDL suffix is stripped), then index the first entry per type.
+  const byType = new Map<string, { id: number; code: string }>();
+  for (const r of data?.records ?? []) {
+    if (stripFamilySuffix(r.code) !== family) continue;
+    const t = (r.door_type as string) || "";
+    if (t && !byType.has(t)) byType.set(t, { id: r.id, code: r.code });
+  }
+
+  async function createSibling(typeValue: string, suffix: string, label: string) {
+    if (creating) return;
+    setCreating(typeValue);
+    try {
+      const dcode = `${family}-${suffix}`;
+      const r = await fetch(`/api/catalog/designs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: dcode, name: `${family} ${label}`, door_type: typeValue }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.id) throw new Error(j.error || "No se pudo crear");
+      qc.invalidateQueries({ queryKey: ["design-family", family] });
+      qc.invalidateQueries({ queryKey: ["catalog-designs"] });
+      toast.success(`Creado ${dcode}. Agregale una imagen.`);
+      router.push(`/catalog/designs/${j.id}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falló");
+    } finally {
+      setCreating(null);
+    }
+  }
+
+  return (
+    <>
+      <div className="flex flex-wrap gap-2">
+        {NEW_TYPE_OPTIONS.map((t) => {
+          const existing = byType.get(t.value);
+          if (existing) {
+            const here = existing.id === currentId;
+            return here ? (
+              <span
+                key={t.value}
+                className="inline-flex items-center gap-1 rounded-lg border border-indigo-500 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700"
+              >
+                {t.label} · viendo
+              </span>
+            ) : (
+              <Link
+                key={t.value}
+                href={`/catalog/designs/${existing.id}`}
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50"
+              >
+                {t.label} →
+              </Link>
+            );
+          }
+          return (
+            <button
+              key={t.value}
+              type="button"
+              onClick={() => createSibling(t.value, t.suffix, t.label)}
+              disabled={creating !== null}
+              className="inline-flex items-center gap-1 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-500 transition hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50"
+            >
+              {creating === t.value ? "Creando…" : `+ Crear ${t.label}`}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-slate-400">
+        Familia <code className="rounded bg-slate-100 px-1">{family}</code>. Cada tipo es su
+        propia entrada — abrí la que existe o creá la que falta.
+      </p>
+    </>
   );
 }
 
