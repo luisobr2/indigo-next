@@ -128,6 +128,19 @@ export default function DealerDetailPage({
       toast.error("Name is required");
       return;
     }
+    // On create, the portal password is optional; if provided it needs an
+    // email (the login) and 6+ chars — validate before creating anything.
+    const pw = portalPw.trim();
+    if (isNew && pw) {
+      if (!email) {
+        toast.error("Agregá un email para poder fijar la contraseña del portal");
+        return;
+      }
+      if (pw.length < 6) {
+        toast.error("La contraseña debe tener al menos 6 caracteres");
+        return;
+      }
+    }
     setBusy(true);
     const body = {
       name,
@@ -147,6 +160,25 @@ export default function DealerDetailPage({
           }).then(async (r) => {
             const j = await r.json();
             if (!r.ok) throw new Error(j.error || "Create failed");
+            // Same-step portal access: set the password on the just-created
+            // dealer (already validated: email present, 6+ chars). If it
+            // fails, keep the dealer and let them retry from its card.
+            if (pw) {
+              const pr = await fetch(`/api/catalog/dealers/${j.id}/portal`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password: pw }),
+              });
+              const pj = (await pr.json().catch(() => ({}))) as {
+                ok?: boolean;
+                error?: string;
+              };
+              if (!pr.ok || !pj.ok) {
+                toast.warning(
+                  `Dealer creado, pero no se pudo fijar la contraseña (${pj.error || "error"}). Fijala en la ficha.`,
+                );
+              }
+            }
             qc.invalidateQueries({ queryKey: ["catalog-dealers"] });
             router.replace(`/catalog/dealers/${j.id}`);
             return j;
@@ -166,7 +198,7 @@ export default function DealerDetailPage({
 
     toast.promise(promise, {
       loading: isNew ? "Creating dealer..." : "Saving dealer...",
-      success: isNew ? `${name} created` : `${name} saved`,
+      success: isNew ? (pw ? `${name} creado con acceso portal` : `${name} created`) : `${name} saved`,
       error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }
@@ -276,6 +308,37 @@ export default function DealerDetailPage({
                 />
               </Field>
             </div>
+            {/* Optional portal password at creation time. The dealer logs in
+                with their email + this password. Needs an email (the login). */}
+            {isNew && (
+              <Field label="Portal password (optional)" icon={<KeyRound size={12} />}>
+                <div className="relative">
+                  <Input
+                    type={showPortalPw ? "text" : "password"}
+                    value={portalPw}
+                    onChange={(e) => setPortalPw(e.target.value)}
+                    placeholder="Mín. 6 — el dealer entra con su email"
+                    autoComplete="new-password"
+                    disabled={!email}
+                    className="h-10 pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPortalPw((v) => !v)}
+                    aria-label={showPortalPw ? "Ocultar" : "Ver"}
+                    tabIndex={-1}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  >
+                    {showPortalPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {!email && (
+                  <span className="mt-1 block text-[11px] text-amber-700">
+                    Agregá un email para habilitar la contraseña.
+                  </span>
+                )}
+              </Field>
+            )}
           </div>
           <div className="mt-5 flex items-center justify-end gap-3">
             <Button
