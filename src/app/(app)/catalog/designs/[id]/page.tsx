@@ -68,6 +68,16 @@ const DOOR_TYPES = [
   { value: "sidelite", label: "Door with Sidelites" },
 ] as const;
 
+// Create mode (Option A): generate one design per selected type, grouped by
+// the code prefix. Suffixes match familyOf() in /api/catalog/designs/families
+// (-SD / -DD / -SDL) so the catalog bundles them into one family card.
+const NEW_TYPE_OPTIONS = [
+  { value: "SD", suffix: "SD", label: "Single Door" },
+  { value: "DD", suffix: "DD", label: "Double Door" },
+  { value: "sidelite", suffix: "SDL", label: "Door with Sidelites" },
+] as const;
+const stripFamilySuffix = (code: string) => code.replace(/-(SD|DD|SDL)$/i, "");
+
 const doorTypeLabel = (v: string) =>
   DOOR_TYPES.find((t) => t.value === v)?.label ?? "";
 
@@ -106,6 +116,8 @@ export default function DesignEditorPage({
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [doorType, setDoorType] = useState<string>("");
+  // Create mode: which door-type variants to generate at once (Option A).
+  const [newTypes, setNewTypes] = useState<string[]>(["SD", "DD"]);
   const [description, setDescription] = useState("");
   const [active, setActive] = useState(true);
   const [allowedColors, setAllowedColors] = useState<string[]>([]);
@@ -255,50 +267,88 @@ export default function DesignEditorPage({
       toast.error("Min height can't be greater than max height.");
       return;
     }
-    setSaving(true);
-    const body = {
-      code,
-      name,
-      door_type: doorType,
+    // Fields shared by every created/edited design.
+    const variationBody = {
       description,
       active,
       allowed_colors: allowedColors.join(","),
       allowed_glass_types: allowedGlassTypes,
       allowed_brand_ids: allowedBrandIds,
-      min_width: parseFloat(minWidth) || 0,
-      max_width: parseFloat(maxWidth) || 0,
-      min_height: parseFloat(minHeight) || 0,
-      max_height: parseFloat(maxHeight) || 0,
+      min_width: minW,
+      max_width: maxW,
+      min_height: minH,
+      max_height: maxH,
     };
-    try {
-      if (isNew) {
-        const r = await fetch(`/api/catalog/designs`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || "Failed");
-        toast.success(
-          j.published
-            ? "Design created and published to the website. Add an image so it shows with a photo."
-            : "Design created (couldn't auto-publish the web product — check it manually).",
-        );
-        qc.invalidateQueries({ queryKey: ["catalog-designs"] });
-        router.replace(`/catalog/designs/${j.id}`);
-      } else {
-        const r = await fetch(`/api/catalog/designs/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const j = await r.json();
-        if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
-        toast.success("Design saved");
-        qc.invalidateQueries({ queryKey: ["catalog-designs"] });
-        qc.invalidateQueries({ queryKey: ["design", idStr] });
-        setDirty(false);
+
+    // ---- Create mode (Option A): one design per selected type ----
+    if (isNew) {
+      if (newTypes.length === 0) {
+        toast.error("Elegí al menos un tipo de puerta (Single / Double / Sidelite).");
+        return;
       }
+      const prefix = stripFamilySuffix(code);
+      const ordered = NEW_TYPE_OPTIONS.filter((o) => newTypes.includes(o.value));
+      setSaving(true);
+      const createdIds: number[] = [];
+      const createdCodes: string[] = [];
+      const failed: string[] = [];
+      try {
+        for (const t of ordered) {
+          const dcode = `${prefix}-${t.suffix}`;
+          const r = await fetch(`/api/catalog/designs`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: dcode,
+              name: `${prefix} ${t.label}`,
+              door_type: t.value,
+              ...variationBody,
+            }),
+          });
+          const j = await r.json();
+          if (r.ok && j.id) {
+            createdIds.push(j.id);
+            createdCodes.push(dcode);
+          } else {
+            failed.push(`${dcode}${j.error ? ` — ${j.error}` : ""}`);
+          }
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed");
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+      qc.invalidateQueries({ queryKey: ["catalog-designs"] });
+      if (createdIds.length) {
+        toast.success(
+          `Creado${createdIds.length > 1 ? "s" : ""}: ${createdCodes.join(", ")}. Agregá una imagen a cada uno.`,
+        );
+        if (failed.length) {
+          toast.warning(`No se pudo crear: ${failed.join("; ")}`);
+        }
+        router.replace(`/catalog/designs/${createdIds[0]}`);
+      } else {
+        toast.error(`No se pudo crear ningún diseño: ${failed.join("; ")}`);
+      }
+      return;
+    }
+
+    // ---- Edit mode: update the single existing design ----
+    setSaving(true);
+    const body = { code, name, door_type: doorType, ...variationBody };
+    try {
+      const r = await fetch(`/api/catalog/designs/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+      toast.success("Design saved");
+      qc.invalidateQueries({ queryKey: ["catalog-designs"] });
+      qc.invalidateQueries({ queryKey: ["design", idStr] });
+      setDirty(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -548,10 +598,14 @@ export default function DesignEditorPage({
             type="button"
             size="lg"
             onClick={save}
-            disabled={!dirty && !isNew}
+            disabled={saving || (isNew ? newTypes.length === 0 : !dirty)}
           >
             <Save size={14} />
-            {saving ? "Saving…" : isNew ? "Create design" : "Save changes"}
+            {saving
+              ? "Saving…"
+              : isNew
+                ? `Create design${newTypes.length > 1 ? "s" : ""}`
+                : "Save changes"}
           </Button>
         </div>
       </header>
@@ -572,32 +626,63 @@ export default function DesignEditorPage({
                   id="code"
                   value={code}
                   onChange={(e) => markDirty(setCode)(e.target.value.toUpperCase())}
-                  placeholder="e.g. ID10-SD"
+                  placeholder={isNew ? "e.g. ID93" : "e.g. ID10-SD"}
                   className="h-10 font-mono uppercase"
                 />
                 <p className="text-[11px] text-slate-400">
-                  Unique. Convention: <code className="rounded bg-slate-100 px-1">ID##-TYPE</code>
+                  {isNew ? (
+                    "Código base / prefijo, sin el sufijo — el tipo se agrega solo (ID93 → ID93-SD, ID93-DD)."
+                  ) : (
+                    <>
+                      Unique. Convention:{" "}
+                      <code className="rounded bg-slate-100 px-1">ID##-TYPE</code>
+                    </>
+                  )}
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="door-type">Door type</Label>
+                <Label htmlFor="door-type">{isNew ? "Door types" : "Door type"}</Label>
                 {isNew ? (
                   <>
-                    <select
-                      id="door-type"
-                      value={doorType}
-                      onChange={(e) => markDirty(setDoorType)(e.target.value)}
-                      className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                    >
-                      <option value="">— Select —</option>
-                      {DOOR_TYPES.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex flex-wrap gap-2">
+                      {NEW_TYPE_OPTIONS.map((t) => {
+                        const checked = newTypes.includes(t.value);
+                        return (
+                          <button
+                            key={t.value}
+                            type="button"
+                            onClick={() =>
+                              markDirty(setNewTypes)(
+                                checked
+                                  ? newTypes.filter((x) => x !== t.value)
+                                  : [...newTypes, t.value],
+                              )
+                            }
+                            aria-pressed={checked}
+                            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition ${
+                              checked
+                                ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                            }`}
+                          >
+                            <span aria-hidden>{checked ? "☑" : "☐"}</span>
+                            {t.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                     <p className="text-[11px] text-slate-400">
-                      Single or double-door variant. Each type is its own design.
+                      Se crea un diseño por tipo, agrupados por el código. Ej:{" "}
+                      <code className="rounded bg-slate-100 px-1">
+                        {stripFamilySuffix(code) || "ID93"}
+                      </code>{" "}
+                      →{" "}
+                      {newTypes.length
+                        ? NEW_TYPE_OPTIONS.filter((o) => newTypes.includes(o.value))
+                            .map((o) => `${stripFamilySuffix(code) || "ID93"}-${o.suffix}`)
+                            .join(", ")
+                        : "elegí al menos un tipo"}
+                      .
                     </p>
                   </>
                 ) : !doorType ? (
@@ -637,23 +722,25 @@ export default function DesignEditorPage({
                   </>
                 )}
               </div>
-              <div className="space-y-1.5 md:col-span-2">
-                <Label htmlFor="name">Display name</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => {
-                    setNameTouched(true);
-                    markDirty(setName)(e.target.value);
-                  }}
-                  placeholder="e.g. ID10 Single Door"
-                  className="h-10"
-                />
-                <p className="text-[11px] text-slate-400">
-                  Just a label shown in lists — the real type is the badge next
-                  to the title above. Leave it and it auto-fills from code + type.
-                </p>
-              </div>
+              {!isNew && (
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label htmlFor="name">Display name</Label>
+                  <Input
+                    id="name"
+                    value={name}
+                    onChange={(e) => {
+                      setNameTouched(true);
+                      markDirty(setName)(e.target.value);
+                    }}
+                    placeholder="e.g. ID10 Single Door"
+                    className="h-10"
+                  />
+                  <p className="text-[11px] text-slate-400">
+                    Just a label shown in lists — the real type is the badge next
+                    to the title above. Leave it and it auto-fills from code + type.
+                  </p>
+                </div>
+              )}
               <div className="space-y-1.5 md:col-span-2">
                 <Label htmlFor="description">Description</Label>
                 <Textarea
