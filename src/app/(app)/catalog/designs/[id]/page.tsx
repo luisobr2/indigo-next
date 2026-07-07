@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { use, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -9,13 +9,14 @@ import {
   Save,
   Trash2,
   Camera,
-  Archive,
   Image as ImageIcon,
   Boxes,
   Hash,
   Eye,
   EyeOff,
   ExternalLink,
+  Plus,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -37,14 +38,9 @@ interface DesignPayload {
     allowed_colors?: string | false;
     allowed_glass_types?: string | false;
     allowed_brand_ids?: number[];
-    min_width?: number;
-    max_width?: number;
-    min_height?: number;
-    max_height?: number;
   };
   usedIn: number;
   imageUrl: string | null;
-  supportsVariations: boolean;
   product: { id: number; is_published: boolean; website_url: string } | null;
 }
 
@@ -62,959 +58,209 @@ const COLOR_OPTIONS = [
   { value: "custom", label: "Custom" },
 ] as const;
 
-const DOOR_TYPES = [
-  { value: "SD", label: "Single Door" },
-  { value: "DD", label: "Double Door" },
-  { value: "sidelite", label: "Door with Sidelites" },
-] as const;
-
-// Create mode (Option A): generate one design per selected type, grouped by
-// the code prefix. Suffixes match familyOf() in /api/catalog/designs/families
-// (-SD / -DD / -SDL) so the catalog bundles them into one family card.
-const NEW_TYPE_OPTIONS = [
+// One design per selected type, grouped by the code prefix. Suffixes match
+// familyOf() in /api/catalog/designs/families (-SD / -DD / -SDL).
+const TYPE_OPTIONS = [
   { value: "SD", suffix: "SD", label: "Single Door" },
   { value: "DD", suffix: "DD", label: "Double Door" },
   { value: "sidelite", suffix: "SDL", label: "Door with Sidelites" },
 ] as const;
+
 const stripFamilySuffix = (code: string) => code.replace(/-(SD|DD|SDL)$/i, "");
-
 const doorTypeLabel = (v: string) =>
-  DOOR_TYPES.find((t) => t.value === v)?.label ?? "";
+  TYPE_OPTIONS.find((t) => t.value === v)?.label ?? v;
 
-/** Big, unmissable badge that reflects the REAL door type (not the free-text
- *  display name). Driven by live state so it's always truthful. */
-function DoorTypeBadge({ type }: { type: string }) {
-  const label = doorTypeLabel(type);
-  if (!label) return null;
-  const styles: Record<string, string> = {
-    SD: "bg-indigo-50 text-indigo-700 ring-indigo-200",
-    DD: "bg-amber-50 text-amber-700 ring-amber-200",
-    sidelite: "bg-teal-50 text-teal-700 ring-teal-200",
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-sm font-semibold ring-1 ${
-        styles[type] ?? "bg-slate-100 text-slate-600 ring-slate-200"
-      }`}
-    >
-      {label}
-    </span>
-  );
-}
-
+/* ============================================================= *
+ *  Page entry — create form (new) vs family editor (existing)   *
+ * ============================================================= */
 export default function DesignEditorPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id: idStr } = use(params);
-  const isNew = idStr === "new";
-  const id = isNew ? 0 : Number(idStr);
+  if (idStr === "new") return <CreateForm />;
+  return <FamilyEditor designId={Number(idStr)} idStr={idStr} />;
+}
+
+/* ============================================================= *
+ *  CREATE — pick the prefix + which door types to generate      *
+ * ============================================================= */
+function CreateForm() {
   const router = useRouter();
   const qc = useQueryClient();
 
   const [code, setCode] = useState("");
-  const [name, setName] = useState("");
-  const [doorType, setDoorType] = useState<string>("");
-  // Create mode: which door-type variants to generate at once (Option A).
-  const [newTypes, setNewTypes] = useState<string[]>(["SD", "DD"]);
+  const [types, setTypes] = useState<string[]>(["SD", "DD"]);
   const [description, setDescription] = useState("");
-  const [active, setActive] = useState(true);
-  const [allowedColors, setAllowedColors] = useState<string[]>([]);
-  const [allowedGlassTypes, setAllowedGlassTypes] = useState<string>("");
-  const [allowedBrandIds, setAllowedBrandIds] = useState<number[]>([]);
-  const [minWidth, setMinWidth] = useState<string>("");
-  const [maxWidth, setMaxWidth] = useState<string>("");
-  const [minHeight, setMinHeight] = useState<string>("");
-  const [maxHeight, setMaxHeight] = useState<string>("");
-  const [dirty, setDirty] = useState(false);
-  // Tracks whether the user hand-edited the display name. While false, the
-  // name auto-fills from code + door type (it's only a label anyway).
-  const [nameTouched, setNameTouched] = useState(false);
+  const [colors, setColors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  // Linked storefront product (web visibility state + public URL).
-  const [product, setProduct] = useState<DesignPayload["product"]>(null);
-  const [pubBusy, setPubBusy] = useState(false);
-  // After a multi-type create we land on the first design but carry the whole
-  // set (id:code) in ?created= so we can reassure the user both were made.
-  const [createdSet, setCreatedSet] = useState<Array<{ id: number; code: string }>>([]);
 
-  const brandsQ = useQuery<{ records: Brand[] }>({
-    queryKey: ["catalog-brands"],
-    queryFn: () => fetch("/api/catalog/brands").then((r) => r.json()),
-    staleTime: 5 * 60_000,
-  });
+  const prefix = stripFamilySuffix(code);
 
-  const { data, isLoading, error, refetch } = useQuery<DesignPayload>({
-    queryKey: ["design", idStr],
-    queryFn: () => fetchJson<DesignPayload>(`/api/catalog/designs/${id}`),
-    enabled: !isNew,
-    retry: 1,
-  });
-
-  useEffect(() => {
-    if (!data?.design) return;
-    const d = data.design;
-    setCode(d.code || "");
-    setName(typeof d.name === "string" ? d.name : "");
-    // Preserve a name the design already has; only auto-fill empty ones.
-    setNameTouched(typeof d.name === "string" && d.name.trim().length > 0);
-    setDoorType(typeof d.door_type === "string" ? d.door_type : "");
-    setDescription(typeof d.description === "string" ? d.description : "");
-    setActive(!!d.active);
-    setAllowedColors(
-      typeof d.allowed_colors === "string"
-        ? d.allowed_colors.split(",").map((x) => x.trim()).filter(Boolean)
-        : [],
-    );
-    setAllowedGlassTypes(
-      typeof d.allowed_glass_types === "string" ? d.allowed_glass_types : "",
-    );
-    setAllowedBrandIds(Array.isArray(d.allowed_brand_ids) ? d.allowed_brand_ids : []);
-    setMinWidth(d.min_width ? String(d.min_width) : "");
-    setMaxWidth(d.max_width ? String(d.max_width) : "");
-    setMinHeight(d.min_height ? String(d.min_height) : "");
-    setMaxHeight(d.max_height ? String(d.max_height) : "");
-    setProduct(data.product ?? null);
-    setDirty(false);
-  }, [data]);
-
-  // Read ?created=id:code,id:code once on mount (window, not useSearchParams,
-  // to avoid needing a Suspense boundary on this page).
-  useEffect(() => {
-    const raw = new URLSearchParams(window.location.search).get("created");
-    if (!raw) return;
-    const list = raw
-      .split(",")
-      .map((pair) => {
-        const idx = pair.indexOf(":");
-        return idx > 0
-          ? { id: Number(pair.slice(0, idx)), code: pair.slice(idx + 1) }
-          : { id: 0, code: "" };
-      })
-      .filter((x) => x.id && x.code);
-    if (list.length) setCreatedSet(list);
-  }, []);
-
-  // Publish / unpublish the linked storefront product (creates one if needed).
-  async function togglePublish() {
-    if (isNew || pubBusy) return;
-    const next = !(product?.is_published ?? false);
-    setPubBusy(true);
-    try {
-      const r = await fetch(`/api/catalog/designs/${id}/publish`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ published: next }),
-      });
-      const j = await r.json();
-      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
-      setProduct(j.product ?? null);
-      toast.success(next ? "Published — visible on the website" : "Hidden from the website");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't change visibility");
-    } finally {
-      setPubBusy(false);
-    }
+  function toggleType(v: string) {
+    setTypes((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
+  }
+  function toggleColor(v: string) {
+    setColors((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
   }
 
-  // Auto-fill the display name from code + door type while the user hasn't
-  // customized it — keeps the label truthful without manual typing.
-  useEffect(() => {
-    if (nameTouched) return;
-    const suggested = [code, doorTypeLabel(doorType)].filter(Boolean).join(" ");
-    setName((prev) => (prev === suggested ? prev : suggested));
-  }, [code, doorType, nameTouched]);
-
-  // Warn before losing unsaved edits on tab close / refresh.
-  useEffect(() => {
-    if (!dirty) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [dirty]);
-
-  // Confirm before in-app navigation away (breadcrumb / back) when dirty.
-  function guardNav(e: React.MouseEvent) {
-    if (dirty && !confirm("You have unsaved changes. Leave without saving?")) {
-      e.preventDefault();
-    }
-  }
-
-  function toggleColor(value: string) {
-    setAllowedColors((prev) =>
-      prev.includes(value) ? prev.filter((c) => c !== value) : [...prev, value],
-    );
-    setDirty(true);
-  }
-
-  function toggleBrand(brandId: number) {
-    setAllowedBrandIds((prev) =>
-      prev.includes(brandId)
-        ? prev.filter((b) => b !== brandId)
-        : [...prev, brandId],
-    );
-    setDirty(true);
-  }
-
-  function markDirty<T>(setter: (v: T) => void) {
-    return (v: T) => {
-      setter(v);
-      setDirty(true);
-    };
-  }
-
-  async function save() {
-    if (!code) {
-      toast.error("Code is required");
+  async function create() {
+    if (!prefix) {
+      toast.error("Poné un código (ej. ID93).");
       return;
     }
-    // Dimension range sanity: min can't exceed max.
-    const minW = parseFloat(minWidth) || 0;
-    const maxW = parseFloat(maxWidth) || 0;
-    const minH = parseFloat(minHeight) || 0;
-    const maxH = parseFloat(maxHeight) || 0;
-    if (minW && maxW && minW > maxW) {
-      toast.error("Min width can't be greater than max width.");
+    if (types.length === 0) {
+      toast.error("Elegí al menos un tipo de puerta.");
       return;
     }
-    if (minH && maxH && minH > maxH) {
-      toast.error("Min height can't be greater than max height.");
-      return;
-    }
-    // Fields shared by every created/edited design.
-    const variationBody = {
-      description,
-      active,
-      allowed_colors: allowedColors.join(","),
-      allowed_glass_types: allowedGlassTypes,
-      allowed_brand_ids: allowedBrandIds,
-      min_width: minW,
-      max_width: maxW,
-      min_height: minH,
-      max_height: maxH,
-    };
-
-    // ---- Create mode (Option A): one design per selected type ----
-    if (isNew) {
-      if (newTypes.length === 0) {
-        toast.error("Elegí al menos un tipo de puerta (Single / Double / Sidelite).");
-        return;
-      }
-      const prefix = stripFamilySuffix(code);
-      const ordered = NEW_TYPE_OPTIONS.filter((o) => newTypes.includes(o.value));
-      setSaving(true);
-      const createdIds: number[] = [];
-      const createdCodes: string[] = [];
-      const failed: string[] = [];
-      try {
-        for (const t of ordered) {
-          const dcode = `${prefix}-${t.suffix}`;
-          const r = await fetch(`/api/catalog/designs`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              code: dcode,
-              name: `${prefix} ${t.label}`,
-              door_type: t.value,
-              ...variationBody,
-            }),
-          });
-          const j = await r.json();
-          if (r.ok && j.id) {
-            createdIds.push(j.id);
-            createdCodes.push(dcode);
-          } else {
-            failed.push(`${dcode}${j.error ? ` — ${j.error}` : ""}`);
-          }
-        }
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed");
-        setSaving(false);
-        return;
-      }
-      setSaving(false);
-      qc.invalidateQueries({ queryKey: ["catalog-designs"] });
-      if (createdIds.length) {
-        toast.success(
-          `Creado${createdIds.length > 1 ? "s" : ""}: ${createdCodes.join(", ")}. Agregá una imagen a cada uno.`,
-        );
-        if (failed.length) {
-          toast.warning(`No se pudo crear: ${failed.join("; ")}`);
-        }
-        // Land on the first created design (to add its image) but carry the
-        // whole set so the page can show "created N together" with links — the
-        // Single-landing was being read as "it only saved Single".
-        const q =
-          createdIds.length > 1
-            ? `?created=${encodeURIComponent(
-                createdIds.map((cid, i) => `${cid}:${createdCodes[i]}`).join(","),
-              )}`
-            : "";
-        router.replace(`/catalog/designs/${createdIds[0]}${q}`);
-      } else {
-        toast.error(`No se pudo crear ningún diseño: ${failed.join("; ")}`);
-      }
-      return;
-    }
-
-    // ---- Edit mode: update the single existing design ----
     setSaving(true);
-    const body = { code, name, door_type: doorType, ...variationBody };
+    const ordered = TYPE_OPTIONS.filter((o) => types.includes(o.value));
+    const createdIds: number[] = [];
+    const createdCodes: string[] = [];
+    const failed: string[] = [];
     try {
-      const r = await fetch(`/api/catalog/designs/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const j = await r.json();
-      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
-      toast.success("Design saved");
-      qc.invalidateQueries({ queryKey: ["catalog-designs"] });
-      qc.invalidateQueries({ queryKey: ["design", idStr] });
-      setDirty(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function uploadImage(file: File, color: string, makeCover: boolean) {
-    if (isNew) {
-      toast.warning("Save the design first, then add the image");
-      return;
-    }
-    setUploadingImage(true);
-    const fd = new FormData();
-    fd.append("file", file);
-    if (color) fd.append("color", color);
-    if (makeCover) fd.append("makeCover", "1");
-    const promise = fetch(`/api/catalog/designs/${id}/image`, {
-      method: "POST",
-      body: fd,
-    })
-      .then(async (r) => {
+      for (const t of ordered) {
+        const dcode = `${prefix}-${t.suffix}`;
+        const r = await fetch(`/api/catalog/designs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code: dcode,
+            name: `${prefix} ${t.label}`,
+            door_type: t.value,
+            description,
+            allowed_colors: colors.join(","),
+          }),
+        });
         const j = await r.json();
-        if (!r.ok || !j.ok) throw new Error(j.error || "Upload failed");
-        qc.invalidateQueries({ queryKey: ["design", idStr] });
-        qc.invalidateQueries({ queryKey: ["design-images", Number(id)] });
-        return j;
-      })
-      .finally(() => setUploadingImage(false));
-    toast.promise(promise, {
-      loading: "Uploading…",
-      success: (j: { coveredProducts?: number }) =>
-        makeCover
-          ? j.coveredProducts
-            ? "Image added & set as storefront cover"
-            : "Image added & set as cover (no storefront product linked yet)"
-          : color
-            ? `Added ${color} variant`
-            : "Image added",
-      error: (e) => (e instanceof Error ? e.message : "Failed"),
-    });
-  }
-
-  async function patchImage(attId: number, color: string, makeCover = false) {
-    const promise = fetch(`/api/catalog/designs/${id}/image`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ attId, color, makeCover }),
-    }).then(async (r) => {
-      const j = await r.json();
-      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
-      qc.invalidateQueries({ queryKey: ["design", idStr] });
-      qc.invalidateQueries({ queryKey: ["design-images", Number(id)] });
-      return j;
-    });
-    toast.promise(promise, {
-      loading: "Updating…",
-      success: (j: { coveredProducts?: number }) =>
-        makeCover
-          ? j.coveredProducts
-            ? "Cover updated — storefront image set"
-            : "Cover set, but no storefront product is linked to this design yet"
-          : "Tag updated",
-      error: (e) => (e instanceof Error ? e.message : "Failed"),
-    });
-  }
-
-  async function deleteOneImage(attId: number) {
-    if (!confirm("Delete this image?")) return;
-    const promise = fetch(`/api/catalog/designs/${id}/image?att=${attId}`, {
-      method: "DELETE",
-    }).then(async (r) => {
-      const j = await r.json();
-      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
-      qc.invalidateQueries({ queryKey: ["design", idStr] });
-      qc.invalidateQueries({ queryKey: ["design-images", Number(id)] });
-      return j;
-    });
-    toast.promise(promise, {
-      loading: "Removing…",
-      success: "Image removed",
-      error: (e) => (e instanceof Error ? e.message : "Failed"),
-    });
-  }
-
-  async function deleteImage() {
-    if (isNew) return;
-    // The DELETE endpoint removes EVERY ir.attachment linked to this
-    // design, not just the cover image. Confirm so the user does not
-    // wipe a full gallery (4-7 renders) with a single click.
-    if (
-      !confirm(
-        "Remove ALL images from this design? This deletes every uploaded picture, not just the cover.",
-      )
-    ) {
-      return;
-    }
-    const promise = fetch(`/api/catalog/designs/${id}/image?all=1`, {
-      method: "DELETE",
-    }).then(async (r) => {
-      const j = await r.json();
-      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
-      qc.invalidateQueries({ queryKey: ["design", idStr] });
-      qc.invalidateQueries({ queryKey: ["design-images", Number(id)] });
-      return j;
-    });
-    toast.promise(promise, {
-      loading: "Removing images…",
-      success: "All images removed",
-      error: (e) => (e instanceof Error ? e.message : "Failed"),
-    });
-  }
-
-  async function destroyDesign() {
-    if (isNew) return;
-    if (
-      !confirm(
-        "Delete this design permanently? If it's used by any order, the system will refuse and ask you to archive instead.",
-      )
-    ) {
-      return;
-    }
-    const promise = fetch(`/api/catalog/designs/${id}`, {
-      method: "DELETE",
-    }).then(async (r) => {
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "Failed");
-      qc.invalidateQueries({ queryKey: ["catalog-designs"] });
-      router.replace("/catalog");
-      return j;
-    });
-    toast.promise(promise, {
-      loading: "Deleting…",
-      success: "Design deleted",
-      error: (e) => (e instanceof Error ? e.message : "Failed"),
-    });
-  }
-
-  if (!isNew && error) {
-    const status = (error as (Error & { status?: number }) | null)?.status;
-    const notFound = status === 404;
-    return (
-      <ErrorState
-        title={notFound ? "Design not found" : "Couldn't load design"}
-        message={
-          notFound
-            ? `Design #${idStr} doesn't exist or was removed.`
-            : "Something went wrong loading this design. Check your connection and try again."
+        if (r.ok && j.id) {
+          createdIds.push(j.id);
+          createdCodes.push(dcode);
+        } else {
+          failed.push(`${dcode}${j.error ? ` — ${j.error}` : ""}`);
         }
-        backHref="/catalog"
-        onRetry={notFound ? undefined : () => refetch()}
-      />
-    );
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falló");
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+    qc.invalidateQueries({ queryKey: ["catalog-designs"] });
+    if (createdIds.length) {
+      toast.success(`Creado${createdIds.length > 1 ? "s" : ""}: ${createdCodes.join(", ")}.`);
+      if (failed.length) toast.warning(`No se pudo crear: ${failed.join("; ")}`);
+      router.replace(`/catalog/designs/${createdIds[0]}`);
+    } else {
+      toast.error(`No se pudo crear ningún diseño: ${failed.join("; ")}`);
+    }
   }
-
-  if (!isNew && isLoading) {
-    return <div className="p-12 text-center text-slate-400">Loading…</div>;
-  }
-
-  const imageUrl = data?.imageUrl ?? null;
-  const usedIn = data?.usedIn ?? 0;
 
   return (
-    <div className="mx-auto max-w-[1100px] space-y-5">
-      <div className="flex items-center gap-2 text-sm text-slate-500">
-        <Link href="/catalog" className="hover:text-indigo-700" onClick={guardNav}>
-          <ArrowLeft size={14} className="inline" /> Catalog
+    <div className="mx-auto max-w-[820px] space-y-5">
+      <Breadcrumb label="New design" />
+      <header className="flex items-center gap-3">
+        <Link href="/catalog" className="rounded-xl p-1.5 hover:bg-slate-100">
+          <ArrowLeft size={18} className="text-slate-500" />
         </Link>
-        <span>›</span>
-        <span className="font-semibold text-slate-800">
-          {isNew ? "New design" : data?.design.code}
-        </span>
-      </div>
-
-      {createdSet.length > 1 && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          <div className="font-semibold">
-            ✓ Se crearon {createdSet.length} diseños juntos.
-          </div>
-          <p className="mt-0.5 text-emerald-800/90">
-            Estás viendo el primero. Abrí cada uno para subirle su imagen:
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {createdSet.map((s) => {
-              const here = s.id === id;
-              const qs = `?created=${encodeURIComponent(
-                createdSet.map((x) => `${x.id}:${x.code}`).join(","),
-              )}`;
-              return (
-                <Link
-                  key={s.id}
-                  href={`/catalog/designs/${s.id}${qs}`}
-                  className={`rounded-md px-2.5 py-1 font-mono text-xs font-semibold transition ${
-                    here
-                      ? "bg-emerald-200 text-emerald-900"
-                      : "bg-white text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100"
-                  }`}
-                >
-                  {s.code}
-                  {here ? " · viendo" : " →"}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            <Boxes size={12} />
-            {isNew ? "Create a new design" : `Design · ${data?.design.code}`}
-          </div>
-          <h1 className="mt-1 flex flex-wrap items-center gap-2.5 text-2xl font-bold tracking-tight text-slate-900">
-            {isNew ? "New design" : (code || data?.design.code) ?? "Untitled"}
-            <DoorTypeBadge type={doorType} />
-          </h1>
-          {!isNew && usedIn > 0 && (
-            <p className="mt-1 text-xs text-slate-500">
-              Used in <strong>{usedIn}</strong> order line{usedIn === 1 ? "" : "s"}
-            </p>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {!isNew && (
-            <>
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={togglePublish}
-                disabled={pubBusy}
-                title={
-                  product?.is_published
-                    ? "Visible on the website — click to hide"
-                    : "Hidden from the website — click to publish"
-                }
-                className={
-                  product?.is_published
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                }
-              >
-                {product?.is_published ? <Eye size={14} /> : <EyeOff size={14} />}
-                {pubBusy
-                  ? "Saving…"
-                  : product?.is_published
-                    ? "Visible on web"
-                    : "Hidden — Publish"}
-              </Button>
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={() => product && window.open(product.website_url, "_blank")}
-                disabled={!product || !product.is_published}
-                title={
-                  !product
-                    ? "Publish first to get a public page"
-                    : product.is_published
-                      ? "Open the public product page"
-                      : "Publish first to view it publicly"
-                }
-              >
-                <ExternalLink size={14} />
-                View on web
-              </Button>
-            </>
-          )}
-          {!isNew && (
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={destroyDesign}
-              className="border-rose-200 text-rose-700 hover:bg-rose-50"
-            >
-              <Trash2 size={14} />
-              Delete
-            </Button>
-          )}
-          <Button
-            type="button"
-            size="lg"
-            onClick={save}
-            disabled={saving || (isNew ? newTypes.length === 0 : !dirty)}
-          >
-            <Save size={14} />
-            {saving
-              ? "Saving…"
-              : isNew
-                ? `Create design${newTypes.length > 1 ? "s" : ""}`
-                : "Save changes"}
-          </Button>
-        </div>
+        <Boxes size={26} className="text-indigo-700" />
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Nuevo diseño</h1>
       </header>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        {/* ---------- Form ---------- */}
-        <section className="space-y-5 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm lg:col-span-2">
-          <div>
-            <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">
-              Identity
-            </h2>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="code">
-                  <Hash size={12} className="inline" /> Code
-                </Label>
-                <Input
-                  id="code"
-                  value={code}
-                  onChange={(e) => markDirty(setCode)(e.target.value.toUpperCase())}
-                  placeholder={isNew ? "e.g. ID93" : "e.g. ID10-SD"}
-                  className="h-10 font-mono uppercase"
-                />
-                <p className="text-[11px] text-slate-400">
-                  {isNew ? (
-                    "Código base / prefijo, sin el sufijo — el tipo se agrega solo (ID93 → ID93-SD, ID93-DD)."
-                  ) : (
-                    <>
-                      Unique. Convention:{" "}
-                      <code className="rounded bg-slate-100 px-1">ID##-TYPE</code>
-                    </>
-                  )}
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="door-type">{isNew ? "Door types" : "Door type"}</Label>
-                {isNew ? (
-                  <>
-                    <div className="flex flex-wrap gap-2">
-                      {NEW_TYPE_OPTIONS.map((t) => {
-                        const checked = newTypes.includes(t.value);
-                        return (
-                          <button
-                            key={t.value}
-                            type="button"
-                            onClick={() =>
-                              markDirty(setNewTypes)(
-                                checked
-                                  ? newTypes.filter((x) => x !== t.value)
-                                  : [...newTypes, t.value],
-                              )
-                            }
-                            aria-pressed={checked}
-                            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition ${
-                              checked
-                                ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                            }`}
-                          >
-                            <span aria-hidden>{checked ? "☑" : "☐"}</span>
-                            {t.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <p className="text-[11px] text-slate-400">
-                      Se crea un diseño por tipo, agrupados por el código. Ej:{" "}
-                      <code className="rounded bg-slate-100 px-1">
-                        {stripFamilySuffix(code) || "ID93"}
-                      </code>{" "}
-                      →{" "}
-                      {newTypes.length
-                        ? NEW_TYPE_OPTIONS.filter((o) => newTypes.includes(o.value))
-                            .map((o) => `${stripFamilySuffix(code) || "ID93"}-${o.suffix}`)
-                            .join(", ")
-                        : "elegí al menos un tipo"}
-                      .
-                    </p>
-                  </>
-                ) : !doorType ? (
-                  <>
-                    <div className="flex h-10 items-center rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 text-sm font-medium text-indigo-800">
-                      Single or Double — chosen on each order
-                    </div>
-                    <p className="text-[11px] text-slate-400">
-                      Flexible design (e.g. CUSTOM). The dealer picks Single or
-                      Double when placing the order — it isn&apos;t fixed here.
-                    </p>
-                  </>
-                ) : (
-                  <FamilyTypes
-                    family={stripFamilySuffix(data?.design.code || code)}
-                    currentId={id}
-                  />
-                )}
-              </div>
-              {!isNew && (
-                <div className="space-y-1.5 md:col-span-2">
-                  <Label htmlFor="name">Display name</Label>
-                  <Input
-                    id="name"
-                    value={name}
-                    onChange={(e) => {
-                      setNameTouched(true);
-                      markDirty(setName)(e.target.value);
-                    }}
-                    placeholder="e.g. ID10 Single Door"
-                    className="h-10"
-                  />
-                  <p className="text-[11px] text-slate-400">
-                    Just a label shown in lists — the real type is the badge next
-                    to the title above. Leave it and it auto-fills from code + type.
-                  </p>
-                </div>
-              )}
-              <div className="space-y-1.5 md:col-span-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={description}
-                  onChange={(e) => markDirty(setDescription)(e.target.value)}
-                  rows={3}
-                  placeholder="Any noteworthy detail about this model…"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* ---------- Variations ---------- */}
-          <div className="border-t border-slate-100 pt-5">
-            <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-slate-500">
-              Variations
-            </h2>
-            <p className="mb-4 text-xs text-slate-500">
-              Restrict what an order line can pick when this design is chosen.
-              Leave blank to allow anything.
+      <section className="space-y-5 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="code">
+              <Hash size={12} className="inline" /> Código
+            </Label>
+            <Input
+              id="code"
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="e.g. ID93"
+              className="h-10 font-mono uppercase"
+            />
+            <p className="text-[11px] text-slate-400">
+              Solo el prefijo — el tipo se agrega solo (ID93 → ID93-SD, ID93-DD).
             </p>
-
-            <div className="space-y-5">
-              {/* Colors */}
-              <div>
-                <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Colors available
-                </Label>
-                <div className="flex flex-wrap gap-2">
-                  {COLOR_OPTIONS.map((c) => {
-                    const checked = allowedColors.includes(c.value);
-                    return (
-                      <button
-                        key={c.value}
-                        type="button"
-                        onClick={() => toggleColor(c.value)}
-                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                          checked
-                            ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                        }`}
-                      >
-                        {c.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Glass types */}
-              <div>
-                <Label htmlFor="glass-types" className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Glass types available
-                </Label>
-                <Input
-                  id="glass-types"
-                  value={allowedGlassTypes}
-                  onChange={(e) => markDirty(setAllowedGlassTypes)(e.target.value)}
-                  placeholder="e.g. ESW, CGI, Tempered"
-                  className="h-10"
-                />
-                <p className="mt-1 text-[10px] text-slate-400">
-                  Comma-separated tokens. Empty = free-form glass type field.
-                </p>
-              </div>
-
-              {/* Compatible brands */}
-              <div>
-                <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Compatible brands
-                </Label>
-                {(brandsQ.data?.records ?? []).length === 0 ? (
-                  <p className="text-xs italic text-slate-400">Loading brands…</p>
-                ) : (
-                  <div className="grid max-h-40 grid-cols-2 gap-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/40 p-2 scrollbar-thin md:grid-cols-3">
-                    {(brandsQ.data?.records ?? []).map((b) => {
-                      const checked = allowedBrandIds.includes(b.id);
-                      return (
-                        <label
-                          key={b.id}
-                          className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-xs text-slate-700 hover:bg-white"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleBrand(b.id)}
-                          />
-                          <span className="truncate">{b.name}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-                <p className="mt-1 text-[10px] text-slate-400">
-                  {allowedBrandIds.length === 0
-                    ? "None selected = any brand is allowed."
-                    : `${allowedBrandIds.length} selected.`}
-                </p>
-              </div>
-
-              {/* Dimensions */}
-              <div>
-                <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Dimension range (inches)
-                </Label>
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  <DimInput
-                    label="Min width"
-                    value={minWidth}
-                    onChange={markDirty(setMinWidth)}
-                  />
-                  <DimInput
-                    label="Max width"
-                    value={maxWidth}
-                    onChange={markDirty(setMaxWidth)}
-                  />
-                  <DimInput
-                    label="Min height"
-                    value={minHeight}
-                    onChange={markDirty(setMinHeight)}
-                  />
-                  <DimInput
-                    label="Max height"
-                    value={maxHeight}
-                    onChange={markDirty(setMaxHeight)}
-                  />
-                </div>
-                <p className="mt-1 text-[10px] text-slate-400">
-                  0 = no constraint.
-                </p>
-              </div>
-            </div>
           </div>
-
-          {!isNew && (
-            <div className="border-t border-slate-100 pt-5">
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
-                Lifecycle
-              </h2>
-              <label className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/40 p-3">
-                <input
-                  type="checkbox"
-                  checked={active}
-                  onChange={(e) => markDirty(setActive)(e.target.checked)}
-                  className="mt-1"
-                />
-                <div className="flex-1">
-                  <div className="text-sm font-semibold text-slate-800">
-                    Active in the catalog
-                  </div>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    When inactive, the design hides from the dealer-facing
-                    catalog but the order history is preserved.
-                  </p>
-                </div>
-                {!active && (
-                  <Badge variant="secondary" className="bg-amber-50 text-amber-700">
-                    <Archive size={10} className="inline" /> Archived
-                  </Badge>
-                )}
-              </label>
+          <div className="space-y-1.5">
+            <Label>Tipos de puerta</Label>
+            <div className="flex flex-wrap gap-2">
+              {TYPE_OPTIONS.map((t) => {
+                const on = types.includes(t.value);
+                return (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => toggleType(t.value)}
+                    aria-pressed={on}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition ${
+                      on
+                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span aria-hidden>{on ? "☑" : "☐"}</span>
+                    {t.label}
+                  </button>
+                );
+              })}
             </div>
-          )}
-        </section>
-
-        {/* ---------- Images (gallery) ---------- */}
-        <section className="space-y-3 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-              Images
-            </h2>
-            {!isNew && (
-              <button
-                type="button"
-                onClick={deleteImage}
-                className="text-[10px] font-medium text-rose-600 hover:underline"
-              >
-                Wipe all
-              </button>
-            )}
-          </div>
-          <p className="text-xs text-slate-500">
-            Upload one image per color variant. The Order Detail page
-            shows the variant that matches the ordered color (e.g.{" "}
-            <code className="rounded bg-slate-100 px-1">ID15-DD-black.jpg</code>{" "}
-            is used when an order with{" "}
-            <code className="rounded bg-slate-100 px-1">color = black</code>{" "}
-            is opened). Tag the cover so unmatched orders fall back to it.
-            <br />
-            <strong>★ Set as cover</strong> also becomes the picture shown on
-            the public storefront for the linked product.
-          </p>
-
-          <ImageGallery
-            designId={Number(id)}
-            cover={imageUrl}
-            disabled={isNew}
-            onRetag={patchImage}
-            onDelete={deleteOneImage}
-            uploading={uploadingImage}
-          />
-
-          <ImageUploader
-            disabled={isNew || uploadingImage}
-            uploading={uploadingImage}
-            fileInputRef={fileInputRef}
-            onPick={uploadImage}
-          />
-
-          {isNew && (
-            <p className="text-[11px] text-amber-700">
-              Save the design first to enable image upload.
+            <p className="text-[11px] text-slate-400">
+              {prefix && types.length
+                ? TYPE_OPTIONS.filter((o) => types.includes(o.value))
+                    .map((o) => `${prefix}-${o.suffix}`)
+                    .join(", ")
+                : "Elegí uno o varios."}
             </p>
-          )}
-        </section>
-      </div>
+          </div>
+        </div>
+
+        <ColorsField value={colors} onToggle={toggleColor} />
+
+        <div className="space-y-1.5">
+          <Label htmlFor="desc">Descripción (opcional)</Label>
+          <Textarea
+            id="desc"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={2}
+            placeholder="Algún detalle del modelo…"
+          />
+        </div>
+
+        <div className="flex justify-end">
+          <Button size="lg" onClick={create} disabled={saving || types.length === 0}>
+            <Save size={14} />
+            {saving ? "Creando…" : `Crear diseño${types.length > 1 ? "s" : ""}`}
+          </Button>
+        </div>
+      </section>
+      <p className="text-center text-xs text-slate-400">
+        Después de crear, cargás la imagen de cada tipo en la ficha del diseño.
+      </p>
     </div>
   );
 }
 
-/**
- * Family door-type manager shown on an existing design (edit mode). Makes edit
- * coherent with create: shows all three types with their state — open the one
- * that exists, create the one that's missing — instead of a dead "fixed" label.
- */
-function FamilyTypes({ family, currentId }: { family: string; currentId: number }) {
-  const router = useRouter();
+/* ============================================================= *
+ *  FAMILY EDITOR — one screen for the whole design (all types)  *
+ * ============================================================= */
+function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) {
   const qc = useQueryClient();
-  const [creating, setCreating] = useState<string | null>(null);
 
-  const { data } = useQuery<{
+  const { data, isLoading, error, refetch } = useQuery<DesignPayload>({
+    queryKey: ["design", idStr],
+    queryFn: () => fetchJson<DesignPayload>(`/api/catalog/designs/${designId}`),
+    retry: 1,
+  });
+
+  const family = data ? stripFamilySuffix(data.design.code) : "";
+
+  // Siblings in the same family (id + code + door_type). Drives the type row.
+  const familyQ = useQuery<{
     records: Array<{ id: number; code: string; door_type: string | false }>;
   }>({
     queryKey: ["design-family", family],
@@ -1026,18 +272,504 @@ function FamilyTypes({ family, currentId }: { family: string; currentId: number 
     staleTime: 30_000,
   });
 
-  // Keep only records that truly belong to this family (exact match once the
-  // -SD/-DD/-SDL suffix is stripped), then index the first entry per type.
-  const byType = new Map<string, { id: number; code: string }>();
-  for (const r of data?.records ?? []) {
-    if (stripFamilySuffix(r.code) !== family) continue;
-    const t = (r.door_type as string) || "";
-    if (t && !byType.has(t)) byType.set(t, { id: r.id, code: r.code });
+  const siblings = (familyQ.data?.records ?? []).filter(
+    (r) => stripFamilySuffix(r.code) === family,
+  );
+  const idByType = new Map<string, number>();
+  for (const s of siblings) {
+    const t = (s.door_type as string) || "";
+    if (t && !idByType.has(t)) idByType.set(t, s.id);
   }
 
-  async function createSibling(typeValue: string, suffix: string, label: string) {
-    if (creating) return;
-    setCreating(typeValue);
+  if (error) {
+    const status = (error as (Error & { status?: number }) | null)?.status;
+    const notFound = status === 404;
+    return (
+      <ErrorState
+        title={notFound ? "Diseño no encontrado" : "No se pudo cargar el diseño"}
+        message={
+          notFound
+            ? `El diseño #${idStr} no existe o fue removido.`
+            : "Algo salió mal. Revisá la conexión y reintentá."
+        }
+        backHref="/catalog"
+        onRetry={notFound ? undefined : () => refetch()}
+      />
+    );
+  }
+  if (isLoading || !data) {
+    return <div className="p-12 text-center text-slate-400">Cargando…</div>;
+  }
+
+  // Flexible / CUSTOM design (no fixed type): the door type is chosen per
+  // order, so there's no SD/DD/sidelite split — edit it as a single entry.
+  if (!data.design.door_type) {
+    return (
+      <div className="mx-auto max-w-[820px] space-y-5">
+        <Breadcrumb label={data.design.code} />
+        <header className="flex flex-wrap items-center gap-3">
+          <Link href="/catalog" className="rounded-xl p-1.5 hover:bg-slate-100">
+            <ArrowLeft size={18} className="text-slate-500" />
+          </Link>
+          <Boxes size={26} className="text-indigo-700" />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Diseño <span className="font-mono">{data.design.code}</span>
+          </h1>
+          <Badge variant="secondary" className="bg-indigo-50 text-[10px] text-indigo-700">
+            Flexible · el tipo se elige al pedir
+          </Badge>
+        </header>
+        <CommonInfoCard
+          family={data.design.code}
+          siblingIds={[designId]}
+          initial={data.design}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["design", idStr] })}
+        />
+        <div className="max-w-md">
+          <TypePanel designId={designId} label="Imágenes del diseño" highlight />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-[1100px] space-y-5">
+      <Breadcrumb label={family || data.design.code} />
+
+      <header className="flex flex-wrap items-center gap-3">
+        <Link href="/catalog" className="rounded-xl p-1.5 hover:bg-slate-100">
+          <ArrowLeft size={18} className="text-slate-500" />
+        </Link>
+        <Boxes size={26} className="text-indigo-700" />
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          Diseño <span className="font-mono">{family}</span>
+        </h1>
+      </header>
+
+      {/* -------- Common info (applies to every type) -------- */}
+      <CommonInfoCard
+        family={family}
+        siblingIds={siblings.map((s) => s.id)}
+        initial={data.design}
+        onSaved={() => {
+          qc.invalidateQueries({ queryKey: ["design", idStr] });
+          for (const s of siblings)
+            qc.invalidateQueries({ queryKey: ["design", String(s.id)] });
+        }}
+      />
+
+      {/* -------- One panel per door type (images live here) -------- */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {TYPE_OPTIONS.map((t) => {
+          const existingId = idByType.get(t.value);
+          return existingId ? (
+            <TypePanel
+              key={t.value}
+              designId={existingId}
+              label={t.label}
+              highlight={existingId === designId}
+            />
+          ) : (
+            <AddTypeCard
+              key={t.value}
+              label={t.label}
+              family={family}
+              suffix={t.suffix}
+              typeValue={t.value}
+              onAdded={() => familyQ.refetch()}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* -------- Common info card: writes to every sibling on save -------- */
+function CommonInfoCard({
+  family,
+  siblingIds,
+  initial,
+  onSaved,
+}: {
+  family: string;
+  siblingIds: number[];
+  initial: DesignPayload["design"];
+  onSaved: () => void;
+}) {
+  const [description, setDescription] = useState(
+    typeof initial.description === "string" ? initial.description : "",
+  );
+  const [colors, setColors] = useState<string[]>(
+    typeof initial.allowed_colors === "string"
+      ? initial.allowed_colors.split(",").map((c) => c.trim()).filter(Boolean)
+      : [],
+  );
+  const [glass, setGlass] = useState(
+    typeof initial.allowed_glass_types === "string" ? initial.allowed_glass_types : "",
+  );
+  const [brandIds, setBrandIds] = useState<number[]>(
+    Array.isArray(initial.allowed_brand_ids) ? initial.allowed_brand_ids : [],
+  );
+  const [advanced, setAdvanced] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const brandsQ = useQuery<{ records: Brand[] }>({
+    queryKey: ["catalog-brands"],
+    queryFn: () => fetch("/api/catalog/brands").then((r) => r.json()),
+    staleTime: 5 * 60_000,
+    enabled: advanced,
+  });
+
+  function mark<T>(setter: (v: T) => void) {
+    return (v: T) => {
+      setter(v);
+      setDirty(true);
+    };
+  }
+  function toggleColor(v: string) {
+    setColors((p) => (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]));
+    setDirty(true);
+  }
+  function toggleBrand(id: number) {
+    setBrandIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+    setDirty(true);
+  }
+
+  async function save() {
+    if (!siblingIds.length) return;
+    setSaving(true);
+    const body = {
+      description,
+      allowed_colors: colors.join(","),
+      allowed_glass_types: glass,
+      allowed_brand_ids: brandIds,
+    };
+    const results = await Promise.allSettled(
+      siblingIds.map((sid) =>
+        fetch(`/api/catalog/designs/${sid}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).then(async (r) => {
+          const j = await r.json();
+          if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+          return j;
+        }),
+      ),
+    );
+    setSaving(false);
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed === 0) {
+      toast.success("Info del diseño guardada (aplica a todos los tipos).");
+      setDirty(false);
+      onSaved();
+    } else {
+      toast.error(`No se pudo guardar en ${failed} de ${siblingIds.length} tipos.`);
+    }
+  }
+
+  return (
+    <section className="space-y-4 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+          Info del diseño
+        </h2>
+        <span className="text-[11px] text-slate-400">Aplica a Single, Double y Sidelite</span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label>Código</Label>
+          <div className="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-sm text-slate-700">
+            {family}
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="desc">Descripción</Label>
+          <Input
+            id="desc"
+            value={description}
+            onChange={(e) => mark(setDescription)(e.target.value)}
+            placeholder="Detalle del modelo…"
+            className="h-10"
+          />
+        </div>
+      </div>
+
+      <ColorsField value={colors} onToggle={toggleColor} />
+
+      <div>
+        <button
+          type="button"
+          onClick={() => setAdvanced((v) => !v)}
+          className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700"
+        >
+          <ChevronDown size={13} className={advanced ? "rotate-180 transition" : "transition"} />
+          Opcional: vidrios y marcas
+        </button>
+        {advanced && (
+          <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="glass" className="text-xs">
+                Tipos de vidrio
+              </Label>
+              <Input
+                id="glass"
+                value={glass}
+                onChange={(e) => mark(setGlass)(e.target.value)}
+                placeholder="e.g. ESW, CGI"
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Marcas compatibles</Label>
+              <div className="grid max-h-32 grid-cols-2 gap-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/40 p-2">
+                {(brandsQ.data?.records ?? []).map((b) => (
+                  <label
+                    key={b.id}
+                    className="flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 text-xs text-slate-700 hover:bg-white"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={brandIds.includes(b.id)}
+                      onChange={() => toggleBrand(b.id)}
+                    />
+                    <span className="truncate">{b.name}</span>
+                  </label>
+                ))}
+                {(brandsQ.data?.records ?? []).length === 0 && (
+                  <span className="text-[11px] italic text-slate-400">Cargando…</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end">
+        <Button size="sm" onClick={save} disabled={!dirty || saving}>
+          <Save size={13} />
+          {saving ? "Guardando…" : "Guardar info"}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/* -------- Per-type panel: the images for one door type live here -------- */
+function TypePanel({
+  designId,
+  label,
+  highlight,
+}: {
+  designId: number;
+  label: string;
+  highlight: boolean;
+}) {
+  const qc = useQueryClient();
+  const router = useRouter();
+  const idStr = String(designId);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [pubBusy, setPubBusy] = useState(false);
+
+  const { data } = useQuery<DesignPayload>({
+    queryKey: ["design", idStr],
+    queryFn: () => fetchJson<DesignPayload>(`/api/catalog/designs/${designId}`),
+    retry: 1,
+  });
+  const product = data?.product ?? null;
+  const usedIn = data?.usedIn ?? 0;
+
+  async function uploadImage(file: File, color: string, makeCover: boolean) {
+    setUploading(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    if (color) fd.append("color", color);
+    if (makeCover) fd.append("makeCover", "1");
+    const promise = fetch(`/api/catalog/designs/${designId}/image`, { method: "POST", body: fd })
+      .then(async (r) => {
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j.error || "Upload failed");
+        qc.invalidateQueries({ queryKey: ["design", idStr] });
+        qc.invalidateQueries({ queryKey: ["design-images", designId] });
+        return j;
+      })
+      .finally(() => setUploading(false));
+    toast.promise(promise, {
+      loading: "Subiendo…",
+      success: color ? `Agregada variante ${color}` : "Imagen agregada",
+      error: (e) => (e instanceof Error ? e.message : "Falló"),
+    });
+  }
+
+  function patchImage(attId: number, color: string, makeCover = false) {
+    const promise = fetch(`/api/catalog/designs/${designId}/image`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attId, color, makeCover }),
+    }).then(async (r) => {
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+      qc.invalidateQueries({ queryKey: ["design", idStr] });
+      qc.invalidateQueries({ queryKey: ["design-images", designId] });
+      return j;
+    });
+    toast.promise(promise, {
+      loading: "Actualizando…",
+      success: makeCover ? "Portada actualizada" : "Etiqueta actualizada",
+      error: (e) => (e instanceof Error ? e.message : "Falló"),
+    });
+  }
+
+  function deleteOneImage(attId: number) {
+    if (!confirm("¿Borrar esta imagen?")) return;
+    const promise = fetch(`/api/catalog/designs/${designId}/image?att=${attId}`, {
+      method: "DELETE",
+    }).then(async (r) => {
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+      qc.invalidateQueries({ queryKey: ["design", idStr] });
+      qc.invalidateQueries({ queryKey: ["design-images", designId] });
+      return j;
+    });
+    toast.promise(promise, {
+      loading: "Quitando…",
+      success: "Imagen quitada",
+      error: (e) => (e instanceof Error ? e.message : "Falló"),
+    });
+  }
+
+  async function togglePublish() {
+    if (pubBusy) return;
+    const next = !(product?.is_published ?? false);
+    setPubBusy(true);
+    try {
+      const r = await fetch(`/api/catalog/designs/${designId}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ published: next }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+      qc.invalidateQueries({ queryKey: ["design", idStr] });
+      toast.success(next ? "Visible en la web" : "Oculto de la web");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falló");
+    } finally {
+      setPubBusy(false);
+    }
+  }
+
+  function destroy() {
+    if (
+      !confirm(
+        `¿Borrar la versión ${label}? Si se usó en alguna orden, el sistema lo rechaza y hay que archivarla.`,
+      )
+    )
+      return;
+    const promise = fetch(`/api/catalog/designs/${designId}`, { method: "DELETE" }).then(
+      async (r) => {
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "Failed");
+        qc.invalidateQueries({ queryKey: ["catalog-designs"] });
+        router.refresh();
+        return j;
+      },
+    );
+    toast.promise(promise, {
+      loading: "Borrando…",
+      success: `${label} borrada`,
+      error: (e) => (e instanceof Error ? e.message : "Falló"),
+    });
+  }
+
+  return (
+    <section
+      className={`flex flex-col gap-3 rounded-2xl border bg-white p-4 shadow-sm ${
+        highlight ? "border-indigo-300 ring-1 ring-indigo-100" : "border-slate-100"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-800">{label}</h3>
+        {product?.is_published ? (
+          <Badge variant="secondary" className="bg-emerald-50 text-[10px] text-emerald-700">
+            En la web
+          </Badge>
+        ) : (
+          <Badge variant="secondary" className="bg-slate-100 text-[10px] text-slate-500">
+            Oculto
+          </Badge>
+        )}
+      </div>
+
+      <ImageGallery
+        designId={designId}
+        onRetag={patchImage}
+        onDelete={deleteOneImage}
+        uploading={uploading}
+      />
+      <ImageUploader uploading={uploading} fileInputRef={fileInputRef} onPick={uploadImage} />
+
+      <div className="mt-1 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2 text-[11px]">
+        <button
+          type="button"
+          onClick={togglePublish}
+          disabled={pubBusy}
+          className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {product?.is_published ? <EyeOff size={12} /> : <Eye size={12} />}
+          {product?.is_published ? "Ocultar" : "Publicar"}
+        </button>
+        {product?.is_published && product.website_url && (
+          <a
+            href={product.website_url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <ExternalLink size={12} /> Ver
+          </a>
+        )}
+        <button
+          type="button"
+          onClick={destroy}
+          className="ml-auto inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1 font-medium text-rose-600 hover:bg-rose-50"
+        >
+          <Trash2 size={12} /> Borrar
+        </button>
+      </div>
+      {usedIn > 0 && (
+        <p className="text-[10px] text-slate-400">
+          Usado en {usedIn} orden{usedIn === 1 ? "" : "es"}.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/* -------- Placeholder card for a type that doesn't exist yet -------- */
+function AddTypeCard({
+  label,
+  family,
+  suffix,
+  typeValue,
+  onAdded,
+}: {
+  label: string;
+  family: string;
+  suffix: string;
+  typeValue: string;
+  onAdded: () => void;
+}) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+
+  async function add() {
+    if (busy) return;
+    setBusy(true);
     try {
       const dcode = `${family}-${suffix}`;
       const r = await fetch(`/api/catalog/designs`, {
@@ -1047,63 +779,82 @@ function FamilyTypes({ family, currentId }: { family: string; currentId: number 
       });
       const j = await r.json();
       if (!r.ok || !j.id) throw new Error(j.error || "No se pudo crear");
-      qc.invalidateQueries({ queryKey: ["design-family", family] });
       qc.invalidateQueries({ queryKey: ["catalog-designs"] });
-      toast.success(`Creado ${dcode}. Agregale una imagen.`);
-      router.push(`/catalog/designs/${j.id}`);
+      toast.success(`Agregado ${label}. Subile una imagen.`);
+      onAdded();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falló");
     } finally {
-      setCreating(null);
+      setBusy(false);
     }
   }
 
   return (
-    <>
+    <section className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-6 text-center">
+      <h3 className="text-sm font-semibold text-slate-500">{label}</h3>
+      <p className="text-[11px] text-slate-400">Esta versión todavía no existe.</p>
+      <Button size="sm" variant="outline" onClick={add} disabled={busy}>
+        <Plus size={13} />
+        {busy ? "Agregando…" : `Agregar ${label}`}
+      </Button>
+    </section>
+  );
+}
+
+/* ============================================================= *
+ *  Shared bits                                                  *
+ * ============================================================= */
+function Breadcrumb({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm text-slate-500">
+      <Link href="/catalog" className="hover:text-indigo-700">
+        <ArrowLeft size={14} className="inline" /> Catalog
+      </Link>
+      <span>›</span>
+      <span className="font-semibold text-slate-800">{label}</span>
+    </div>
+  );
+}
+
+function ColorsField({
+  value,
+  onToggle,
+}: {
+  value: string[];
+  onToggle: (v: string) => void;
+}) {
+  return (
+    <div>
+      <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Colores disponibles
+      </Label>
       <div className="flex flex-wrap gap-2">
-        {NEW_TYPE_OPTIONS.map((t) => {
-          const existing = byType.get(t.value);
-          if (existing) {
-            const here = existing.id === currentId;
-            return here ? (
-              <span
-                key={t.value}
-                className="inline-flex items-center gap-1 rounded-lg border border-indigo-500 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700"
-              >
-                {t.label} · viendo
-              </span>
-            ) : (
-              <Link
-                key={t.value}
-                href={`/catalog/designs/${existing.id}`}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50"
-              >
-                {t.label} →
-              </Link>
-            );
-          }
+        {COLOR_OPTIONS.map((c) => {
+          const on = value.includes(c.value);
           return (
             <button
-              key={t.value}
+              key={c.value}
               type="button"
-              onClick={() => createSibling(t.value, t.suffix, t.label)}
-              disabled={creating !== null}
-              className="inline-flex items-center gap-1 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-500 transition hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50"
+              onClick={() => onToggle(c.value)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                on
+                  ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
             >
-              {creating === t.value ? "Creando…" : `+ Crear ${t.label}`}
+              {c.label}
             </button>
           );
         })}
       </div>
-      <p className="text-[11px] text-slate-400">
-        Familia <code className="rounded bg-slate-100 px-1">{family}</code>. Cada tipo es su
-        propia entrada — abrí la que existe o creá la que falta.
-      </p>
-    </>
+    </div>
   );
 }
 
-const COLOR_PILL_STYLE: Record<string, { bg: string; text: string; dot: string; label: string }> = {
+const COLOR_PILL_STYLE: Record<
+  string,
+  { bg: string; text: string; dot: string; label: string }
+> = {
   white: { bg: "bg-slate-50", text: "text-slate-800", dot: "#fff", label: "White" },
   bronze: { bg: "bg-amber-50", text: "text-amber-800", dot: "#a16207", label: "Bronze" },
   bronze_eco: { bg: "bg-amber-100", text: "text-amber-900", dot: "#854d0e", label: "Bronze ECO" },
@@ -1123,66 +874,51 @@ function detectColorFromName(name: string): string {
 
 function ImageGallery({
   designId,
-  cover,
-  disabled,
   onRetag,
   onDelete,
   uploading,
 }: {
   designId: number;
-  cover: string | null;
-  disabled: boolean;
   onRetag: (attId: number, color: string, makeCover?: boolean) => void;
   onDelete: (attId: number) => void;
   uploading: boolean;
 }) {
-  const { data, isLoading } = useQuery<{ records: Array<{ id: number; name: string; mimetype: string }> }>({
+  const { data, isLoading } = useQuery<{
+    records: Array<{ id: number; name: string; mimetype: string }>;
+  }>({
     queryKey: ["design-images", designId],
     queryFn: () => fetch(`/api/catalog/designs/${designId}/images`).then((r) => r.json()),
-    enabled: !disabled,
     staleTime: 30_000,
   });
-
-  if (disabled) {
-    return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center text-xs text-slate-400">
-        Save the design first to upload images.
-      </div>
-    );
-  }
 
   const records = data?.records ?? [];
   if (isLoading && records.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center text-xs text-slate-400">
-        Loading images…
+      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-5 text-center text-xs text-slate-400">
+        Cargando imágenes…
       </div>
     );
   }
   if (records.length === 0) {
     return (
-      <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-slate-400">
-        <ImageIcon size={24} />
-        <p className="text-xs">No images yet — upload one per color variant below.</p>
+      <div className="flex h-32 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-slate-400">
+        <ImageIcon size={22} />
+        <p className="text-[11px]">Sin imágenes — subí una por color.</p>
       </div>
     );
   }
 
-  // Heuristic: an attachment whose bytes match the design's image_1920
-  // is the cover. Without a flag from the API we just mark the most
-  // recently uploaded one as the assumed cover; users can switch with
-  // "Set as cover".
-  void cover; // reserved for future cover detection
-
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+    <div className="grid grid-cols-2 gap-2.5">
       {records.map((img) => {
         const detected = detectColorFromName(img.name);
         const pill = COLOR_PILL_STYLE[detected];
         return (
           <div
             key={img.id}
-            className={`group relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition ${uploading ? "opacity-60" : ""}`}
+            className={`group relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${
+              uploading ? "opacity-60" : ""
+            }`}
           >
             <div className="relative aspect-square overflow-hidden bg-slate-50">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1194,17 +930,14 @@ function ImageGallery({
               <button
                 type="button"
                 onClick={() => onDelete(img.id)}
-                className="absolute top-1.5 right-1.5 rounded-md bg-white/95 p-1 text-rose-600 shadow ring-1 ring-slate-200 opacity-0 transition group-hover:opacity-100 hover:bg-rose-50"
-                aria-label="Delete image"
-                title="Delete image"
+                className="absolute top-1.5 right-1.5 rounded-md bg-white/95 p-1 text-rose-600 opacity-0 shadow ring-1 ring-slate-200 transition group-hover:opacity-100 hover:bg-rose-50"
+                aria-label="Borrar imagen"
+                title="Borrar imagen"
               >
                 <Trash2 size={12} />
               </button>
             </div>
-            <div className="space-y-1.5 p-2 text-xs">
-              <div className="truncate text-[10px] text-slate-400" title={img.name}>
-                {img.name}
-              </div>
+            <div className="space-y-1.5 p-2">
               <div className="flex flex-wrap items-center gap-1">
                 {pill ? (
                   <Badge
@@ -1218,20 +951,17 @@ function ImageGallery({
                     {pill.label}
                   </Badge>
                 ) : (
-                  <Badge
-                    variant="secondary"
-                    className="text-[10px] font-medium text-slate-500"
-                  >
-                    Untagged
+                  <Badge variant="secondary" className="text-[10px] font-medium text-slate-500">
+                    Sin color
                   </Badge>
                 )}
                 <select
                   value={detected}
                   onChange={(e) => onRetag(img.id, e.target.value)}
                   className="ml-auto h-6 rounded-md border border-slate-200 bg-white text-[10px] text-slate-700 focus:border-indigo-400 focus:outline-none"
-                  title="Change color tag"
+                  title="Cambiar color"
                 >
-                  <option value="">Tag…</option>
+                  <option value="">Color…</option>
                   {Object.entries(COLOR_PILL_STYLE).map(([k, v]) => (
                     <option key={k} value={k}>
                       {v.label}
@@ -1243,9 +973,9 @@ function ImageGallery({
                 type="button"
                 onClick={() => onRetag(img.id, detected, true)}
                 className="block w-full rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 transition hover:bg-indigo-100"
-                title="Use this image as the cover — also sets the public storefront image for the linked product"
+                title="Usar como portada (también la imagen pública)"
               >
-                ★ Set as cover
+                ★ Portada
               </button>
             </div>
           </div>
@@ -1256,12 +986,10 @@ function ImageGallery({
 }
 
 function ImageUploader({
-  disabled,
   uploading,
   fileInputRef,
   onPick,
 }: {
-  disabled: boolean;
   uploading: boolean;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   onPick: (file: File, color: string, makeCover: boolean) => void;
@@ -1270,13 +998,9 @@ function ImageUploader({
   const [makeCover, setMakeCover] = useState(false);
 
   return (
-    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-3">
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-        Upload new image
-      </div>
+    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-2.5">
       <input
         ref={fileInputRef}
-        id="design-image-input"
         type="file"
         accept="image/*"
         onChange={(e) => {
@@ -1287,91 +1011,40 @@ function ImageUploader({
           }
           e.target.value = "";
         }}
-        style={{
-          position: "absolute",
-          width: 1,
-          height: 1,
-          padding: 0,
-          margin: -1,
-          overflow: "hidden",
-          clip: "rect(0,0,0,0)",
-          whiteSpace: "nowrap",
-          border: 0,
-        }}
+        className="sr-only"
       />
       <div className="flex flex-wrap items-center gap-2">
         <select
           value={color}
           onChange={(e) => setColor(e.target.value)}
-          className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
-          disabled={disabled}
+          className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
         >
-          <option value="">Color: Any</option>
+          <option value="">Color: cualquiera</option>
           {Object.entries(COLOR_PILL_STYLE).map(([k, v]) => (
             <option key={k} value={k}>
               {v.label}
             </option>
           ))}
         </select>
-        <label
-          className={`inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 text-[10px] font-medium ${makeCover ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "text-slate-700"}`}
-        >
+        <label className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[10px] font-medium text-slate-700">
           <input
             type="checkbox"
             checked={makeCover}
             onChange={(e) => setMakeCover(e.target.checked)}
             className="accent-indigo-600"
           />
-          Make cover
+          Portada
         </label>
-        <label
-          htmlFor="design-image-input"
-          onClick={(e) => {
-            if (disabled) {
-              e.preventDefault();
-              return;
-            }
-          }}
-          className={`inline-flex h-9 flex-1 cursor-pointer select-none items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
-            disabled
-              ? "cursor-not-allowed bg-slate-100 text-slate-400"
-              : "bg-indigo-700 text-white shadow shadow-indigo-700/20 hover:bg-indigo-800"
-          }`}
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="inline-flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-indigo-700 px-2 text-xs font-semibold text-white transition hover:bg-indigo-800 disabled:opacity-60"
         >
-          <Camera size={14} />
-          {uploading ? "Uploading…" : "Pick & upload"}
-        </label>
+          <Camera size={13} />
+          {uploading ? "Subiendo…" : "Subir imagen"}
+        </button>
       </div>
-      <p className="mt-2 text-[10px] text-slate-400">
-        File name gets the color suffix automatically (e.g.{" "}
-        <code className="bg-slate-100 px-1">door-black.jpg</code>).
-      </p>
-    </div>
-  );
-}
-
-function DimInput({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div>
-      <label className="mb-1 block text-[10px] uppercase tracking-wide text-slate-500">
-        {label}
-      </label>
-      <Input
-        type="number"
-        step="0.1"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="0"
-        className="h-9 text-sm"
-      />
     </div>
   );
 }
