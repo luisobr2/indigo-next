@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { installerRedirect } from "./lib/installer-guard";
 
 const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "indigo_session";
 
@@ -22,7 +23,14 @@ export function proxy(req: NextRequest) {
   ) {
     if (pathname === "/") {
       const url = req.nextUrl.clone();
-      url.pathname = req.cookies.has(COOKIE_NAME) ? "/dashboard" : "/login";
+      if (!req.cookies.has(COOKIE_NAME)) {
+        url.pathname = "/login";
+      } else {
+        // Installers have no dashboard — send them straight to /installs.
+        url.pathname =
+          installerRedirect("/", req.cookies.get(COOKIE_NAME)?.value) ??
+          "/dashboard";
+      }
       return NextResponse.redirect(url);
     }
     return NextResponse.next();
@@ -33,6 +41,16 @@ export function proxy(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
+    return NextResponse.redirect(url);
+  }
+
+  // Confine a pure installer to their /installs view — the management pages
+  // (e.g. /installations) 403 their data. API routes handle their own authz.
+  const dest = installerRedirect(pathname, cookie.value);
+  if (dest) {
+    const url = req.nextUrl.clone();
+    url.pathname = dest;
+    url.search = "";
     return NextResponse.redirect(url);
   }
   return NextResponse.next();
