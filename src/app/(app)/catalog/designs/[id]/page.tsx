@@ -137,6 +137,9 @@ export default function DesignEditorPage({
   // Linked storefront product (web visibility state + public URL).
   const [product, setProduct] = useState<DesignPayload["product"]>(null);
   const [pubBusy, setPubBusy] = useState(false);
+  // After a multi-type create we land on the first design but carry the whole
+  // set (id:code) in ?created= so we can reassure the user both were made.
+  const [createdSet, setCreatedSet] = useState<Array<{ id: number; code: string }>>([]);
 
   const brandsQ = useQuery<{ records: Brand[] }>({
     queryKey: ["catalog-brands"],
@@ -177,6 +180,23 @@ export default function DesignEditorPage({
     setProduct(data.product ?? null);
     setDirty(false);
   }, [data]);
+
+  // Read ?created=id:code,id:code once on mount (window, not useSearchParams,
+  // to avoid needing a Suspense boundary on this page).
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("created");
+    if (!raw) return;
+    const list = raw
+      .split(",")
+      .map((pair) => {
+        const idx = pair.indexOf(":");
+        return idx > 0
+          ? { id: Number(pair.slice(0, idx)), code: pair.slice(idx + 1) }
+          : { id: 0, code: "" };
+      })
+      .filter((x) => x.id && x.code);
+    if (list.length) setCreatedSet(list);
+  }, []);
 
   // Publish / unpublish the linked storefront product (creates one if needed).
   async function togglePublish() {
@@ -327,7 +347,16 @@ export default function DesignEditorPage({
         if (failed.length) {
           toast.warning(`No se pudo crear: ${failed.join("; ")}`);
         }
-        router.replace(`/catalog/designs/${createdIds[0]}`);
+        // Land on the first created design (to add its image) but carry the
+        // whole set so the page can show "created N together" with links — the
+        // Single-landing was being read as "it only saved Single".
+        const q =
+          createdIds.length > 1
+            ? `?created=${encodeURIComponent(
+                createdIds.map((cid, i) => `${cid}:${createdCodes[i]}`).join(","),
+              )}`
+            : "";
+        router.replace(`/catalog/designs/${createdIds[0]}${q}`);
       } else {
         toast.error(`No se pudo crear ningún diseño: ${failed.join("; ")}`);
       }
@@ -522,6 +551,39 @@ export default function DesignEditorPage({
           {isNew ? "New design" : data?.design.code}
         </span>
       </div>
+
+      {createdSet.length > 1 && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <div className="font-semibold">
+            ✓ Se crearon {createdSet.length} diseños juntos.
+          </div>
+          <p className="mt-0.5 text-emerald-800/90">
+            Estás viendo el primero. Abrí cada uno para subirle su imagen:
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {createdSet.map((s) => {
+              const here = s.id === id;
+              const qs = `?created=${encodeURIComponent(
+                createdSet.map((x) => `${x.id}:${x.code}`).join(","),
+              )}`;
+              return (
+                <Link
+                  key={s.id}
+                  href={`/catalog/designs/${s.id}${qs}`}
+                  className={`rounded-md px-2.5 py-1 font-mono text-xs font-semibold transition ${
+                    here
+                      ? "bg-emerald-200 text-emerald-900"
+                      : "bg-white text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100"
+                  }`}
+                >
+                  {s.code}
+                  {here ? " · viendo" : " →"}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
