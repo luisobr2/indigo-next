@@ -67,8 +67,6 @@ const TYPE_OPTIONS = [
 ] as const;
 
 const stripFamilySuffix = (code: string) => code.replace(/-(SD|DD|SDL)$/i, "");
-const doorTypeLabel = (v: string) =>
-  TYPE_OPTIONS.find((t) => t.value === v)?.label ?? v;
 
 /* ============================================================= *
  *  Page entry — create form (new) vs family editor (existing)   *
@@ -119,9 +117,9 @@ function CreateForm() {
     const createdIds: number[] = [];
     const createdCodes: string[] = [];
     const failed: string[] = [];
-    try {
-      for (const t of ordered) {
-        const dcode = `${prefix}-${t.suffix}`;
+    for (const t of ordered) {
+      const dcode = `${prefix}-${t.suffix}`;
+      try {
         const r = await fetch(`/api/catalog/designs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -140,14 +138,12 @@ function CreateForm() {
         } else {
           failed.push(`${dcode}${j.error ? ` — ${j.error}` : ""}`);
         }
+      } catch {
+        failed.push(`${dcode} — error de red`);
       }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Falló");
-      setSaving(false);
-      return;
     }
     setSaving(false);
-    qc.invalidateQueries({ queryKey: ["catalog-designs"] });
+    qc.invalidateQueries({ queryKey: ["catalog-families"] });
     if (createdIds.length) {
       toast.success(`Creado${createdIds.length > 1 ? "s" : ""}: ${createdCodes.join(", ")}.`);
       if (failed.length) toast.warning(`No se pudo crear: ${failed.join("; ")}`);
@@ -265,9 +261,9 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
   }>({
     queryKey: ["design-family", family],
     queryFn: () =>
-      fetch(`/api/catalog/designs?q=${encodeURIComponent(family)}&limit=100`).then((r) =>
-        r.json(),
-      ),
+      fetchJson<{
+        records: Array<{ id: number; code: string; door_type: string | false }>;
+      }>(`/api/catalog/designs?q=${encodeURIComponent(family)}&limit=100&all=1`),
     enabled: !!family,
     staleTime: 30_000,
   });
@@ -368,6 +364,7 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
               designId={existingId}
               label={t.label}
               highlight={existingId === designId}
+              onChanged={() => familyQ.refetch()}
             />
           ) : (
             <AddTypeCard
@@ -376,6 +373,21 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
               family={family}
               suffix={t.suffix}
               typeValue={t.value}
+              common={{
+                description:
+                  typeof data.design.description === "string" ? data.design.description : "",
+                allowed_colors:
+                  typeof data.design.allowed_colors === "string"
+                    ? data.design.allowed_colors
+                    : "",
+                allowed_glass_types:
+                  typeof data.design.allowed_glass_types === "string"
+                    ? data.design.allowed_glass_types
+                    : "",
+                allowed_brand_ids: Array.isArray(data.design.allowed_brand_ids)
+                  ? data.design.allowed_brand_ids
+                  : [],
+              }}
               onAdded={() => familyQ.refetch()}
             />
           );
@@ -417,7 +429,7 @@ function CommonInfoCard({
 
   const brandsQ = useQuery<{ records: Brand[] }>({
     queryKey: ["catalog-brands"],
-    queryFn: () => fetch("/api/catalog/brands").then((r) => r.json()),
+    queryFn: () => fetchJson<{ records: Brand[] }>("/api/catalog/brands"),
     staleTime: 5 * 60_000,
     enabled: advanced,
   });
@@ -439,13 +451,36 @@ function CommonInfoCard({
 
   async function save() {
     if (!siblingIds.length) return;
+    // Only write fields the user actually changed. Never push an untouched
+    // (possibly blank) value onto siblings that may differ — an empty
+    // allowed_colors means "all colors" in Odoo, so a blind overwrite could
+    // silently drop a real ordering restriction on the other door types.
+    const initColors =
+      typeof initial.allowed_colors === "string"
+        ? initial.allowed_colors.split(",").map((c) => c.trim()).filter(Boolean)
+        : [];
+    const initGlass =
+      typeof initial.allowed_glass_types === "string" ? initial.allowed_glass_types : "";
+    const initBrands = Array.isArray(initial.allowed_brand_ids)
+      ? [...initial.allowed_brand_ids].sort((a, b) => a - b)
+      : [];
+    const body: Record<string, unknown> = {};
+    if (description !== (typeof initial.description === "string" ? initial.description : ""))
+      body.description = description;
+    if (colors.join(",") !== initColors.join(",")) body.allowed_colors = colors.join(",");
+    if (advanced) {
+      if (glass !== initGlass) body.allowed_glass_types = glass;
+      if (
+        JSON.stringify([...brandIds].sort((a, b) => a - b)) !== JSON.stringify(initBrands)
+      )
+        body.allowed_brand_ids = brandIds;
+    }
+    if (Object.keys(body).length === 0) {
+      setDirty(false);
+      toast("Sin cambios para guardar.");
+      return;
+    }
     setSaving(true);
-    const body = {
-      description,
-      allowed_colors: colors.join(","),
-      allowed_glass_types: glass,
-      allowed_brand_ids: brandIds,
-    };
     const results = await Promise.allSettled(
       siblingIds.map((sid) =>
         fetch(`/api/catalog/designs/${sid}`, {
@@ -549,7 +584,7 @@ function CommonInfoCard({
       </div>
 
       <div className="flex justify-end">
-        <Button size="sm" onClick={save} disabled={!dirty || saving}>
+        <Button size="sm" onClick={save} disabled={!dirty || saving || !siblingIds.length}>
           <Save size={13} />
           {saving ? "Guardando…" : "Guardar info"}
         </Button>
@@ -563,10 +598,12 @@ function TypePanel({
   designId,
   label,
   highlight,
+  onChanged,
 }: {
   designId: number;
   label: string;
   highlight: boolean;
+  onChanged?: () => void;
 }) {
   const qc = useQueryClient();
   const router = useRouter();
@@ -582,6 +619,7 @@ function TypePanel({
   });
   const product = data?.product ?? null;
   const usedIn = data?.usedIn ?? 0;
+  const archived = !!data && data.design.active === false;
 
   async function uploadImage(file: File, color: string, makeCover: boolean) {
     setUploading(true);
@@ -663,38 +701,68 @@ function TypePanel({
     }
   }
 
-  function destroy() {
+  async function afterRemoved() {
+    qc.invalidateQueries({ queryKey: ["catalog-families"] });
+    if (highlight) router.push("/catalog");
+    else onChanged?.();
+  }
+
+  async function setActive(active: boolean) {
+    const r = await fetch(`/api/catalog/designs/${designId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) {
+      toast.error(j.error || "No se pudo actualizar");
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["design", idStr] });
+    qc.invalidateQueries({ queryKey: ["catalog-families"] });
+    onChanged?.();
+    toast.success(active ? `${label} restaurada` : `${label} oculta del catálogo`);
+  }
+
+  async function destroy() {
     if (
       !confirm(
-        `¿Borrar la versión ${label}? Si se usó en alguna orden, el sistema lo rechaza y hay que archivarla.`,
+        usedIn > 0
+          ? `¿Borrar la versión ${label}? Se usó en ${usedIn} orden(es); si no se puede borrar, te ofrezco ocultarla.`
+          : `¿Borrar la versión ${label}?`,
       )
     )
       return;
-    const promise = fetch(`/api/catalog/designs/${designId}`, { method: "DELETE" }).then(
-      async (r) => {
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || "Failed");
-        qc.invalidateQueries({ queryKey: ["catalog-designs"] });
-        router.refresh();
-        return j;
-      },
-    );
-    toast.promise(promise, {
-      loading: "Borrando…",
-      success: `${label} borrada`,
-      error: (e) => (e instanceof Error ? e.message : "Falló"),
-    });
+    try {
+      const r = await fetch(`/api/catalog/designs/${designId}`, { method: "DELETE" });
+      if (r.status === 409) {
+        // In use — can't delete. Offer to archive (hide from catalog) instead.
+        if (confirm(`No se puede borrar ${label} porque está en uso. ¿Ocultarla del catálogo?`))
+          await setActive(false);
+        return;
+      }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((j as { error?: string }).error || "Failed");
+      toast.success(`${label} borrada`);
+      await afterRemoved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falló");
+    }
   }
 
   return (
     <section
       className={`flex flex-col gap-3 rounded-2xl border bg-white p-4 shadow-sm ${
         highlight ? "border-indigo-300 ring-1 ring-indigo-100" : "border-slate-100"
-      }`}
+      } ${archived ? "opacity-70" : ""}`}
     >
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-slate-800">{label}</h3>
-        {product?.is_published ? (
+        {archived ? (
+          <Badge variant="secondary" className="bg-amber-50 text-[10px] text-amber-700">
+            Archivado
+          </Badge>
+        ) : product?.is_published ? (
           <Badge variant="secondary" className="bg-emerald-50 text-[10px] text-emerald-700">
             En la web
           </Badge>
@@ -714,24 +782,36 @@ function TypePanel({
       <ImageUploader uploading={uploading} fileInputRef={fileInputRef} onPick={uploadImage} />
 
       <div className="mt-1 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2 text-[11px]">
-        <button
-          type="button"
-          onClick={togglePublish}
-          disabled={pubBusy}
-          className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-        >
-          {product?.is_published ? <EyeOff size={12} /> : <Eye size={12} />}
-          {product?.is_published ? "Ocultar" : "Publicar"}
-        </button>
-        {product?.is_published && product.website_url && (
-          <a
-            href={product.website_url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50"
+        {archived ? (
+          <button
+            type="button"
+            onClick={() => setActive(true)}
+            className="inline-flex items-center gap-1 rounded-md border border-emerald-200 px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-50"
           >
-            <ExternalLink size={12} /> Ver
-          </a>
+            <Eye size={12} /> Restaurar
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={togglePublish}
+              disabled={pubBusy}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {product?.is_published ? <EyeOff size={12} /> : <Eye size={12} />}
+              {product?.is_published ? "Ocultar" : "Publicar"}
+            </button>
+            {product?.is_published && product.website_url && (
+              <a
+                href={product.website_url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50"
+              >
+                <ExternalLink size={12} /> Ver
+              </a>
+            )}
+          </>
         )}
         <button
           type="button"
@@ -756,12 +836,19 @@ function AddTypeCard({
   family,
   suffix,
   typeValue,
+  common,
   onAdded,
 }: {
   label: string;
   family: string;
   suffix: string;
   typeValue: string;
+  common: {
+    description: string;
+    allowed_colors: string;
+    allowed_glass_types: string;
+    allowed_brand_ids: number[];
+  };
   onAdded: () => void;
 }) {
   const qc = useQueryClient();
@@ -775,11 +862,16 @@ function AddTypeCard({
       const r = await fetch(`/api/catalog/designs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: dcode, name: `${family} ${label}`, door_type: typeValue }),
+        body: JSON.stringify({
+          code: dcode,
+          name: `${family} ${label}`,
+          door_type: typeValue,
+          ...common,
+        }),
       });
       const j = await r.json();
       if (!r.ok || !j.id) throw new Error(j.error || "No se pudo crear");
-      qc.invalidateQueries({ queryKey: ["catalog-designs"] });
+      qc.invalidateQueries({ queryKey: ["catalog-families"] });
       toast.success(`Agregado ${label}. Subile una imagen.`);
       onAdded();
     } catch (e) {
@@ -887,7 +979,10 @@ function ImageGallery({
     records: Array<{ id: number; name: string; mimetype: string }>;
   }>({
     queryKey: ["design-images", designId],
-    queryFn: () => fetch(`/api/catalog/designs/${designId}/images`).then((r) => r.json()),
+    queryFn: () =>
+      fetchJson<{ records: Array<{ id: number; name: string; mimetype: string }> }>(
+        `/api/catalog/designs/${designId}/images`,
+      ),
     staleTime: 30_000,
   });
 
