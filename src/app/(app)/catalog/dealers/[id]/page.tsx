@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Building2, Mail, Phone, MapPin, Save } from "lucide-react";
+import { ArrowLeft, Building2, Mail, Phone, MapPin, Save, KeyRound, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { fmtDate, fmtMoney, m2o } from "@/lib/utils";
 import { fetchJson } from "@/lib/fetch-json";
@@ -48,12 +48,15 @@ export default function DealerDetailPage({
   const { data, isLoading, isError, error, refetch } = useQuery<{
     dealer: DealerDto;
     orders: DealerOrder[];
+    portal: { has_user: boolean; login: string | false; active: boolean } | null;
   }>({
     queryKey: ["dealer", idStr],
     queryFn: () =>
-      fetchJson<{ dealer: DealerDto; orders: DealerOrder[] }>(
-        `/api/catalog/dealers/${id}`,
-      ),
+      fetchJson<{
+        dealer: DealerDto;
+        orders: DealerOrder[];
+        portal: { has_user: boolean; login: string | false; active: boolean } | null;
+      }>(`/api/catalog/dealers/${id}`),
     enabled: !isNew,
     retry: 1,
   });
@@ -67,6 +70,46 @@ export default function DealerDetailPage({
   const [zip, setZip] = useState("");
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const [portalPw, setPortalPw] = useState("");
+  const [showPortalPw, setShowPortalPw] = useState(false);
+  const [portalBusy, setPortalBusy] = useState(false);
+
+  async function setDealerPassword() {
+    const pw = portalPw.trim();
+    if (pw.length < 6) {
+      toast.error("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+    setPortalBusy(true);
+    const promise = fetch(`/api/catalog/dealers/${id}/portal`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pw }),
+    })
+      .then(async (r) => {
+        const j = (await r.json()) as {
+          ok?: boolean;
+          login?: string;
+          created?: boolean;
+          error?: string;
+        };
+        if (!r.ok || !j.ok) throw new Error(j.error || "No se pudo fijar la contraseña");
+        setPortalPw("");
+        qc.invalidateQueries({ queryKey: ["dealer", idStr] });
+        return j;
+      })
+      .finally(() => setPortalBusy(false));
+
+    toast.promise(promise, {
+      loading: "Fijando contraseña…",
+      success: (j) =>
+        j.created
+          ? `Acceso creado — login: ${j.login}`
+          : `Contraseña fijada — login: ${j.login}`,
+      error: (e) => (e instanceof Error ? e.message : "Falló"),
+    });
+  }
 
   useEffect(() => {
     if (isNew || !data?.dealer) return;
@@ -289,6 +332,66 @@ export default function DealerDetailPage({
                   </li>
                 ))}
               </ul>
+            )}
+          </section>
+        )}
+
+        {!isNew && data && (
+          <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
+            <h2 className="mb-1 font-semibold text-slate-800">Acceso portal</h2>
+            <p className="mb-4 text-xs text-slate-500">
+              {data.portal?.has_user ? (
+                <>
+                  Acceso {data.portal.active ? "activo" : "inactivo"} · login:{" "}
+                  <span className="font-mono">{data.portal.login}</span>
+                </>
+              ) : data.dealer.email ? (
+                <>
+                  Sin acceso — al fijar la clave se creará con login{" "}
+                  <span className="font-mono">{data.dealer.email as string}</span>
+                </>
+              ) : (
+                "Sin acceso — agregá un email y guardá antes de fijar la clave."
+              )}
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="block text-sm">
+                <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                  <KeyRound size={12} /> Nueva contraseña
+                </span>
+                <div className="relative">
+                  <Input
+                    type={showPortalPw ? "text" : "password"}
+                    value={portalPw}
+                    onChange={(e) => setPortalPw(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    disabled={!data.dealer.email}
+                    className="h-10 w-64 pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPortalPw((v) => !v)}
+                    aria-label={showPortalPw ? "Ocultar" : "Ver"}
+                    tabIndex={-1}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  >
+                    {showPortalPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </label>
+              <Button
+                type="button"
+                onClick={setDealerPassword}
+                disabled={portalBusy || !data.dealer.email || portalPw.trim().length < 6}
+              >
+                <KeyRound size={14} />
+                {portalBusy ? "Guardando…" : "Fijar contraseña"}
+              </Button>
+            </div>
+            {!data.dealer.email && (
+              <p className="mt-2 text-xs text-amber-700">
+                Agregá un email primero y guardá.
+              </p>
             )}
           </section>
         )}
