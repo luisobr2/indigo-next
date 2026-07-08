@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState, use, useRef, useEffect } from "react";
+import { useState, use } from "react";
 import Link from "next/link";
 import { ArrowLeft, Camera, CheckCircle2, LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -26,81 +26,11 @@ export default function InstallDetailPage({
     queryFn: () => fetch(`/api/orders/${id}`).then((r) => r.json()),
   });
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  // Refs avoid the stale-closure bug: keeping `drawing` and `lastX/lastY`
-  // as state would re-create the listeners on each setState, losing the
-  // `lastX/lastY` set in the synchronous mousedown handler.
-  const drawingRef = useRef(false);
-  const lastRef = useRef({ x: 0, y: 0 });
-  const [hasInk, setHasInk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoNote, setPhotoNote] = useState("");
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d")!;
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = "#1f4486";
-    ctx.lineCap = "round";
-
-    function pos(e: MouseEvent | TouchEvent) {
-      const r = canvas!.getBoundingClientRect();
-      const t = "touches" in e ? e.touches[0] : (e as MouseEvent);
-      return {
-        x: ((t.clientX - r.left) * canvas!.width) / r.width,
-        y: ((t.clientY - r.top) * canvas!.height) / r.height,
-      };
-    }
-    function start(e: MouseEvent | TouchEvent) {
-      drawingRef.current = true;
-      const p = pos(e);
-      lastRef.current = p;
-      e.preventDefault();
-    }
-    function move(e: MouseEvent | TouchEvent) {
-      if (!drawingRef.current) return;
-      const p = pos(e);
-      ctx.beginPath();
-      ctx.moveTo(lastRef.current.x, lastRef.current.y);
-      ctx.lineTo(p.x, p.y);
-      ctx.stroke();
-      lastRef.current = p;
-      setHasInk(true);
-      e.preventDefault();
-    }
-    function end() {
-      drawingRef.current = false;
-    }
-    canvas.addEventListener("mousedown", start);
-    canvas.addEventListener("mousemove", move);
-    canvas.addEventListener("mouseup", end);
-    canvas.addEventListener("mouseleave", end);
-    canvas.addEventListener("touchstart", start, { passive: false });
-    canvas.addEventListener("touchmove", move, { passive: false });
-    canvas.addEventListener("touchend", end);
-    canvas.addEventListener("touchcancel", end);
-    return () => {
-      canvas.removeEventListener("mousedown", start);
-      canvas.removeEventListener("mousemove", move);
-      canvas.removeEventListener("mouseup", end);
-      canvas.removeEventListener("mouseleave", end);
-      canvas.removeEventListener("touchstart", start);
-      canvas.removeEventListener("touchmove", move);
-      canvas.removeEventListener("touchend", end);
-      canvas.removeEventListener("touchcancel", end);
-    };
-  }, []);
-
-  function clearSignature() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height);
-    setHasInk(false);
-  }
 
   async function uploadPhoto(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -137,18 +67,12 @@ export default function InstallDetailPage({
   async function submit() {
     setBusy(true);
     try {
-      const canvas = canvasRef.current!;
-      const signatureDataUrl = hasInk
-        ? canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "")
-        : "";
       const r = await fetch(`/api/orders/${id}/advance`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           wizard: "indigo.installed.wizard",
-          payload: signatureDataUrl
-            ? { signature: signatureDataUrl, note: "Signed from portal" }
-            : {},
+          payload: {},
         }),
       });
       const j = await r.json();
@@ -290,31 +214,9 @@ export default function InstallDetailPage({
               Mark as installed
             </div>
             <p className="mb-3 text-sm text-slate-600">
-              Ask the customer to sign below. On confirmation the order moves
+              Confirm the installation is complete. The order moves
               to <strong>Installed</strong>.
             </p>
-            <canvas
-              ref={canvasRef}
-              width={500}
-              height={180}
-              className="w-full touch-none rounded-lg border border-slate-200 bg-white"
-              style={{ touchAction: "none" }}
-            />
-            <div className="mt-2 flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={clearSignature}
-              >
-                Clear signature
-              </Button>
-              {hasInk && (
-                <span className="ml-auto self-center text-[10px] text-emerald-700">
-                  ✓ Signature captured
-                </span>
-              )}
-            </div>
             <Button
               size="lg"
               onClick={submit}
