@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { use, useState } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Printer,
@@ -16,6 +17,7 @@ import {
   Calendar,
   AlertTriangle,
   StickyNote,
+  Copy,
 } from "lucide-react";
 import { AddressLink, PhoneLink } from "@/components/address-link";
 import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
@@ -69,6 +71,8 @@ export default function OrderDetailPage({
   const [noteOpen, setNoteOpen] = useState(false);
   const [schedTarget, setSchedTarget] = useState<ScheduleTarget | null>(null);
   const [unscheduling, setUnscheduling] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
+  const router = useRouter();
   const qc = useQueryClient();
   const { data, isLoading, isError, error, refetch } = useQuery<OrderDetail>({
     queryKey: ["order", id],
@@ -112,6 +116,29 @@ export default function OrderDetailPage({
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
       setUnscheduling(false);
+    }
+  }
+
+  async function duplicateOrder() {
+    if (duplicating) return;
+    if (
+      !confirm(
+        "Duplicate this order? A new order is created in New Order with the same client and pieces — no dates, assignments or payments are carried over.",
+      )
+    )
+      return;
+    setDuplicating(true);
+    try {
+      const r = await fetch(`/api/orders/${id}/duplicate`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok || !j.id) throw new Error(j.error || "Failed");
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      toast.success("Order duplicated");
+      router.push(`/orders/${j.id}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setDuplicating(false);
     }
   }
 
@@ -332,6 +359,17 @@ export default function OrderDetailPage({
               className={o.incidence ? "border-rose-200 text-rose-700 hover:bg-rose-50" : ""}
             >
               <StickyNote size={14} /> Note / Incident
+            </Button>
+          )}
+          {canAssign && (
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={duplicateOrder}
+              disabled={duplicating}
+            >
+              <Copy size={14} />
+              {duplicating ? "Duplicating…" : "Duplicate"}
             </Button>
           )}
           {canAssign && (
