@@ -169,14 +169,35 @@ export function FilesDocumentsPanel({ orderId, reports = [] }: Props) {
           <ul className="space-y-1.5">
             {records.map((att) => {
               const Icon = iconFor(att.mimetype);
+              const isImage = att.mimetype.startsWith("image/");
+              // Inline URL (no ?download) so the browser renders it as an image
+              // for the thumbnail + hover preview.
+              const inlineUrl = `/api/orders/${orderId}/attachments/${att.id}`;
               return (
                 <li
                   key={att.id}
-                  className="group flex items-center gap-3 rounded-xl border border-slate-100 p-2.5 text-sm transition hover:bg-slate-50"
+                  className="group relative flex items-center gap-3 rounded-xl border border-slate-100 p-2.5 text-sm transition hover:bg-slate-50"
                 >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-                    <Icon size={16} />
-                  </div>
+                  {isImage ? (
+                    <button
+                      type="button"
+                      onClick={() => window.open(inlineUrl, "_blank")}
+                      title="Open full size"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg ring-1 ring-slate-200"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={inlineUrl}
+                        alt={att.name}
+                        loading="lazy"
+                        className="h-full w-full cursor-zoom-in object-cover"
+                      />
+                    </button>
+                  ) : (
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                      <Icon size={16} />
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium text-slate-800">
                       {att.name}
@@ -203,6 +224,19 @@ export function FilesDocumentsPanel({ orderId, reports = [] }: Props) {
                   >
                     <Trash2 size={14} />
                   </Button>
+                  {/* Hover preview for images: a larger inline render floating
+                      below the row. pointer-events-none so it never blocks the
+                      download/delete buttons. */}
+                  {isImage && (
+                    <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden group-hover:block">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={inlineUrl}
+                        alt={att.name}
+                        className="max-h-72 max-w-xs rounded-lg border border-slate-200 bg-white p-1 shadow-2xl"
+                      />
+                    </div>
+                  )}
                 </li>
               );
             })}
