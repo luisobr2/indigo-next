@@ -185,13 +185,22 @@ export async function POST(
     const body = safeNote
       ? `Attachment uploaded: <b>${safeName}</b><br/>${safeNote}`
       : `Attachment uploaded: <b>${safeName}</b>`;
-    await call({
-      session: s.session,
-      model: "indigo.order",
-      method: "message_post",
-      args: [[id]],
-      kwargs: { body, attachment_ids: [attId] },
-    });
+    // The chatter note is a nice-to-have; never fail the upload over it. As an
+    // internal user whose partner has no email configured, message_post raises
+    // "Unable to send message, please configure the sender's email address" —
+    // which was silently breaking installer photo uploads. The attachment is
+    // already created above, which is the part that matters.
+    try {
+      await call({
+        session: s.session,
+        model: "indigo.order",
+        method: "message_post",
+        args: [[id]],
+        kwargs: { body, attachment_ids: [attId] },
+      });
+    } catch {
+      /* attachment stands; timeline note skipped */
+    }
 
     return NextResponse.json({ id: attId });
   } catch (e) {

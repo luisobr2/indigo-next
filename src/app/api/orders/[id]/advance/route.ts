@@ -5,10 +5,10 @@ import { deriveRole } from "@/lib/odoo/types";
 
 export const runtime = "nodejs";
 
-/** Wizards that move money or drive contractor payouts — office/manager only. */
+/** Wizards that move money — office/manager only. (Marking installed is handled
+ *  separately below: installers may close their OWN assigned installs.) */
 const SENSITIVE_WIZARDS = new Set([
   "indigo.invoiced.paid.wizard",
-  "indigo.installed.wizard",
 ]);
 
 /**
@@ -68,12 +68,38 @@ export async function POST(
         { status: 400 },
       );
     }
-    // Money / payout wizards are office/manager only (Odoo ACLs alone don't
-    // stop an internal contractor from invoicing or driving payouts here).
+    // Money wizards are office/manager only (Odoo ACLs alone don't stop an
+    // internal contractor from invoicing here).
     if (SENSITIVE_WIZARDS.has(wizardModel)) {
       const role = deriveRole(s.user.groups);
       if (!role.isManager && !role.isOffice && !s.user.isAdmin) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    }
+    // Marking an order installed is the installer's job from their portal.
+    // Office/manager/admin can close any; an installer may close ONLY an
+    // install assigned to them (installer_ids holds their partner).
+    if (wizardModel === "indigo.installed.wizard") {
+      const role = deriveRole(s.user.groups);
+      const privileged = role.isManager || role.isOffice || s.user.isAdmin;
+      if (!privileged) {
+        if (!role.isInstaller) {
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+        const rows = await call<Array<{ installer_ids: number[] }>>({
+          session: s.session,
+          model: "indigo.order",
+          method: "search_read",
+          args: [[["id", "=", orderId]], ["installer_ids"]],
+          kwargs: { limit: 1 },
+        });
+        const assigned = rows[0]?.installer_ids ?? [];
+        if (!assigned.includes(s.user.partnerId)) {
+          return NextResponse.json(
+            { error: "This installation isn't assigned to you." },
+            { status: 403 },
+          );
+        }
       }
     }
     // Guard the collected amount when present (invoice/paid wizard).
