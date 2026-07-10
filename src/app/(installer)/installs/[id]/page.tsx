@@ -182,11 +182,19 @@ export default function InstallDetailPage({
               <span>Take or pick a photo…</span>
             )}
           </label>
+          {/*
+            No `capture` attribute on purpose. With capture="environment" the
+            phone opens the rear camera ONLY and hides the photo library / files,
+            so an installer can't attach a photo they already took — and in-app
+            browsers (WhatsApp, where the install link is shared) often fail to
+            return any file at all when capture is set. Plain accept="image/*"
+            lets the native picker offer Take Photo + Photo Library + Files,
+            matching the "Take or pick a photo" label above.
+          */}
           <input
             id="install-photo"
             type="file"
             accept="image/*"
-            capture="environment"
             onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
             className="hidden"
           />
