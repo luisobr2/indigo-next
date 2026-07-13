@@ -107,14 +107,14 @@ export function CancelModal({
             Order <strong className="text-foreground">{orderName}</strong>{" "}
             {restoring
               ? "will be restored and re-enter the production flow."
-              : finishedDoor
-                ? "has the door already cut/painted. You can either discard it or keep it in Available Stock for re-use on a future matching order."
-                : "will be marked as cancelled and a 'Cancelled' badge will appear in lists."}
+              : "will be cancelled. Choose whether to discard it or keep the door in Available Stock for re-use on a future matching order."}
           </DialogDescription>
         </DialogHeader>
 
-        {/* Mode picker only when the order has a finished door */}
-        {!restoring && finishedDoor && (
+        {/* Mode picker — always offered so any cancelled order can be kept in
+            Available Stock (not only ones whose door is already cut/painted).
+            finishedDoor only decides the default selection below. */}
+        {!restoring && (
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
