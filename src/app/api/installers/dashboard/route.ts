@@ -13,7 +13,8 @@ const INSTALLER_RATE_PER_DOOR = 35;
 const PENDING_INSTALL_CODES = ["ready_install", "install_scheduled"];
 
 /**
- * GET /api/installers/dashboard?week=YYYY-MM-DD
+ * GET /api/installers/dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD
+ * (falls back to ?week=<Monday> or the current Mon–Sun week)
  *
  * Returns the data the Installations management page needs:
  *   - per-installer buckets with their order list and KPIs
@@ -48,12 +49,26 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const sp = req.nextUrl.searchParams;
-    const weekParam = sp.get("week");
-    const monday = weekParam ? startOfWeek(new Date(weekParam)) : startOfWeek(new Date());
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    const mondayStr = ymd(monday);
-    const sundayStr = ymd(sunday);
+    // Date range for the board. Accept explicit from/to (YYYY-MM-DD); fall back
+    // to ?week (its Monday) or the current week (Mon–Sun) for compatibility.
+    const isYmd = (v: string | null): v is string =>
+      !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const fromParam = sp.get("from");
+    const toParam = sp.get("to");
+    let startStr: string;
+    let endStr: string;
+    if (isYmd(fromParam) && isYmd(toParam)) {
+      // Normalize so start <= end even if the two inputs are swapped.
+      startStr = fromParam <= toParam ? fromParam : toParam;
+      endStr = fromParam <= toParam ? toParam : fromParam;
+    } else {
+      const weekParam = sp.get("week");
+      const monday = startOfWeek(weekParam ? new Date(weekParam) : new Date());
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      startStr = ymd(monday);
+      endStr = ymd(sunday);
+    }
 
     interface OrderRow {
       id: number;
@@ -78,8 +93,8 @@ export async function GET(req: NextRequest) {
       method: "search_read",
       args: [
         [
-          ["installation_date", ">=", mondayStr],
-          ["installation_date", "<=", sundayStr],
+          ["installation_date", ">=", startStr],
+          ["installation_date", "<=", endStr],
         ],
         [
           "id",
@@ -350,8 +365,8 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // 5. Daily breakdown for the bar chart. One bar per weekday with
-    //    installed / pending / not_scheduled counts.
+    // 5. Daily breakdown for the bar chart — one bar per day across the whole
+    //    range (capped so a very long range doesn't produce an unusable chart).
     const days: Array<{
       date: string;
       label: string;
@@ -359,12 +374,13 @@ export async function GET(req: NextRequest) {
       pending: number;
       not_scheduled: number;
     }> = [];
-    const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const dStr = ymd(d);
-      const dayLabel = `${dayNames[i]} ${d.getDate()}`;
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MAX_DAY_BARS = 45;
+    const cursor = new Date(startStr + "T00:00:00");
+    const rangeEndDate = new Date(endStr + "T00:00:00");
+    for (let i = 0; cursor <= rangeEndDate && i < MAX_DAY_BARS; i++) {
+      const dStr = ymd(cursor);
+      const dayLabel = `${dayNames[cursor.getDay()]} ${cursor.getDate()}`;
       let installed = 0;
       let pending = 0;
       for (const o of orders) {
@@ -378,13 +394,8 @@ export async function GET(req: NextRequest) {
           pending += qty;
         }
       }
-      days.push({
-        date: dStr,
-        label: dayLabel,
-        installed,
-        pending,
-        not_scheduled: 0,
-      });
+      days.push({ date: dStr, label: dayLabel, installed, pending, not_scheduled: 0 });
+      cursor.setDate(cursor.getDate() + 1);
     }
 
     // 6. Summary KPIs.
@@ -453,8 +464,8 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({
-      weekStart: mondayStr,
-      weekEnd: sundayStr,
+      rangeStart: startStr,
+      rangeEnd: endStr,
       ratePerDoor: INSTALLER_RATE_PER_DOOR,
       summary: {
         totalInstallers: totalInstallersCount,

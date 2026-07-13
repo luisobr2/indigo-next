@@ -58,8 +58,8 @@ import {
 } from "recharts";
 
 interface DashboardData {
-  weekStart: string;
-  weekEnd: string;
+  rangeStart: string;
+  rangeEnd: string;
   ratePerDoor: number;
   summary: {
     totalInstallers: number;
@@ -149,9 +149,16 @@ function fmtYmd(ymdStr: string) {
   });
 }
 
-function formatWeek(start: string, end: string) {
-  const s = new Date(start);
-  const e = new Date(end);
+// Parse a YYYY-MM-DD as a LOCAL date (new Date("YYYY-MM-DD") is UTC and would
+// shift a day back in Miami's negative offset).
+function parseYmd(ymdStr: string) {
+  const [y, m, d] = ymdStr.split("-").map(Number);
+  return new Date(y || 1970, (m || 1) - 1, d || 1);
+}
+
+function formatRange(start: string, end: string) {
+  const s = parseYmd(start);
+  const e = parseYmd(end);
   const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
   return `${s.toLocaleDateString("en-US", opts)} – ${e.toLocaleDateString(
     "en-US",
@@ -252,7 +259,12 @@ const COLOR_DOT: Record<string, string> = {
 };
 
 export default function InstallationsPage() {
-  const [week, setWeek] = useState(() => ymd(startOfWeek(new Date())));
+  const [range, setRange] = useState(() => {
+    const mon = startOfWeek(new Date());
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    return { from: ymd(mon), to: ymd(sun) };
+  });
   const [q, setQ] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | number>("all");
 
@@ -268,6 +280,8 @@ export default function InstallationsPage() {
       if (saved) {
         const arr = JSON.parse(saved);
         if (Array.isArray(arr) && arr.length) {
+          // Loading persisted column prefs on mount is a legitimate one-shot.
+          // eslint-disable-next-line react-hooks/set-state-in-effect
           setPendColKeys(arr.filter((k: string) => PEND_COLUMNS.some((c) => c.key === k)));
         }
       }
@@ -366,8 +380,11 @@ export default function InstallationsPage() {
   }
 
   const { data, isLoading, isError, refetch } = useQuery<DashboardData>({
-    queryKey: ["installers-dashboard", week],
-    queryFn: () => fetchJson<DashboardData>(`/api/installers/dashboard?week=${week}`),
+    queryKey: ["installers-dashboard", range.from, range.to],
+    queryFn: () =>
+      fetchJson<DashboardData>(
+        `/api/installers/dashboard?from=${range.from}&to=${range.to}`,
+      ),
   });
 
   const filteredInstallers = useMemo(() => {
@@ -435,10 +452,43 @@ export default function InstallationsPage() {
     );
   }, [data, q]);
 
-  function shiftWeek(deltaDays: number) {
-    const d = new Date(week);
-    d.setDate(d.getDate() + deltaDays);
-    setWeek(ymd(startOfWeek(d)));
+  // Days in the current range (for the prev/next period stepping).
+  const rangeDays = useMemo(() => {
+    const a = new Date(range.from + "T00:00:00").getTime();
+    const b = new Date(range.to + "T00:00:00").getTime();
+    return Math.max(1, Math.round((b - a) / 86_400_000) + 1);
+  }, [range]);
+
+  // Shift the whole range by N days (previous / next period).
+  function shiftRange(deltaDays: number) {
+    setRange((r) => {
+      const f = new Date(r.from + "T00:00:00");
+      f.setDate(f.getDate() + deltaDays);
+      const t = new Date(r.to + "T00:00:00");
+      t.setDate(t.getDate() + deltaDays);
+      return { from: ymd(f), to: ymd(t) };
+    });
+  }
+
+  // Quick presets.
+  function setThisWeek() {
+    const mon = startOfWeek(new Date());
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    setRange({ from: ymd(mon), to: ymd(sun) });
+  }
+  function setNextWeek() {
+    const mon = startOfWeek(new Date());
+    mon.setDate(mon.getDate() + 7);
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    setRange({ from: ymd(mon), to: ymd(sun) });
+  }
+  function setThisMonth() {
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    setRange({ from: ymd(first), to: ymd(last) });
   }
 
   // Export what the user currently sees (respects the search + installer tab)
@@ -462,7 +512,7 @@ export default function InstallationsPage() {
       { header: "Status", value: (r) => r.o.status },
       { header: "Scheduled", value: (r) => (r.o.scheduled_date ? String(r.o.scheduled_date) : "") },
     ]);
-    downloadCsv(`installations-${week}.csv`, csv);
+    downloadCsv(`installations-${range.from}_${range.to}.csv`, csv);
     toast.success(`Exported ${rows.length} row${rows.length === 1 ? "" : "s"}`);
   }
 
@@ -580,6 +630,62 @@ export default function InstallationsPage() {
         </div>
       </header>
 
+      {/* Date-range control — the whole board reflects installations whose
+          scheduled date falls inside this range (e.g. Mon 7 → Sat 12). */}
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+          <Calendar size={15} className="text-indigo-700" />
+          Showing installations
+        </span>
+        <input
+          type="date"
+          value={range.from}
+          max={range.to}
+          onChange={(e) =>
+            e.target.value && setRange((r) => ({ ...r, from: e.target.value }))
+          }
+          aria-label="From date"
+          className="h-9 rounded-lg border border-slate-200 px-2 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none"
+        />
+        <span className="text-slate-400">to</span>
+        <input
+          type="date"
+          value={range.to}
+          min={range.from}
+          onChange={(e) =>
+            e.target.value && setRange((r) => ({ ...r, to: e.target.value }))
+          }
+          aria-label="To date"
+          className="h-9 rounded-lg border border-slate-200 px-2 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none"
+        />
+        <div className="ml-1 flex items-center gap-1">
+          <RangePreset onClick={setThisWeek}>This week</RangePreset>
+          <RangePreset onClick={setNextWeek}>Next week</RangePreset>
+          <RangePreset onClick={setThisMonth}>This month</RangePreset>
+        </div>
+        <div className="ml-auto flex items-center gap-1 text-xs text-slate-600">
+          <button
+            type="button"
+            onClick={() => shiftRange(-rangeDays)}
+            className="rounded p-1 hover:bg-slate-100"
+            aria-label="Previous period"
+          >
+            <ChevronLeft size={15} />
+          </button>
+          <span className="min-w-[130px] text-center font-medium">
+            {formatRange(range.from, range.to)}
+          </span>
+          <button
+            type="button"
+            onClick={() => shiftRange(rangeDays)}
+            className="rounded p-1 hover:bg-slate-100"
+            aria-label="Next period"
+          >
+            <ChevronRight size={15} />
+          </button>
+        </div>
+      </div>
+
       <AddInstallerModal
         open={addInstallerOpen}
         onClose={() => setAddInstallerOpen(false)}
@@ -653,15 +759,15 @@ export default function InstallationsPage() {
         <KpiTile
           label="Doors to Install"
           value={fmtNum(summary?.doorsToInstall ?? 0)}
-          hint="This Week"
+          hint="In range"
           icon={FolderOpen}
           iconBg="bg-amber-50"
           iconColor="text-amber-600"
         />
         <KpiTile
-          label="Installed This Week"
+          label="Installed"
           value={fmtNum(summary?.installedThisWeek ?? 0)}
-          hint="Completed"
+          hint="In range"
           icon={CheckSquare}
           iconBg="bg-emerald-50"
           iconColor="text-emerald-600"
@@ -920,7 +1026,7 @@ export default function InstallationsPage() {
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700">
                 <Calendar size={12} className="text-slate-400" />
-                This Week
+                {data ? formatRange(data.rangeStart, data.rangeEnd) : "—"}
               </div>
             </div>
           </div>
@@ -971,7 +1077,7 @@ export default function InstallationsPage() {
                 {!isLoading && filteredInstallers.length === 0 && (
                   <tr>
                     <td colSpan={9} className="p-12 text-center text-xs text-slate-400">
-                      No installer assignments for this week.
+                      No installer assignments in this range.
                     </td>
                   </tr>
                 )}
@@ -1157,25 +1263,25 @@ export default function InstallationsPage() {
           {/* Weekly Installation Summary */}
           <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
             <h3 className="mb-2 font-semibold text-slate-800">
-              Weekly Installation Summary
+              Installation Summary
             </h3>
             <div className="mb-2 flex items-center justify-between text-xs text-slate-600">
               <button
                 type="button"
-                onClick={() => shiftWeek(-7)}
+                onClick={() => shiftRange(-rangeDays)}
                 className="rounded p-1 hover:bg-slate-100"
-                aria-label="Previous week"
+                aria-label="Previous period"
               >
                 <ChevronLeft size={14} />
               </button>
               <span className="font-medium">
-                {data ? formatWeek(data.weekStart, data.weekEnd) : "—"}
+                {data ? formatRange(data.rangeStart, data.rangeEnd) : "—"}
               </span>
               <button
                 type="button"
-                onClick={() => shiftWeek(7)}
+                onClick={() => shiftRange(rangeDays)}
                 className="rounded p-1 hover:bg-slate-100"
-                aria-label="Next week"
+                aria-label="Next period"
               >
                 <ChevronRight size={14} />
               </button>
@@ -1235,7 +1341,7 @@ export default function InstallationsPage() {
           {/* Payment Summary */}
           <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
             <h3 className="mb-3 font-semibold text-slate-800">
-              Payment Summary (This Week)
+              Payment Summary (in range)
             </h3>
             <dl className="space-y-2 text-sm">
               <div className="flex items-center justify-between text-slate-600">
@@ -1309,6 +1415,24 @@ function TabChip({
       >
         {count}
       </span>
+    </button>
+  );
+}
+
+function RangePreset({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+    >
+      {children}
     </button>
   );
 }
