@@ -60,6 +60,8 @@ import {
 interface DashboardData {
   rangeStart: string;
   rangeEnd: string;
+  truncated?: boolean;
+  totalInRange?: number;
   ratePerDoor: number;
   summary: {
     totalInstallers: number;
@@ -641,9 +643,12 @@ export default function InstallationsPage() {
           type="date"
           value={range.from}
           max={range.to}
-          onChange={(e) =>
-            e.target.value && setRange((r) => ({ ...r, from: e.target.value }))
-          }
+          onChange={(e) => {
+            // Keep from <= to even if the user types a later date into "from"
+            // (the max= attribute only guards the calendar popup, not typing).
+            const from = e.target.value;
+            if (from) setRange((r) => ({ from, to: r.to < from ? from : r.to }));
+          }}
           aria-label="From date"
           className="h-9 rounded-lg border border-slate-200 px-2 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none"
         />
@@ -652,9 +657,10 @@ export default function InstallationsPage() {
           type="date"
           value={range.to}
           min={range.from}
-          onChange={(e) =>
-            e.target.value && setRange((r) => ({ ...r, to: e.target.value }))
-          }
+          onChange={(e) => {
+            const to = e.target.value;
+            if (to) setRange((r) => ({ to, from: r.from > to ? to : r.from }));
+          }}
           aria-label="To date"
           className="h-9 rounded-lg border border-slate-200 px-2 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none"
         />
@@ -685,6 +691,15 @@ export default function InstallationsPage() {
           </button>
         </div>
       </div>
+
+      {data?.truncated && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+          <AlertTriangle size={15} className="flex-none text-amber-600" />
+          This range has {fmtNum(data.totalInRange ?? 0)} installations — more than
+          can be shown at once, so the KPIs and lists below are partial. Narrow the
+          date range for complete numbers.
+        </div>
+      )}
 
       <AddInstallerModal
         open={addInstallerOpen}
@@ -1336,6 +1351,12 @@ export default function InstallationsPage() {
                 <span className="h-2 w-2 rounded-full bg-slate-300" /> Not Scheduled
               </span>
             </div>
+            {data && data.days.length < rangeDays && (
+              <p className="mt-1 text-center text-[10px] text-slate-400">
+                Chart shows the first {data.days.length} days; the totals above
+                cover the full range.
+              </p>
+            )}
           </div>
 
           {/* Payment Summary */}

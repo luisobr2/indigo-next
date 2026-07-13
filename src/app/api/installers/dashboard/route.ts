@@ -51,8 +51,13 @@ export async function GET(req: NextRequest) {
     const sp = req.nextUrl.searchParams;
     // Date range for the board. Accept explicit from/to (YYYY-MM-DD); fall back
     // to ?week (its Monday) or the current week (Mon–Sun) for compatibility.
-    const isYmd = (v: string | null): v is string =>
-      !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const isYmd = (v: string | null): v is string => {
+      if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+      // Reject impossible calendar dates (2026-13-45, 2026-02-30…) that the
+      // regex alone would pass straight into the Odoo date domain -> 500.
+      const d = new Date(v + "T00:00:00Z");
+      return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+    };
     const fromParam = sp.get("from");
     const toParam = sp.get("to");
     let startStr: string;
@@ -87,6 +92,7 @@ export async function GET(req: NextRequest) {
     // 1. Pull every order with installation_date inside this week, regardless
     //    of stage (Pending, Scheduled, Installed). We grab a wider net for
     //    the "Pending" / "Not Started" buckets too.
+    const ORDER_LIMIT = 2000;
     const orders = await call<OrderRow[]>({
       session: s.session,
       model: "indigo.order",
@@ -110,8 +116,30 @@ export async function GET(req: NextRequest) {
           "total_sqf",
         ],
       ],
-      kwargs: { limit: 500, order: "installation_date" },
+      kwargs: { limit: ORDER_LIMIT, order: "installation_date" },
     });
+
+    // Guard against silent under-reporting: if we hit the row cap, the KPIs and
+    // lists would only reflect the earliest slice of the range. Detect it so
+    // the UI can tell the user to narrow the range instead of showing a wrong
+    // (partial) total with no warning.
+    let truncated = false;
+    let totalInRange = orders.length;
+    if (orders.length >= ORDER_LIMIT) {
+      totalInRange = await call<number>({
+        session: s.session,
+        model: "indigo.order",
+        method: "search_count",
+        args: [
+          [
+            ["installation_date", ">=", startStr],
+            ["installation_date", "<=", endStr],
+          ],
+        ],
+        kwargs: {},
+      });
+      truncated = totalInRange > orders.length;
+    }
 
     // 1b. Pull orders that are pending installation but have NO date yet.
     //     These are counted in the dashboard "Installations Pending" KPI but
@@ -466,6 +494,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       rangeStart: startStr,
       rangeEnd: endStr,
+      truncated,
+      totalInRange,
       ratePerDoor: INSTALLER_RATE_PER_DOOR,
       summary: {
         totalInstallers: totalInstallersCount,
