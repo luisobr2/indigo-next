@@ -11,6 +11,7 @@ import {
   Columns3,
   Archive,
   Trash2,
+  Ban,
   AlertCircle,
   AlertTriangle,
   X,
@@ -358,7 +359,9 @@ function OrdersInner() {
   const canArchive = canCreate;
   const canDelete = !!(meQ.data?.role?.isManager || meQ.data?.user?.isAdmin);
 
-  async function bulkAction(action: "archive" | "unarchive" | "delete") {
+  async function bulkAction(
+    action: "archive" | "unarchive" | "delete" | "cancel",
+  ) {
     const ids = Array.from(selected);
     if (!ids.length) return;
     const n = ids.length;
@@ -367,12 +370,19 @@ function OrdersInner() {
         ? `Archive ${n} order${n === 1 ? "" : "s"}? They'll be hidden from the list but kept, and can be restored later.`
         : action === "unarchive"
           ? `Restore ${n} order${n === 1 ? "" : "s"} to the active list?`
-          : `Delete ${n} order${n === 1 ? "" : "s"} permanently? This cannot be undone.`;
+          : action === "cancel"
+            ? `Cancel ${n} order${n === 1 ? "" : "s"}? They'll be marked as cancelled. To keep a finished door in Available Stock, cancel that order individually from its detail page.`
+            : `Delete ${n} order${n === 1 ? "" : "s"} permanently? This cannot be undone.`;
     if (!window.confirm(msg)) return;
+    // Optional shared reason for the cancellation (blank = none).
+    const reason =
+      action === "cancel"
+        ? (window.prompt("Reason for cancelling (optional):", "") ?? "").trim()
+        : undefined;
     const p = fetch("/api/orders/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids, action }),
+      body: JSON.stringify({ ids, action, reason }),
     }).then(async (r) => {
       const j = await r.json();
       if (!r.ok || j.error) throw new Error(j.error || "Failed");
@@ -381,10 +391,22 @@ function OrdersInner() {
       return j;
     });
     const verb =
-      action === "archive" ? "Archived" : action === "unarchive" ? "Restored" : "Deleted";
+      action === "archive"
+        ? "Archived"
+        : action === "unarchive"
+          ? "Restored"
+          : action === "cancel"
+            ? "Cancelled"
+            : "Deleted";
     toast.promise(p, {
       loading:
-        action === "archive" ? "Archiving…" : action === "unarchive" ? "Restoring…" : "Deleting…",
+        action === "archive"
+          ? "Archiving…"
+          : action === "unarchive"
+            ? "Restoring…"
+            : action === "cancel"
+              ? "Cancelling…"
+              : "Deleting…",
       success: `${verb} ${n} order${n === 1 ? "" : "s"}`,
       error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
@@ -613,6 +635,17 @@ function OrdersInner() {
                 >
                   <Archive size={14} />
                   {flag === "archived" ? "Restore" : "Archive"}
+                </Button>
+              )}
+              {canArchive && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => bulkAction("cancel")}
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                >
+                  <Ban size={14} />
+                  Cancel
                 </Button>
               )}
               {canDelete && (

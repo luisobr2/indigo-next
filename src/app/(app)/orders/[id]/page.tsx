@@ -34,6 +34,7 @@ import {
 } from "@/components/schedule-installation-modal";
 import { EditOrderPanel } from "@/components/edit-order-panel";
 import { HoldModal } from "@/components/hold-modal";
+import { CancelModal } from "@/components/cancel-modal";
 import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal";
 import { OrderDetailSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
@@ -68,6 +69,7 @@ export default function OrderDetailPage({
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState(false);
   const [holdOpen, setHoldOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [schedTarget, setSchedTarget] = useState<ScheduleTarget | null>(null);
   const [unscheduling, setUnscheduling] = useState(false);
@@ -199,6 +201,9 @@ export default function OrderDetailPage({
     painter_id: [number, string] | false;
     installer_ids: number[] | Array<[number, string]>;
     installation_date?: string | false;
+    cancelled_at?: string | false;
+    cnc_done_at?: string | false;
+    paint_done_at?: string | false;
   };
 
   const lines = data.lines as Array<{
@@ -381,6 +386,32 @@ export default function OrderDetailPage({
               ) : (
                 <>
                   <Pause size={14} /> Move to Hold
+                </>
+              )}
+            </Button>
+          )}
+          {/* Cancel / Restore — always available from the detail page (unlike the
+              stage screens, which hide Cancel in early "Ready" states). Manager /
+              office only (canAssign). Opens the shared CancelModal, which offers
+              Move-to-Available-Stock when the door is already cut/painted. */}
+          {canAssign && (
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => setCancelOpen(true)}
+              className={
+                o.cancelled_at
+                  ? "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                  : "border-rose-200 text-rose-700 hover:bg-rose-50"
+              }
+            >
+              {o.cancelled_at ? (
+                <>
+                  <Play size={14} /> Restore Cancelled
+                </>
+              ) : (
+                <>
+                  <AlertTriangle size={14} /> Cancel Order
                 </>
               )}
             </Button>
@@ -862,6 +893,20 @@ export default function OrderDetailPage({
         orderId={parseInt(id, 10)}
         orderName={o.name}
         releasing={o.on_hold}
+      />
+
+      <CancelModal
+        open={cancelOpen}
+        onClose={() => setCancelOpen(false)}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ["order", id] });
+          qc.invalidateQueries({ queryKey: ["order-activity", parseInt(id, 10)] });
+          qc.invalidateQueries({ queryKey: ["dashboard"] });
+        }}
+        orderId={parseInt(id, 10)}
+        orderName={o.name}
+        restoring={!!o.cancelled_at}
+        finishedDoor={!!o.cnc_done_at || !!o.paint_done_at}
       />
 
       <ScheduleInstallationModal

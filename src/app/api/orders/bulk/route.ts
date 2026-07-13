@@ -7,10 +7,14 @@ export const runtime = "nodejs";
 
 /**
  * POST /api/orders/bulk — bulk actions on selected orders.
- *   { ids: number[], action: "archive" | "unarchive" | "delete" }
+ *   { ids: number[], action: "archive" | "unarchive" | "delete" | "cancel",
+ *     reason?: string }
  *
  * archive/unarchive flip indigo.order.active (manager or office).
  * delete unlinks the orders (manager / admin only — per the Odoo ACL).
+ * cancel stamps cancelled_at (+ optional reason) on all selected (manager /
+ * office). Bulk cancel is a plain cancel — the per-door "Move to Available
+ * Stock" (needs a nickname each) stays in the single-order flow.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -19,7 +23,11 @@ export async function POST(req: NextRequest) {
     const isManager = role.isManager || s.user.isAdmin;
     const canArchive = isManager || role.isOffice;
 
-    const body = (await req.json()) as { ids?: number[]; action?: string };
+    const body = (await req.json()) as {
+      ids?: number[];
+      action?: string;
+      reason?: string;
+    };
     const ids = (body.ids ?? []).filter((n) => Number.isInteger(n));
     const action = body.action;
     if (!ids.length) {
@@ -52,6 +60,23 @@ export async function POST(req: NextRequest) {
         model: "indigo.order",
         method: "unlink",
         args: [ids],
+        kwargs: {},
+      });
+      return NextResponse.json({ ok: true, count: ids.length });
+    }
+
+    if (action === "cancel") {
+      if (!canArchive) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const now = new Date().toISOString().slice(0, 19).replace("T", " ");
+      const vals: Record<string, unknown> = { cancelled_at: now };
+      if (body.reason?.trim()) vals.cancellation_reason = body.reason.trim();
+      await call({
+        session: s.session,
+        model: "indigo.order",
+        method: "write",
+        args: [ids, vals],
         kwargs: {},
       });
       return NextResponse.json({ ok: true, count: ids.length });

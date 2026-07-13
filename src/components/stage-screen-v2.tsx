@@ -1615,15 +1615,17 @@ function SidePanel({
                 </>
               )}
             </Button>
-            {/* Cancel: hide only when the order is in a pre-CNC stage AND
-                sub == ready (mirrors the Majela CNC/Digi mockup where the
-                READY state shows just Start + Hold). For post-CNC stages
-                (painting / ready_install / install_scheduled) we ALWAYS
-                surface Cancel so the door can be moved to Available Stock. */}
+            {/* Cancel: hidden only in the PRE-CNC stages (Design / Measurement /
+                Digitalization) while sub == ready — there is no door yet, so the
+                mockup shows just Start + Hold. From CNC onwards there IS a piece
+                to cut/paint, so Cancel is ALWAYS available (cnc / painting /
+                ready_install / install_scheduled) — a CNC-ready order can still be
+                cancelled before it's cut, and a finished door can be moved to
+                Available Stock. */}
             {(order.cancelled_at ||
               sub === "in_progress" ||
               sub === "completed" ||
-              ["painting", "ready_install", "install_scheduled"].includes(
+              ["cnc", "painting", "ready_install", "install_scheduled"].includes(
                 order.stage_code,
               )) && (
               <Button
