@@ -30,6 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Pagination } from "@/components/pagination";
 import { BulkSendToButton } from "@/components/bulk-send-to-button";
+import { CancelModal } from "@/components/cancel-modal";
 import { NewOrderButton } from "@/components/new-order-button";
 import {
   DropdownMenu,
@@ -83,6 +84,9 @@ interface OrderRow {
   stage_id: [number, string] | false;
   stage_code: string;
   on_hold: boolean;
+  cnc_done_at?: string | false;
+  paint_done_at?: string | false;
+  cancelled_at?: string | false;
   incidence?: boolean;
   payment_state: "unpaid" | "partial" | "paid";
   door_count: number;
@@ -274,6 +278,9 @@ function OrdersInner() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // When exactly one order is ticked, "Cancel" opens the rich CancelModal (with
+  // the Move-to-Stock option) for that order instead of the plain bulk confirm.
+  const [cancelModalOrder, setCancelModalOrder] = useState<OrderRow | null>(null);
 
   // Column visibility — persisted per user in localStorage. "order" is always
   // shown. The visible columns drive both the table and the Print list.
@@ -641,7 +648,18 @@ function OrdersInner() {
                 <Button
                   variant="outline"
                   size="lg"
-                  onClick={() => bulkAction("cancel")}
+                  onClick={() => {
+                    // One order ticked → open the full modal (Move to Stock /
+                    // Discard) for it. Several → plain bulk cancel.
+                    if (selected.size === 1) {
+                      const only = records.find((r) => selected.has(r.id));
+                      if (only) {
+                        setCancelModalOrder(only);
+                        return;
+                      }
+                    }
+                    bulkAction("cancel");
+                  }}
                   className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
                 >
                   <Ban size={14} />
@@ -959,6 +977,25 @@ function OrdersInner() {
           }}
         />
       </div>
+
+      {cancelModalOrder && (
+        <CancelModal
+          open={!!cancelModalOrder}
+          onClose={() => setCancelModalOrder(null)}
+          onSuccess={() => {
+            clearSelection();
+            qc.invalidateQueries({ queryKey: ["orders"] });
+            qc.invalidateQueries({ queryKey: ["inventory-available"] });
+            qc.invalidateQueries({ queryKey: ["dashboard"] });
+          }}
+          orderId={cancelModalOrder.id}
+          orderName={cancelModalOrder.name}
+          restoring={!!cancelModalOrder.cancelled_at}
+          finishedDoor={
+            !!cancelModalOrder.cnc_done_at || !!cancelModalOrder.paint_done_at
+          }
+        />
+      )}
     </div>
   );
 }
