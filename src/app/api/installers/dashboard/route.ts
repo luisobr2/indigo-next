@@ -275,6 +275,7 @@ export async function GET(req: NextRequest) {
         color: string;
         qty: number;
         status: "installed" | "scheduled" | "pending";
+        stage_code: string;
         scheduled_date: string | false;
       }>;
     }
@@ -308,6 +309,7 @@ export async function GET(req: NextRequest) {
         color: firstLine?.color ?? "",
         qty: o.door_count || 1,
         status,
+        stage_code: o.stage_code,
         scheduled_date: o.installation_date,
       };
 

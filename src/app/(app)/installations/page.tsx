@@ -88,6 +88,7 @@ interface DashboardData {
       color: string;
       qty: number;
       status: "installed" | "scheduled" | "pending";
+      stage_code: string;
       scheduled_date: string | false;
     }>;
   }>;
@@ -1182,7 +1183,7 @@ export default function InstallationsPage() {
                               {o.qty}
                             </td>
                             <td className="px-4 py-2.5">
-                              <StatusPill status={o.status} />
+                              <StatusPill status={o.status} stageCode={o.stage_code} />
                             </td>
                             <td className="px-4 py-2.5 text-xs text-slate-600">
                               {fmtDate(o.scheduled_date as string)}
@@ -1458,13 +1459,27 @@ function RangePreset({
   );
 }
 
-function StatusPill({ status }: { status: "installed" | "scheduled" | "pending" }) {
-  const map = {
+function StatusPill({
+  status,
+  stageCode,
+}: {
+  status: "installed" | "scheduled" | "pending";
+  stageCode?: string;
+}) {
+  // Prefer the REAL pipeline stage so office can tell an already-invoiced or
+  // closed order apart from one that's merely installed — otherwise they all
+  // read "Installed" and look identical while invoicing. Falls back to the
+  // install-workflow status for stages we don't special-case here.
+  const stageMap: Record<string, { bg: string; text: string; label: string }> = {
+    invoiced: { bg: "bg-indigo-50", text: "text-indigo-700", label: "Invoiced" },
+    closed: { bg: "bg-slate-200", text: "text-slate-700", label: "Closed" },
+  };
+  const statusMap = {
     installed: { bg: "bg-emerald-50", text: "text-emerald-700", label: "Installed" },
     scheduled: { bg: "bg-sky-50", text: "text-sky-700", label: "Scheduled" },
     pending: { bg: "bg-amber-50", text: "text-amber-700", label: "Pending" },
   };
-  const cfg = map[status];
+  const cfg = (stageCode && stageMap[stageCode]) || statusMap[status];
   return (
     <Badge
       variant="secondary"

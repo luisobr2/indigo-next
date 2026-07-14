@@ -160,14 +160,8 @@ export async function POST(
       delete payload.line_dims;
     }
 
-    // Invoice wizard without a typed amount → invoice the order for its OWN
-    // total. amount_collected is required on the Odoo wizard, so we fill it from
-    // the order's total_dealer_charge here (deterministic; no reliance on Odoo
-    // default_get). This lets office just mark an order invoiced without typing.
-    if (
-      wizardModel === "indigo.invoiced.paid.wizard" &&
-      !("amount_collected" in payload)
-    ) {
+    // Invoice wizard: fill amount + payment status from the order's own total.
+    if (wizardModel === "indigo.invoiced.paid.wizard") {
       const [ord] = await call<Array<{ total_dealer_charge?: number }>>({
         session: s.session,
         model: "indigo.order",
@@ -175,7 +169,21 @@ export async function POST(
         args: [[orderId], ["total_dealer_charge"]],
         kwargs: {},
       });
-      payload.amount_collected = Number(ord?.total_dealer_charge) || 0;
+      const total = Number(ord?.total_dealer_charge) || 0;
+      // No typed amount → invoice the order for its OWN total. amount_collected
+      // is required on the Odoo wizard, so we always send a defined float here
+      // (deterministic; no reliance on Odoo default_get + context).
+      if (!("amount_collected" in payload)) {
+        payload.amount_collected = total;
+      }
+      // Payment status follows the amount collected: less than the order total
+      // is a PARTIAL payment, anything ≥ total is paid in full. Without this the
+      // Odoo wizard always defaults to "paid", so partial payments were counted
+      // as fully paid in the billing reports.
+      if (!("payment_state" in payload)) {
+        const collected = Number(payload.amount_collected) || 0;
+        payload.payment_state = total > 0 && collected < total ? "partial" : "paid";
+      }
     }
 
     const wizardId = await call<number>({

@@ -98,12 +98,16 @@ export function StageWizardModal({
   const requiresPainter = config.wizard === "indigo.painter.done.wizard";
   const requiresInstaller = config.wizard === "indigo.installed.wizard";
   const needsOrderFetch =
-    config.withSqfTable || config.withMeasureTable || requiresPainter || requiresInstaller;
+    config.withSqfTable || config.withMeasureTable || requiresPainter ||
+    requiresInstaller || config.withAmount;
 
   const [assignment, setAssignment] = useState<{
     painter: [number, string] | false;
     installerCount: number;
   } | null>(null);
+  // The order's own total (invoice wizard) — shown + prefilled so office can
+  // just confirm instead of typing.
+  const [orderTotal, setOrderTotal] = useState<number | null>(null);
 
   // Pull the order whenever the wizard mounts in a mode that needs the
   // order's lines (SQF) or its painter/installer assignment.
@@ -134,6 +138,13 @@ export function StageWizardModal({
             ? order.installer_ids.length
             : 0,
         });
+        if (config.withAmount) {
+          const t = Number(order.total_dealer_charge) || 0;
+          setOrderTotal(t);
+          // Prefill with the order's own total — office just confirms; a smaller
+          // number is treated as a partial payment on submit.
+          setAmount(t ? String(t) : "");
+        }
       } catch {
         /* surfaced on submit if needed */
       }
@@ -141,7 +152,7 @@ export function StageWizardModal({
     return () => {
       cancelled = true;
     };
-  }, [open, needsOrderFetch, config.withSqfTable, config.withMeasureTable, orderId]);
+  }, [open, needsOrderFetch, config.withSqfTable, config.withMeasureTable, config.withAmount, orderId]);
 
   const missingAssignment =
     (requiresPainter && assignment !== null && !assignment.painter) ||
@@ -258,7 +269,7 @@ export function StageWizardModal({
           )}
           {config.withAmount && (
             <div className="space-y-1.5">
-              <Label htmlFor="wizard-amount">Amount collected (USD) — optional</Label>
+              <Label htmlFor="wizard-amount">Amount collected (USD)</Label>
               <Input
                 id="wizard-amount"
                 type="number"
@@ -268,8 +279,22 @@ export function StageWizardModal({
                 placeholder="Leave blank to use the order total"
               />
               <p className="text-[11px] text-slate-500">
-                Leave it blank to just mark the order invoiced for its own total.
-                Only enter an amount for a partial payment.
+                {orderTotal != null && orderTotal > 0 ? (
+                  <>
+                    Prefilled with the order total (
+                    <b>
+                      $
+                      {orderTotal.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </b>
+                    ). Leave it as-is to mark it <b>paid in full</b>, or lower it
+                    for a <b>partial</b> payment.
+                  </>
+                ) : (
+                  "Leave it blank to invoice the order for its own total. Enter a lower amount only for a partial payment."
+                )}
               </p>
             </div>
           )}
