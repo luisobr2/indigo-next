@@ -163,12 +163,13 @@ export function StageWizardModal({
 
   async function submit() {
     setError(null);
-    // Amount is required (and must be > 0) for the invoice/paid wizard —
-    // otherwise the order advances to "Paid" with $0 collected.
-    if (config.withAmount) {
+    // Amount is OPTIONAL for the invoice/paid wizard. Leaving it blank invoices
+    // the order for its OWN total — the Odoo wizard defaults amount_collected to
+    // total_dealer_charge when we don't pass one. Only validate a typed value.
+    if (config.withAmount && amount.trim() !== "") {
       const amt = parseFloat(amount);
-      if (!Number.isFinite(amt) || amt <= 0) {
-        setError("Enter the amount collected (greater than 0).");
+      if (!Number.isFinite(amt) || amt < 0) {
+        setError("Enter a valid amount (0 or more), or leave it blank.");
         return;
       }
     }
@@ -195,7 +196,7 @@ export function StageWizardModal({
         for (const l of sqfLines) line_dims[String(l.id)] = { width: l.width, height: l.height };
         payload.line_dims = line_dims;
       }
-      if (config.withAmount)
+      if (config.withAmount && amount.trim() !== "")
         payload.amount_collected = parseFloat(amount);
       if (config.withPhoto && photoFile)
         payload.photo = await fileToBase64(photoFile);
@@ -257,15 +258,19 @@ export function StageWizardModal({
           )}
           {config.withAmount && (
             <div className="space-y-1.5">
-              <Label htmlFor="wizard-amount">Amount collected (USD)</Label>
+              <Label htmlFor="wizard-amount">Amount collected (USD) — optional</Label>
               <Input
                 id="wizard-amount"
                 type="number"
                 step="0.01"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
+                placeholder="Leave blank to use the order total"
               />
+              <p className="text-[11px] text-slate-500">
+                Leave it blank to just mark the order invoiced for its own total.
+                Only enter an amount for a partial payment.
+              </p>
             </div>
           )}
 
@@ -506,7 +511,7 @@ export const STAGE_WIZARDS: Record<string, StageWizardConfig> = {
     wizard: "indigo.invoiced.paid.wizard",
     title: "Invoice and mark paid",
     description:
-      "Record the amount collected and move the order to Invoiced / Paid.",
+      "Move the order to Invoiced / Paid. The amount is optional — leave it blank to invoice the order's own total.",
     submitLabel: "Save & advance to Invoiced/Paid",
     withAmount: true,
     noteLabel: "Reference (check #, transfer ID...)",

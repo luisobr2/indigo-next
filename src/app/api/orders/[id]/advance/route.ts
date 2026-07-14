@@ -160,6 +160,24 @@ export async function POST(
       delete payload.line_dims;
     }
 
+    // Invoice wizard without a typed amount → invoice the order for its OWN
+    // total. amount_collected is required on the Odoo wizard, so we fill it from
+    // the order's total_dealer_charge here (deterministic; no reliance on Odoo
+    // default_get). This lets office just mark an order invoiced without typing.
+    if (
+      wizardModel === "indigo.invoiced.paid.wizard" &&
+      !("amount_collected" in payload)
+    ) {
+      const [ord] = await call<Array<{ total_dealer_charge?: number }>>({
+        session: s.session,
+        model: "indigo.order",
+        method: "read",
+        args: [[orderId], ["total_dealer_charge"]],
+        kwargs: {},
+      });
+      payload.amount_collected = Number(ord?.total_dealer_charge) || 0;
+    }
+
     const wizardId = await call<number>({
       session: s.session,
       model: wizardModel,
