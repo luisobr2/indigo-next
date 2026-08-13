@@ -314,12 +314,21 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
           <Badge variant="secondary" className="bg-indigo-50 text-[10px] text-indigo-700">
             Flexible · el tipo se elige al pedir
           </Badge>
+          <DeleteDesignButton
+            family={data.design.code}
+            siblings={[{ id: designId, code: data.design.code }]}
+          />
         </header>
         <CommonInfoCard
           family={data.design.code}
+          designId={designId}
           siblingIds={[designId]}
           initial={data.design}
           onSaved={() => qc.invalidateQueries({ queryKey: ["design", idStr] })}
+          onRenamed={() => {
+            qc.invalidateQueries({ queryKey: ["design", idStr] });
+            qc.invalidateQueries({ queryKey: ["catalog-families"] });
+          }}
         />
         <div className="max-w-md">
           <TypePanel designId={designId} label="Imágenes del diseño" highlight />
@@ -340,17 +349,28 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">
           Diseño <span className="font-mono">{family}</span>
         </h1>
+        <DeleteDesignButton family={family} siblings={siblings} />
       </header>
 
       {/* -------- Common info (applies to every type) -------- */}
       <CommonInfoCard
         family={family}
+        designId={designId}
         siblingIds={siblings.map((s) => s.id)}
         initial={data.design}
         onSaved={() => {
           qc.invalidateQueries({ queryKey: ["design", idStr] });
           for (const s of siblings)
             qc.invalidateQueries({ queryKey: ["design", String(s.id)] });
+        }}
+        onRenamed={() => {
+          // The code moved on every sibling, so every cached view of this
+          // family is stale — including the family lookup keyed by the code.
+          qc.invalidateQueries({ queryKey: ["design", idStr] });
+          for (const s of siblings)
+            qc.invalidateQueries({ queryKey: ["design", String(s.id)] });
+          qc.invalidateQueries({ queryKey: ["design-family"] });
+          qc.invalidateQueries({ queryKey: ["catalog-families"] });
         }}
       />
 
@@ -400,15 +420,21 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
 /* -------- Common info card: writes to every sibling on save -------- */
 function CommonInfoCard({
   family,
+  designId,
   siblingIds,
   initial,
   onSaved,
+  onRenamed,
 }: {
   family: string;
+  designId: number;
   siblingIds: number[];
   initial: DesignPayload["design"];
   onSaved: () => void;
+  onRenamed: (nextFamily: string) => void;
 }) {
+  const [code, setCode] = useState(family);
+  const [renaming, setRenaming] = useState(false);
   const [description, setDescription] = useState(
     typeof initial.description === "string" ? initial.description : "",
   );
@@ -447,6 +473,56 @@ function CommonInfoCard({
   function toggleBrand(id: number) {
     setBrandIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
     setDirty(true);
+  }
+
+  // The code lives on every sibling record (ID60-SD / -DD / -SDL) and on the
+  // storefront product, so renaming goes through its own endpoint that
+  // cascades — never through the per-record PUT, which would split the family.
+  const nextFamily = stripFamilySuffix(code.trim().toUpperCase());
+  const codeChanged = !!nextFamily && nextFamily !== family;
+
+  async function rename() {
+    if (!codeChanged || renaming) return;
+    if (
+      !confirm(
+        `¿Renombrar ${family} → ${nextFamily}?\n\n` +
+          `Se actualiza el código en todas sus versiones (Single / Double / Sidelite), ` +
+          `incluidas las archivadas, y en su producto de la tienda. ` +
+          `Las órdenes que ya lo usan quedan apuntando al mismo diseño.`,
+      )
+    )
+      return;
+    setRenaming(true);
+    try {
+      const r = await fetch("/api/catalog/designs/rename-family", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ designId, nextFamily }),
+      });
+      const j = (await r.json().catch(() => ({}))) as {
+        ok?: boolean;
+        nextFamily?: string;
+        renamed?: number;
+        error?: string;
+      };
+      if (!r.ok || !j.ok) throw new Error(j.error || "No se pudo renombrar");
+      const applied = j.nextFamily || nextFamily;
+      setCode(applied);
+      // Report the count the SERVER actually wrote — it owns the sibling list,
+      // and it can legitimately differ from what this screen has cached.
+      const n = j.renamed ?? 0;
+      toast.success(
+        n === 0
+          ? `El código ya era ${applied}.`
+          : `Código cambiado a ${applied} (${n} versión${n === 1 ? "" : "es"}).`,
+      );
+      onRenamed(applied);
+    } catch (e) {
+      // Keep what they typed so they can correct it without retyping.
+      toast.error(e instanceof Error ? e.message : "Falló");
+    } finally {
+      setRenaming(false);
+    }
   }
 
   async function save() {
@@ -516,10 +592,37 @@ function CommonInfoCard({
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="space-y-1.5">
-          <Label>Código</Label>
-          <div className="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-sm text-slate-700">
-            {family}
+          <Label htmlFor="code">
+            <Hash size={12} className="inline" /> Código
+          </Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="code"
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") rename();
+              }}
+              placeholder="e.g. ID60"
+              className="h-10 font-mono uppercase"
+            />
+            {codeChanged && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-10 shrink-0"
+                onClick={rename}
+                disabled={renaming}
+              >
+                {renaming ? "Renombrando…" : `Renombrar a ${nextFamily}`}
+              </Button>
+            )}
           </div>
+          <p className="text-[11px] text-slate-400">
+            {codeChanged
+              ? "Se renombran todas sus versiones y el producto de la tienda."
+              : "Solo el prefijo — el tipo se agrega solo (SD / DD / SDL)."}
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="desc">Descripción</Label>
@@ -890,6 +993,107 @@ function AddTypeCard({
         {busy ? "Agregando…" : `Agregar ${label}`}
       </Button>
     </section>
+  );
+}
+
+/* -------- Delete the WHOLE design (every door type) from the header -------- */
+function DeleteDesignButton({
+  family,
+  siblings,
+}: {
+  family: string;
+  siblings: Array<{ id: number; code: string }>;
+}) {
+  const qc = useQueryClient();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+
+  async function destroyAll() {
+    if (busy || !siblings.length) return;
+    if (
+      !confirm(
+        `¿Borrar el diseño ${family} completo?\n\n` +
+          `Se eliminan sus ${siblings.length} versión(es): ${siblings
+            .map((s) => s.code)
+            .join(", ")}.`,
+      )
+    )
+      return;
+
+    setBusy(true);
+    // Versions already used on an order can't be deleted (the API answers 409
+    // to protect order history); collect them and offer archiving instead.
+    const blocked: Array<{ id: number; code: string }> = [];
+    const deleted: string[] = [];
+    try {
+      for (const s of siblings) {
+        const r = await fetch(`/api/catalog/designs/${s.id}`, { method: "DELETE" });
+        if (r.status === 409) {
+          blocked.push(s);
+          continue;
+        }
+        if (!r.ok) {
+          const j = (await r.json().catch(() => ({}))) as { error?: string };
+          // Deletes already applied can't be undone — say what got removed
+          // instead of leaving the operator thinking nothing happened.
+          throw new Error(
+            `${j.error || `No se pudo borrar ${s.code}`}.` +
+              (deleted.length ? ` Ya se habían borrado: ${deleted.join(", ")}.` : ""),
+          );
+        }
+        deleted.push(s.code);
+      }
+
+      if (!blocked.length) {
+        toast.success(`Diseño ${family} borrado.`);
+      } else if (
+        confirm(
+          `${blocked.length} versión(es) se usan en órdenes y no se pueden borrar ` +
+            `(${blocked.map((b) => b.code).join(", ")}).\n\n¿Ocultarlas del catálogo?`,
+        )
+      ) {
+        const notHidden: string[] = [];
+        for (const b of blocked) {
+          const r = await fetch(`/api/catalog/designs/${b.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ active: false }),
+          });
+          const j = (await r.json().catch(() => ({}))) as { ok?: boolean };
+          if (!r.ok || !j.ok) notHidden.push(b.code);
+        }
+        if (notHidden.length) {
+          toast.error(`No se pudieron ocultar: ${notHidden.join(", ")}.`);
+        } else {
+          toast.success("Versiones en uso ocultas del catálogo.");
+        }
+      } else {
+        toast.message(
+          deleted.length
+            ? `Se borraron las versiones que no estaban en uso: ${deleted.join(", ")}.`
+            : "No se borró ninguna versión.",
+        );
+      }
+      router.push("/catalog");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falló");
+    } finally {
+      setBusy(false);
+      qc.invalidateQueries({ queryKey: ["catalog-families"] });
+    }
+  }
+
+  return (
+    <Button
+      size="sm"
+      variant="destructive"
+      className="ml-auto"
+      onClick={destroyAll}
+      disabled={busy || !siblings.length}
+    >
+      <Trash2 size={13} />
+      {busy ? "Borrando…" : "Borrar diseño"}
+    </Button>
   );
 }
 
