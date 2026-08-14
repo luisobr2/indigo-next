@@ -1,7 +1,10 @@
 /**
- * Role-based routing guard for the installer role. Pure + Edge-safe: it only
- * parses the session cookie (plain JSON) and derives the role, so it can run
- * inside proxy.ts (the middleware) without any Odoo call or Node API.
+ * Role-based routing guard for the installer role. Pure + Edge-safe: it
+ * decodes the signed session cookie WITHOUT verifying the signature
+ * (node:crypto is unavailable on Edge) and derives the role. That is sound
+ * because this guard only routes the UI — forging a cookie to dodge the
+ * redirect gains nothing, since the API routes enforce their own
+ * authorization against Odoo.
  *
  * Why this exists: a "pure installer" (Installer with no manager/office/
  * specialist role) has exactly one place in the panel — their mobile
@@ -10,8 +13,9 @@
  * Without this guard an installer lands on `/installations` and the dashboard
  * fetch returns 403.
  */
-import { deriveRole } from "./odoo/types";
-import type { SessionPayload } from "./odoo/types";
+import { deriveRole } from "./odoo/types.ts";
+import type { SessionPayload } from "./odoo/types.ts";
+import { decodeUnverified } from "./session-cookie-edge.ts";
 
 /** True when the user's ONLY Indigo role is Installer — confined to /installs. */
 export function isOnlyInstaller(role: ReturnType<typeof deriveRole>): boolean {
@@ -44,12 +48,8 @@ export function installerRedirect(
   if (pathname.startsWith("/api")) return null;
   if (pathname === "/installs" || pathname.startsWith("/installs/")) return null;
 
-  let role: ReturnType<typeof deriveRole>;
-  try {
-    const s = JSON.parse(cookieValue) as SessionPayload;
-    role = deriveRole(s.user?.groups ?? []);
-  } catch {
-    return null;
-  }
+  const payload = decodeUnverified(cookieValue) as SessionPayload | null;
+  if (!payload) return null;
+  const role = deriveRole(payload.user?.groups ?? []);
   return isOnlyInstaller(role) ? "/installs" : null;
 }
