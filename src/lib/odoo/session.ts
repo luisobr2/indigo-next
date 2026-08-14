@@ -10,18 +10,20 @@ import { cookies } from "next/headers";
 import type { SessionPayload } from "./types";
 export type { SessionPayload, SessionUser } from "./types";
 export { deriveRole } from "./types";
+import { signPayload, verifyPayload, requireSessionSecret } from "./session-cookie";
 
 const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "indigo_session";
 
+/** Verify + parse a cookie value, or null if it is missing, forged or legacy. */
+function readSigned(raw: string | undefined): SessionPayload | null {
+  if (!raw) return null;
+  const payload = verifyPayload(raw, requireSessionSecret());
+  return payload ? (payload as SessionPayload) : null;
+}
+
 export async function getSession(): Promise<SessionPayload | null> {
   const store = await cookies();
-  const raw = store.get(COOKIE_NAME)?.value;
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as SessionPayload;
-  } catch {
-    return null;
-  }
+  return readSigned(store.get(COOKIE_NAME)?.value);
 }
 
 export async function requireSession(): Promise<SessionPayload> {
@@ -48,7 +50,7 @@ const COOKIE_SECURE = (() => {
 
 export async function writeSession(payload: SessionPayload): Promise<void> {
   const store = await cookies();
-  store.set(COOKIE_NAME, JSON.stringify(payload), {
+  store.set(COOKIE_NAME, signPayload(payload, requireSessionSecret()), {
     httpOnly: true,
     sameSite: "lax",
     secure: COOKIE_SECURE,
@@ -73,7 +75,7 @@ export async function pushOriginalSession(
   payload: SessionPayload,
 ): Promise<void> {
   const store = await cookies();
-  store.set(ORIGINAL_COOKIE, JSON.stringify(payload), {
+  store.set(ORIGINAL_COOKIE, signPayload(payload, requireSessionSecret()), {
     httpOnly: true,
     sameSite: "lax",
     secure: COOKIE_SECURE,
@@ -87,22 +89,12 @@ export async function popOriginalSession(): Promise<SessionPayload | null> {
   const raw = store.get(ORIGINAL_COOKIE)?.value;
   if (!raw) return null;
   store.delete(ORIGINAL_COOKIE);
-  try {
-    return JSON.parse(raw) as SessionPayload;
-  } catch {
-    return null;
-  }
+  return readSigned(raw);
 }
 
 export async function getOriginalSession(): Promise<SessionPayload | null> {
   const store = await cookies();
-  const raw = store.get(ORIGINAL_COOKIE)?.value;
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as SessionPayload;
-  } catch {
-    return null;
-  }
+  return readSigned(store.get(ORIGINAL_COOKIE)?.value);
 }
 
 export const SESSION_COOKIE = COOKIE_NAME;
