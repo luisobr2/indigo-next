@@ -188,6 +188,23 @@ orders straight to `Closed` or `Invoiced` in a single write.
 do NOT have this gap — `create`/`unlink` are genuinely manager/office
 (or manager-only) at the ACL layer.
 
+**2b. `POST /api/orders/auto-assign` is the same `indigo.order` write
+gap, but batched — worth its own line, not a footnote on 2.** The
+write half of this route (`args: [orphans.map((o) => o.id), {
+painter_id: ... }]` / `{ installer_ids: ... }`) is the identical
+`indigo.order.write` ACL gap from Finding 2 above, so it's `none` for
+the same reason. What makes it worth calling out separately is blast
+radius: every other `none` row in Finding 2 writes **one order per
+call**; `auto-assign` writes **every orphaned order matching a stage
+domain, in a single call** (`search_read` with no `limit` below 5000,
+then one batched `write` over all matching ids). A forged Manager role
+held by a real Designer/CNC/Painter/Installer wouldn't be limited to
+their own stage-visible slice here in the way it is for a single-order
+action — it's still bounded by that same record-rule domain, but the
+domain now applies to a `search`, not a hand-picked target, so it
+silently reassigns painter/installer on the caller's entire visible
+backlog at once rather than one order they specifically chose.
+
 **3. `GET /api/pricing` — panel hides the price matrix from
 specialists; Odoo doesn't.** `indigo.design.price` grants `read=1` to
 `group_indigo_user`. Any internal employee could `search_read` the
