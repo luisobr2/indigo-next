@@ -112,6 +112,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     queryFn: () => fetch("/api/auth/me").then((r) => r.json()),
   });
 
+  // The middleware only rules out an undecodable cookie (missing, garbage,
+  // legacy unsigned). A cookie that decodes but fails signature verification
+  // — a forged/expired signature, or every cookie after a SESSION_SECRET
+  // rotation — still gets through the middleware and lands here with
+  // `/api/auth/me` reporting `user: null`. Bounce to /login instead of
+  // rendering a shell that can never load any data.
+  useEffect(() => {
+    if (data && data.user === null) {
+      router.replace("/login");
+    }
+  }, [data, router]);
+
   const user = data?.user;
   const role = data?.role;
   const impersonating = data?.impersonating ?? null;

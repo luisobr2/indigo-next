@@ -10,7 +10,7 @@ import { cookies } from "next/headers";
 import type { SessionPayload } from "./types";
 export type { SessionPayload, SessionUser } from "./types";
 export { deriveRole } from "./types";
-import { signPayload, verifyPayload, requireSessionSecret } from "./session-cookie";
+import { signPayload, verifyPayload, requireSessionSecret } from "./session-cookie.ts";
 
 const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "indigo_session";
 

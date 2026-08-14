@@ -73,7 +73,7 @@ file that carry no role check at all are listed too, marked
 | GET /api/auth/me | not gated — `deriveRole` only shapes the response body, no 403 branch | none | N/A |
 | POST /api/billing/settle (mode=mark-paid) | Manager/Office/Admin | `indigo.payout.write` via `action_mark_paid` | ACL only — `indigo.payout`: `group_indigo_user` r1w0c0u0, **no office row**, `group_indigo_manager` r1w1c1u1. Real backstop, and stricter than the panel gate (Office is allowed by the panel but has no write ACL here) |
 | POST /api/billing/settle (mode=consolidate) | Manager/Office/Admin | `indigo.payout.settle.wizard.create` + `action_consolidate` | ACL only — ACL row exists **only** for `group_indigo_manager` (no office/user row at all). `action_consolidate` itself has no role check, but the ACL alone is manager-only — stricter than the panel gate |
-| GET /api/calendar/feed-url | Manager/Office/Admin | none — returns a static `ICS_TOKEN` constant | **none** — no Odoo call at all; the panel gate is the only thing gating disclosure of this token |
+| GET /api/calendar/feed-url | Manager/Office/Admin | none — returns a static `ICS_TOKEN` constant | **none** — no Odoo call at all; the panel gate is the only thing gating disclosure of this token *when `CALENDAR_ICS_TOKEN` is set*. If that env var is unset in production, `src/lib/ics-feed.ts:13` falls back to a hardcoded default token, so nothing gates the feed at all — anyone who reads the source can subscribe directly, bypassing this route entirely |
 | GET /api/calendar | Manager/Office/Admin | `indigo.order.search_read` | ACL only — record-rule scoped per the caller's real role |
 | GET /api/catalog/brands | not gated | `indigo.brand.search_read` / `search_count` | ACL only (read=1 for all internal roles — no gate needed) |
 | POST /api/catalog/brands | Manager/Office/Admin | `indigo.brand.create` | ACL only — `group_indigo_user` c0, **no office row**, `group_indigo_manager` c1. Stricter than the panel gate |
@@ -214,8 +214,13 @@ this endpoint is cosmetic.
 **4. `GET /api/calendar/feed-url` — no Odoo call at all.** This route
 returns a static app-level secret (`ICS_TOKEN`) used to build the
 public iCalendar subscription URL. There is no model/method backstop
-possible here by construction — the panel role check was always the
-only thing gating disclosure of that token.
+possible here by construction — the panel role check was, at best, the
+only thing gating disclosure of that token. Even that is conditional:
+`src/lib/ics-feed.ts:13` falls back to a hardcoded default token when
+`CALENDAR_ICS_TOKEN` is unset, so in that (currently live-in-prod)
+configuration nothing gates the token at all — it's a fixed string
+readable in the repo, independent of this route's role check or the
+signed-cookie work in this plan.
 
 ## Additional observations (not `none`, but worth flagging)
 

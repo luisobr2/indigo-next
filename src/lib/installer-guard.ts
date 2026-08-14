@@ -38,7 +38,8 @@ export function isOnlyInstaller(role: ReturnType<typeof deriveRole>): boolean {
  * - Any other page, for a pure installer, is bounced to `/installs`.
  *
  * @param pathname     the requested path
- * @param cookieValue  raw `indigo_session` cookie value (JSON), or undefined
+ * @param cookieValue  raw `indigo_session` cookie value
+ *                     (`<base64url(json)>.<base64url(hmac)>`), or undefined
  */
 export function installerRedirect(
   pathname: string,
