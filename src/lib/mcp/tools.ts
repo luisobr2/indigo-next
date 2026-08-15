@@ -1,9 +1,12 @@
 /**
  * Six read-only MCP tools over the Indigo panel's Odoo data.
  *
- * Every Odoo call runs with `session: id.session` so it executes as the
- * real logged-in person and Odoo's own ACLs / record rules apply — same
- * as every BFF route under src/app/api. Nothing here writes, creates or
+ * Every Odoo call runs through `rpcExecuteKw(id.uid, id.apiKey, ...)` —
+ * Odoo's external API (see src/lib/odoo/rpc.ts) — so it executes as the
+ * real logged-in person and Odoo's own ACLs / record rules apply, same
+ * as every BFF route under src/app/api (those go through the session-cookie
+ * transport in src/lib/odoo/client.ts instead; MCP tokens are API keys,
+ * which only the external API accepts). Nothing here writes, creates or
  * unlinks anything: this file is read-only by construction, and stays
  * that way until a future phase deliberately adds a write tool.
  *
@@ -15,10 +18,10 @@ import type { McpIdentity } from "./token";
 
 // Lazy import so this module can be loaded (and its pure exports tested)
 // in a plain `node --test` environment that doesn't resolve the `@/`
-// path alias. Same trick as token.ts's getAuthenticate().
-async function getCall() {
-  const { call } = await import("@/lib/odoo/client");
-  return call;
+// path alias. Same trick as token.ts's getRpc().
+async function getRpc() {
+  const { rpcExecuteKw } = await import("@/lib/odoo/rpc");
+  return rpcExecuteKw;
 }
 
 // ---------------------------------------------------------------------
@@ -258,28 +261,30 @@ interface StageRow {
 }
 
 async function todayBoard(args: Record<string, unknown>, id: McpIdentity) {
-  const call = await getCall();
+  const execute = await getRpc();
   const limit = clampLimit(args.limit);
 
   // Same stage list (ordered by sequence) as src/app/api/stages/route.ts
   // and src/app/api/kanban/route.ts.
   const [stageRows, orderRows] = await Promise.all([
-    call<StageRow[]>({
-      session: id.session,
-      model: "indigo.stage",
-      method: "search_read",
-      args: [[], ["id", "name", "code", "sequence"]],
-      kwargs: { order: "sequence, id", limit: 50 },
-    }),
-    call<Array<Record<string, unknown>>>({
-      session: id.session,
-      model: "indigo.order",
-      method: "search_read",
+    execute<StageRow[]>(
+      id.uid,
+      id.apiKey,
+      "indigo.stage",
+      "search_read",
+      [[], ["id", "name", "code", "sequence"]],
+      { order: "sequence, id", limit: 50 },
+    ),
+    execute<Array<Record<string, unknown>>>(
+      id.uid,
+      id.apiKey,
+      "indigo.order",
+      "search_read",
       // Same "active production" domain as src/app/api/kanban/route.ts's
       // default (non-archived) view: everything except Invoiced/Paid and Closed.
-      args: [[["stage_id.code", "not in", ["closed", "invoiced"]]], ORDER_LIST_FIELDS],
-      kwargs: { order: "last_stage_change asc, id desc", limit },
-    }),
+      [[["stage_id.code", "not in", ["closed", "invoiced"]]], ORDER_LIST_FIELDS],
+      { order: "last_stage_change asc, id desc", limit },
+    ),
   ]);
 
   const byStageId = new Map<number, FormattedOrder[]>();
@@ -299,7 +304,7 @@ async function todayBoard(args: Record<string, unknown>, id: McpIdentity) {
 }
 
 async function findOrders(args: Record<string, unknown>, id: McpIdentity) {
-  const call = await getCall();
+  const execute = await getRpc();
   const limit = clampLimit(args.limit);
 
   // Same ilike-on-3-fields pattern as src/app/api/orders/route.ts's `?q=`.
@@ -318,30 +323,32 @@ async function findOrders(args: Record<string, unknown>, id: McpIdentity) {
     domain.push(["dealer_id", "=", args.dealer_id]);
   }
 
-  const rows = await call<Array<Record<string, unknown>>>({
-    session: id.session,
-    model: "indigo.order",
-    method: "search_read",
-    args: [domain, ORDER_LIST_FIELDS],
-    kwargs: { order: "create_date desc", limit },
-  });
+  const rows = await execute<Array<Record<string, unknown>>>(
+    id.uid,
+    id.apiKey,
+    "indigo.order",
+    "search_read",
+    [domain, ORDER_LIST_FIELDS],
+    { order: "create_date desc", limit },
+  );
 
   return rows.map(formatOrder);
 }
 
 async function getOrder(args: Record<string, unknown>, id: McpIdentity) {
-  const call = await getCall();
+  const execute = await getRpc();
   const orderId = Number(args.id);
   if (!Number.isFinite(orderId)) {
     throw new Error("get_order requires a numeric 'id' argument");
   }
 
   // Field subset of ORDER_FIELDS_BASE in src/app/api/orders/[id]/route.ts.
-  const rows = await call<Array<Record<string, unknown>>>({
-    session: id.session,
-    model: "indigo.order",
-    method: "read",
-    args: [
+  const rows = await execute<Array<Record<string, unknown>>>(
+    id.uid,
+    id.apiKey,
+    "indigo.order",
+    "read",
+    [
       [orderId],
       [
         "id",
@@ -365,24 +372,25 @@ async function getOrder(args: Record<string, unknown>, id: McpIdentity) {
         "notes",
       ],
     ],
-    kwargs: {},
-  });
+    {},
+  );
   if (!rows.length) return null;
   const order = rows[0];
 
   // Field subset of LINE_FIELDS_BASE in src/app/api/orders/[id]/route.ts,
   // fetched by order_id like the `?include=lines` path in
   // src/app/api/orders/route.ts.
-  const lineRows = await call<Array<Record<string, unknown>>>({
-    session: id.session,
-    model: "indigo.order.line",
-    method: "search_read",
-    args: [
+  const lineRows = await execute<Array<Record<string, unknown>>>(
+    id.uid,
+    id.apiKey,
+    "indigo.order.line",
+    "search_read",
+    [
       [["order_id", "=", orderId]],
       ["id", "design_id", "door_type", "color", "width", "height", "qty", "parts_count", "sqf"],
     ],
-    kwargs: { order: "sequence, id", limit: 100 },
-  });
+    { order: "sequence, id", limit: 100 },
+  );
 
   return {
     ...formatOrder(order),
@@ -402,37 +410,39 @@ async function getOrder(args: Record<string, unknown>, id: McpIdentity) {
 }
 
 async function listStages(args: Record<string, unknown>, id: McpIdentity) {
-  const call = await getCall();
+  const execute = await getRpc();
   const limit = clampLimit(args.limit);
 
   // Same model/fields/order as src/app/api/stages/route.ts.
-  const rows = await call<StageRow[]>({
-    session: id.session,
-    model: "indigo.stage",
-    method: "search_read",
-    args: [[], ["id", "name", "code", "sequence"]],
-    kwargs: { order: "sequence, id", limit },
-  });
+  const rows = await execute<StageRow[]>(
+    id.uid,
+    id.apiKey,
+    "indigo.stage",
+    "search_read",
+    [[], ["id", "name", "code", "sequence"]],
+    { order: "sequence, id", limit },
+  );
 
   return rows.map((r) => ({ id: r.id, name: r.name, code: r.code, sequence: r.sequence }));
 }
 
 async function listDealers(args: Record<string, unknown>, id: McpIdentity) {
-  const call = await getCall();
+  const execute = await getRpc();
   const limit = clampLimit(args.limit);
 
   // Same domain/fields as src/app/api/catalog/dealers/route.ts (default,
   // non-archived view).
-  const rows = await call<Array<Record<string, unknown>>>({
-    session: id.session,
-    model: "res.partner",
-    method: "search_read",
-    args: [
+  const rows = await execute<Array<Record<string, unknown>>>(
+    id.uid,
+    id.apiKey,
+    "res.partner",
+    "search_read",
+    [
       [["is_indigo_dealer", "=", true]],
       ["id", "name", "email", "phone", "city", "indigo_default_price_per_sqf"],
     ],
-    kwargs: { order: "name asc", limit },
-  });
+    { order: "name asc", limit },
+  );
 
   return rows.map((r) => ({
     id: r.id as number,
@@ -445,7 +455,7 @@ async function listDealers(args: Record<string, unknown>, id: McpIdentity) {
 }
 
 async function listDesigns(args: Record<string, unknown>, id: McpIdentity) {
-  const call = await getCall();
+  const execute = await getRpc();
   const limit = clampLimit(args.limit);
 
   // Same ilike-on-code-or-name pattern as src/app/api/catalog/designs/route.ts.
@@ -457,13 +467,14 @@ async function listDesigns(args: Record<string, unknown>, id: McpIdentity) {
     domain.push(["name", "ilike", q]);
   }
 
-  const rows = await call<Array<Record<string, unknown>>>({
-    session: id.session,
-    model: "indigo.design",
-    method: "search_read",
-    args: [domain, ["id", "code", "name", "description", "door_type"]],
-    kwargs: { order: "code asc", limit },
-  });
+  const rows = await execute<Array<Record<string, unknown>>>(
+    id.uid,
+    id.apiKey,
+    "indigo.design",
+    "search_read",
+    [domain, ["id", "code", "name", "description", "door_type"]],
+    { order: "code asc", limit },
+  );
 
   return rows.map((r) => ({
     id: r.id as number,

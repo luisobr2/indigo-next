@@ -5,11 +5,18 @@
  * authentication: the RPC then runs as that real person and Odoo's ACLs and
  * record rules apply unchanged, with no separate permission store to keep in
  * sync. Revoking access = deleting the API key in Odoo.
+ *
+ * Unlike the panel's own login (src/lib/odoo/client.ts, session-cookie
+ * based, real password only), MCP tokens are verified against Odoo's
+ * external API (src/lib/odoo/rpc.ts, `/jsonrpc`), which is the endpoint
+ * that actually accepts an API key. There is no session cookie in this
+ * flow — every subsequent tool call re-authenticates with the same
+ * uid + apiKey pair via `execute_kw`.
  */
 // Lazy import to allow loading in test environments that don't resolve @/ aliases
-async function getAuthenticate() {
-  const { authenticate } = await import("@/lib/odoo/client");
-  return authenticate;
+async function getRpc() {
+  const { rpcAuthenticate, rpcExecuteKw } = await import("@/lib/odoo/rpc");
+  return { rpcAuthenticate, rpcExecuteKw };
 }
 
 export interface McpIdentity {
@@ -17,8 +24,8 @@ export interface McpIdentity {
   login: string;
   name: string;
   groups: string[];
-  /** Odoo session cookie to forward on subsequent RPCs. */
-  session: string;
+  /** Odoo API key, forwarded on every subsequent execute_kw call. */
+  apiKey: string;
 }
 
 export function parseBearer(header: string | null): { login: string; apiKey: string } | null {
@@ -33,18 +40,55 @@ export function parseBearer(header: string | null): { login: string; apiKey: str
   return { login, apiKey };
 }
 
+interface ResUsersRow {
+  name: string;
+  groups_id: number[];
+}
+
+interface ResGroupsRow {
+  name: string;
+  full_name?: string;
+}
+
 export async function verifyMcpToken(header: string | null): Promise<McpIdentity | null> {
   const pair = parseBearer(header);
   if (!pair) return null;
   try {
-    const authenticate = await getAuthenticate();
-    const res = await authenticate(pair.login, pair.apiKey);
+    const { rpcAuthenticate, rpcExecuteKw } = await getRpc();
+    const uid = await rpcAuthenticate(pair.login, pair.apiKey);
+    if (!uid) return null;
+
+    const userRows = await rpcExecuteKw<ResUsersRow[]>(
+      uid,
+      pair.apiKey,
+      "res.users",
+      "read",
+      [[uid], ["name", "groups_id"]],
+      {},
+    );
+    const user = userRows[0];
+    if (!user) return null;
+
+    const groupIds = user.groups_id ?? [];
+    let groups: string[] = [];
+    if (groupIds.length) {
+      const groupRows = await rpcExecuteKw<ResGroupsRow[]>(
+        uid,
+        pair.apiKey,
+        "res.groups",
+        "read",
+        [groupIds, ["name", "full_name"]],
+        {},
+      );
+      groups = groupRows.map((g) => g.full_name ?? g.name);
+    }
+
     return {
-      uid: res.uid,
-      login: res.user.login,
-      name: res.user.name,
-      groups: res.user.groups,
-      session: res.session,
+      uid,
+      login: pair.login,
+      name: user.name,
+      groups,
+      apiKey: pair.apiKey,
     };
   } catch {
     // Bad key, disabled user, Odoo down — all are "no identity" to the caller.
