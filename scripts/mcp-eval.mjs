@@ -11,6 +11,15 @@
  * Usage:
  *   MCP_URL=http://localhost:4000/api/mcp MCP_TOKEN='<login>.<apikey>' node scripts/mcp-eval.mjs
  *
+ * Optionally also set ODOO_URL + ODOO_DB (the same values the target
+ * server itself was started with) to run the `write_is_refused` scenario,
+ * which authenticates directly against Odoo's own `/jsonrpc` with the
+ * MCP_TOKEN credential and confirms Odoo refuses a write — deliberately a
+ * separate pair of env vars from MCP_URL/MCP_TOKEN so an ordinary run
+ * against a server that already points at a real Odoo doesn't
+ * accidentally attempt a write there; that scenario SKIPs (not fails)
+ * when they're absent.
+ *
  * Exit code: 0 if every scenario passed (SKIPs allowed), 1 if any FAILed,
  * missing env, or an unrecoverable harness error.
  */
@@ -257,11 +266,33 @@ async function scenarioToolsListComplete() {
   expect(missing.length === 0, "tools/list is missing expected tool(s)", EXPECTED_TOOL_NAMES, `got: ${truncate(names)}`);
 }
 
+/**
+ * Asserts a list tool's paging envelope: `{ items: [...], total, truncated }`
+ * with `total` a non-negative number and `truncated` consistent with
+ * `items.length` vs `total` (offset defaults to 0 for every call in this
+ * harness). Returns `data.items` so callers can keep asserting on the rows
+ * without re-deriving this every time.
+ */
+function expectListEnvelope(data, toolName) {
+  expect(data && typeof data === "object" && !Array.isArray(data), `${toolName} did not return an envelope object`, "{ items, total, truncated }", truncate(data));
+  expect(Array.isArray(data.items), `${toolName} result has no 'items' array`, "{ items: [...], ... }", truncate(data));
+  expect(typeof data.total === "number" && data.total >= 0, `${toolName} result 'total' is not a non-negative number`, "number >= 0", truncate(data.total));
+  expect(typeof data.truncated === "boolean", `${toolName} result 'truncated' is not a boolean`, "boolean", truncate(data.truncated));
+  expect(
+    data.truncated === data.items.length < data.total,
+    `${toolName} 'truncated' is inconsistent with items.length vs total`,
+    `truncated === (items.length < total) — items.length=${data.items.length}, total=${data.total}`,
+    `truncated=${data.truncated}`,
+  );
+  return data.items;
+}
+
 async function scenarioStagesAreOrdered() {
-  const data = parseToolData(await callTool("list_stages", { limit: 100 }), "list_stages");
-  expect(Array.isArray(data), "list_stages did not return an array", "array", truncate(data));
+  const envelope = parseToolData(await callTool("list_stages", { limit: 100 }), "list_stages");
+  const data = expectListEnvelope(envelope, "list_stages");
   expect(data.length >= 10, "list_stages returned fewer than 10 stages", ">= 10 stages", `${data.length} stages: ${truncate(data)}`);
   const codes = [];
+  let lastSequence = -Infinity;
   for (const s of data) {
     expect(
       s && typeof s.code === "string" && s.code.length > 0,
@@ -269,6 +300,23 @@ async function scenarioStagesAreOrdered() {
       "{ code: string, ... } on every stage",
       truncate(s),
     );
+    expect(
+      typeof s.sequence === "number",
+      "a stage is missing a numeric 'sequence'",
+      "{ sequence: number, ... } on every stage",
+      truncate(s),
+    );
+    // The tool's own description promises stages come back "in their
+    // configured order" — assert that ordering directly (sequence
+    // non-decreasing) instead of only checking count/uniqueness, which
+    // pass regardless of whether `order: "sequence, id"` actually held.
+    expect(
+      s.sequence >= lastSequence,
+      "list_stages returned stages out of sequence order",
+      `sequence >= ${lastSequence}`,
+      `got sequence ${s.sequence} for stage '${s.code}' after a higher one`,
+    );
+    lastSequence = s.sequence;
     codes.push(s.code);
   }
   const dupes = [...new Set(codes.filter((c, i) => codes.indexOf(c) !== i))];
@@ -276,16 +324,16 @@ async function scenarioStagesAreOrdered() {
 }
 
 async function scenarioDealersIncludeLocktight() {
-  const data = parseToolData(await callTool("list_dealers", { limit: 100 }), "list_dealers");
-  expect(Array.isArray(data), "list_dealers did not return an array", "array", truncate(data));
+  const envelope = parseToolData(await callTool("list_dealers", { limit: 100 }), "list_dealers");
+  const data = expectListEnvelope(envelope, "list_dealers");
   const match = data.find((d) => d && typeof d.name === "string" && /lock ?tight/i.test(d.name));
   expect(!!match, "no dealer name matched /lock ?tight/i", "a dealer named like 'Lock Tight'", `dealer names: ${truncate(data.map((d) => d?.name))}`);
   lockTightDealer = match;
 }
 
 async function scenarioDesignsAreGrounded() {
-  const data = parseToolData(await callTool("list_designs", { limit: 100 }), "list_designs");
-  expect(Array.isArray(data), "list_designs did not return an array", "array", truncate(data));
+  const envelope = parseToolData(await callTool("list_designs", { limit: 100 }), "list_designs");
+  const data = expectListEnvelope(envelope, "list_designs");
   expect(data.length >= 20, "list_designs returned fewer than 20 designs", ">= 20 designs", `${data.length} designs`);
   const codeRe = /^[A-Z0-9][A-Z0-9_-]*$/;
   const bad = data.filter((d) => !d || typeof d.code !== "string" || !codeRe.test(d.code));
@@ -295,23 +343,40 @@ async function scenarioDesignsAreGrounded() {
     codeRe.toString(),
     truncate(bad.map((d) => d?.code)),
   );
+  // Production has 161 designs (per the catalog), well past the 100-per-call
+  // cap — this tool exists specifically to ground design-code references, so
+  // a silent truncation here is worse than useless (a confident false
+  // "that code doesn't exist"). If the catalog is at or under 100 in this
+  // environment, `truncated` legitimately reads false — only assert the
+  // envelope is internally consistent (already done by expectListEnvelope)
+  // and log what we saw so a shrinking catalog doesn't go unnoticed.
+  if (envelope.total > 100) {
+    expect(envelope.truncated === true, "list_designs has > 100 designs but did not report truncated:true", true, envelope.truncated);
+  }
 }
 
 async function scenarioTodayBoardShape() {
   const data = parseToolData(await callTool("today_board", {}), "today_board");
   // The tool's real return shape (todayBoard() in src/lib/mcp/tools.ts) is
-  // `{ stages: [{ stage, code, orders: [...] }, ...] }` — an array of
-  // per-stage groups, NOT a plain object keyed directly by stage name as a
-  // literal reading of the brief's one-line description might suggest.
-  // Asserting against the actual shape here, per the task's field-by-field
-  // instruction: "grouped by stage, every value [group] is an array
-  // [of orders]".
+  // `{ stages: [{ stage, code, orders: [...] }, ...], shown, total,
+  // truncated }` — an array of per-stage groups plus a paging envelope, NOT
+  // a plain object keyed directly by stage name as a literal reading of the
+  // brief's one-line description might suggest.
   expect(data && typeof data === "object" && !Array.isArray(data), "today_board did not return an object", "object", truncate(data));
   expect(Array.isArray(data.stages), "today_board result has no 'stages' array", "{ stages: [...] }", truncate(data));
   for (const group of data.stages) {
     expect(group && typeof group.stage === "string", "a today_board group is missing 'stage'", "{ stage: string, ... }", truncate(group));
     expect(Array.isArray(group.orders), "a today_board group's 'orders' is not an array", "array", truncate(group));
   }
+  expect(typeof data.shown === "number", "today_board result has no numeric 'shown'", "number", truncate(data.shown));
+  expect(typeof data.total === "number", "today_board result has no numeric 'total'", "number", truncate(data.total));
+  expect(typeof data.truncated === "boolean", "today_board result has no boolean 'truncated'", "boolean", truncate(data.truncated));
+  expect(
+    data.truncated === data.shown < data.total,
+    "today_board 'truncated' is inconsistent with shown vs total",
+    `truncated === (shown < total) — shown=${data.shown}, total=${data.total}`,
+    `truncated=${data.truncated}`,
+  );
 }
 
 async function scenarioFindOrdersByDealer() {
@@ -324,8 +389,8 @@ async function scenarioFindOrdersByDealer() {
   // literal "pass the dealer name as q" reading of the brief would test an
   // unsupported combination. Filtering by dealer_id is what the tool's own
   // schema documents for this purpose.
-  const data = parseToolData(await callTool("find_orders", { dealer_id: lockTightDealer.id, limit: 100 }), "find_orders");
-  expect(Array.isArray(data), "find_orders did not return an array", "array", truncate(data));
+  const envelope = parseToolData(await callTool("find_orders", { dealer_id: lockTightDealer.id, limit: 100 }), "find_orders");
+  const data = expectListEnvelope(envelope, "find_orders");
   if (data.length === 0) {
     skip(`find_orders returned 0 orders for dealer_id=${lockTightDealer.id} (${lockTightDealer.name}) — nothing to assert on in this environment`);
   }
@@ -346,8 +411,8 @@ async function scenarioGetOrderRoundtrip() {
     // Sparse-DB fallback: find_orders_by_dealer may have legitimately SKIPped
     // (no Lock Tight orders here). Still exercise get_order against ANY order
     // so this scenario doesn't silently no-op whenever the seed data is thin.
-    const rows = parseToolData(await callTool("find_orders", { limit: 10 }), "find_orders");
-    expect(Array.isArray(rows), "find_orders (unfiltered fallback) did not return an array", "array", truncate(rows));
+    const envelope = parseToolData(await callTool("find_orders", { limit: 10 }), "find_orders");
+    const rows = expectListEnvelope(envelope, "find_orders");
     if (rows.length === 0) {
       skip("no orders exist in this environment at all (both dealer-filtered and unfiltered find_orders returned 0 rows) — nothing to round-trip");
     }
@@ -365,9 +430,23 @@ async function scenarioGetOrderRoundtrip() {
   expect(Array.isArray(data.lines), "get_order result 'lines' is not an array", "array", truncate(data.lines));
 }
 
+async function scenarioGetOrderMissingIsNull() {
+  // get_order's description promises null for a nonexistent/invisible id
+  // (search_read-based, not read-based — see tools.ts) rather than an
+  // Odoo MissingError/AccessError bubbling up as a tool error. Use an id
+  // astronomically unlikely to exist.
+  const data = parseToolData(await callTool("get_order", { id: 999999999 }), "get_order");
+  expect(data === null, "get_order(999999999) did not return null for a nonexistent id", null, truncate(data));
+}
+
 async function scenarioLimitIsCapped() {
-  const data = parseToolData(await callTool("find_orders", { limit: 5000 }), "find_orders");
-  expect(Array.isArray(data), "find_orders did not return an array", "array", truncate(data));
+  // This is now a smoke test backed by a direct unit test on clampLimit()
+  // in src/lib/mcp/tools.test.ts (5000 -> 100 among other cases) — that
+  // test is the one that actually fails if the clamp regresses, since this
+  // scenario alone would pass vacuously against a database with fewer than
+  // 100 orders in it.
+  const envelope = parseToolData(await callTool("find_orders", { limit: 5000 }), "find_orders");
+  const data = expectListEnvelope(envelope, "find_orders");
   expect(
     data.length <= 100,
     "find_orders with limit:5000 returned more than 100 rows — the blast-radius cap did not hold",
@@ -413,6 +492,100 @@ async function scenarioBadTokenIs401() {
   }
 }
 
+/**
+ * Regression guard for the "create-refusal" evidence that, before this
+ * scenario existed, was only a one-off manual observation in the review
+ * notes — never re-checked automatically. No MCP tool can write (every
+ * tool implementation in tools.ts only ever calls search_read/read/
+ * search_count), so there is no tool call that could even attempt this —
+ * that absence is the read-only guarantee at the tool layer, and it's
+ * already covered by every other scenario in this file only ever calling
+ * read-style tools. What this scenario checks INSTEAD is the layer below
+ * that: does Odoo's own ACL also refuse a write for the exact credential
+ * pair (login + API key) an MCP bearer token is built from, in case that
+ * pair is ever used directly (e.g. extracted from a token) rather than
+ * through this app? It authenticates against Odoo's `/jsonrpc` exactly
+ * like src/lib/odoo/rpc.ts does, then attempts `indigo.design.create` and
+ * asserts Odoo itself rejects it.
+ *
+ * Requires ODOO_URL/ODOO_DB (NOT passed by this script's own MCP_URL/
+ * MCP_TOKEN — deliberately separate env vars so a normal `mcp-eval.mjs`
+ * run against a server that already has them configured doesn't
+ * accidentally attempt a write against whatever Odoo that server points
+ * at). SKIPs with a clear line if either is unset, per the brief — do not
+ * default them to anything.
+ */
+async function scenarioWriteIsRefused() {
+  const odooUrl = process.env.ODOO_URL;
+  const odooDb = process.env.ODOO_DB;
+  if (!odooUrl || !odooDb) {
+    skip("ODOO_URL and/or ODOO_DB are not set for this eval process — refusing to guess an Odoo instance to write-probe. Set both explicitly to run this scenario.");
+  }
+
+  // Same <login>.<apikey> split as parseBearer() in src/lib/mcp/token.ts —
+  // split on the LAST dot, since Odoo logins are emails and contain dots.
+  const idx = MCP_TOKEN.lastIndexOf(".");
+  if (idx <= 0 || idx === MCP_TOKEN.length - 1) {
+    skip("MCP_TOKEN doesn't look like a '<login>.<apikey>' pair — cannot derive an Odoo credential for a direct write attempt");
+  }
+  const login = MCP_TOKEN.slice(0, idx);
+  const apiKey = MCP_TOKEN.slice(idx + 1);
+
+  async function odooRpc(service, method, args) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${odooUrl}/jsonrpc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "call", params: { service, method, args } }),
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        fail(`Odoo /jsonrpc (${service}.${method}) returned non-JSON`, "valid JSON", truncate(text));
+      }
+      return { httpStatus: res.status, json };
+    } catch (e) {
+      fail(`network error calling Odoo /jsonrpc directly (${service}.${method}): ${e.message}`, "a response from Odoo", e.message);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const auth = await odooRpc("common", "authenticate", [odooDb, login, apiKey, {}]);
+  const uid = auth.json?.result;
+  expect(
+    typeof uid === "number" && uid > 0,
+    "direct Odoo authenticate with the MCP_TOKEN credential pair failed — cannot test write refusal without a valid uid",
+    "a numeric uid",
+    truncate(auth.json),
+  );
+
+  // A throwaway, obviously-labeled probe row — only matters if Odoo
+  // unexpectedly ALLOWS this (see the assertion below), in which case a
+  // human needs to find and remove it manually; nothing here can delete
+  // it, on purpose.
+  const probeCode = `MCP-EVAL-WRITE-PROBE-${Date.now()}`;
+  const create = await odooRpc("object", "execute_kw", [
+    odooDb,
+    uid,
+    apiKey,
+    "indigo.design",
+    "create",
+    [{ code: probeCode, name: "MCP eval write probe — should be refused by Odoo" }],
+  ]);
+  expect(
+    !!create.json?.error,
+    `a direct indigo.design create over the MCP credential pair (login=${login}) was NOT refused by Odoo — read-only-ness is not actually enforced at the Odoo ACL layer for this account. If this created record ${probeCode}, remove it manually.`,
+    "a JSON-RPC error (e.g. AccessError) from Odoo",
+    truncate(create.json),
+  );
+}
+
 // ---------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------
@@ -426,9 +599,11 @@ const SCENARIOS = [
   ["today_board_shape", scenarioTodayBoardShape],
   ["find_orders_by_dealer", scenarioFindOrdersByDealer],
   ["get_order_roundtrip", scenarioGetOrderRoundtrip],
+  ["get_order_missing_is_null", scenarioGetOrderMissingIsNull],
   ["limit_is_capped", scenarioLimitIsCapped],
   ["unknown_tool_is_an_error", scenarioUnknownToolIsError],
   ["bad_token_is_401", scenarioBadTokenIs401],
+  ["write_is_refused", scenarioWriteIsRefused],
 ];
 
 async function main() {

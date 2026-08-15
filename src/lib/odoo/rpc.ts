@@ -24,9 +24,23 @@ const ODOO_DB = process.env.ODOO_DB ?? "indigo-prod";
 const TIMEOUT_MS = parseInt(process.env.ODOO_TIMEOUT_MS ?? "30000", 10);
 
 export class OdooRpcError extends Error {
-  constructor(message: string) {
+  /**
+   * Odoo's own exception dotted name from `error.data.name` (e.g.
+   * "odoo.exceptions.AccessError"), or a local marker ("TIMEOUT" /
+   * "NETWORK") for failures that never reached Odoo at all. Lets callers
+   * (src/lib/mcp/tools.ts, src/lib/mcp/token.ts) distinguish "permission
+   * denied" from "record is gone" from "transient — retry" without
+   * re-parsing message text.
+   */
+  readonly errorName?: string;
+  /** HTTP status Odoo responded with, when the failure was `!res.ok`. */
+  readonly httpStatus?: number;
+
+  constructor(message: string, opts?: { errorName?: string; httpStatus?: number }) {
     super(message);
     this.name = "OdooRpcError";
+    this.errorName = opts?.errorName;
+    this.httpStatus = opts?.httpStatus;
   }
 }
 
@@ -61,20 +75,34 @@ async function rpcCall<T>(service: string, method: string, args: unknown[]): Pro
       signal: controller.signal,
       cache: "no-store",
     });
+  } catch (e) {
+    // Never reached Odoo at all: our own abort (timeout) or a network-level
+    // failure (connection refused, DNS, Odoo restarting). Both are worth a
+    // retry, unlike a bad credential or a genuine Odoo-side error below —
+    // callers use `errorName` to tell them apart (see MCP token/tool error
+    // mapping) instead of guessing from message text.
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new OdooRpcError(`Odoo request timed out after ${TIMEOUT_MS}ms`, { errorName: "TIMEOUT" });
+    }
+    throw new OdooRpcError(e instanceof Error ? e.message : "Odoo network error", {
+      errorName: "NETWORK",
+    });
   } finally {
     clearTimeout(timer);
   }
 
   if (!res.ok) {
-    throw new OdooRpcError(`HTTP ${res.status} from Odoo`);
+    throw new OdooRpcError(`HTTP ${res.status} from Odoo`, { httpStatus: res.status });
   }
 
   const json = (await res.json()) as JsonRpcResponse<T>;
   if (json.error) {
     // Odoo error payloads can carry a full Python traceback in `data.debug`.
-    // Never forward that to MCP callers — surface only the short message.
+    // Never forward that to MCP callers — surface only the short message
+    // (and the exception's dotted name, for callers that want to branch on
+    // error kind rather than message text).
     const msg = json.error.data?.message ?? json.error.message ?? "Odoo RPC error";
-    throw new OdooRpcError(msg);
+    throw new OdooRpcError(msg, { errorName: json.error.data?.name });
   }
 
   return json.result as T;

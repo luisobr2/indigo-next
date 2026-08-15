@@ -25,9 +25,12 @@ export function proxy(req: NextRequest) {
     // accidentally exempted by prefix.
     pathname === "/api/calendar.ics" ||
     // Remote MCP endpoint: authenticates via its own bearer token (an Odoo
-    // login.apiKey pair), not the session cookie. Exact match so no
-    // sibling path under /api/mcp* is accidentally exempted by prefix.
+    // login.apiKey pair), not the session cookie. Exact match (plus the
+    // trailing-slash variant some MCP clients send) so no sibling path
+    // under /api/mcp* is accidentally exempted by prefix — this must stay
+    // a fixed pair of literal comparisons, never startsWith("/api/mcp").
     pathname === "/api/mcp" ||
+    pathname === "/api/mcp/" ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname === "/"

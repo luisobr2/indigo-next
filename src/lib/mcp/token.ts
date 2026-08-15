@@ -22,10 +22,25 @@ async function getRpc() {
 export interface McpIdentity {
   uid: number;
   login: string;
-  name: string;
   groups: string[];
   /** Odoo API key, forwarded on every subsequent execute_kw call. */
   apiKey: string;
+}
+
+/**
+ * The exact `res.groups.full_name` for `base.group_user` ("Access Rights"
+ * technically, but Odoo's own category for it is "User types") in this
+ * deployment — verified live against indigo-prod rather than assumed, since
+ * full_name is "<Category> / <Group>" and the category naming isn't
+ * documented anywhere stable. This surface is for the internal team only;
+ * dealers authenticate as portal users in this deployment and must never
+ * carry this group.
+ */
+const INTERNAL_USER_GROUP = "User types / Internal User";
+
+/** True if this identity is an internal Odoo user (not a portal/dealer login). */
+export function isInternalUser(groups: string[]): boolean {
+  return groups.includes(INTERNAL_USER_GROUP);
 }
 
 export function parseBearer(header: string | null): { login: string; apiKey: string } | null {
@@ -41,7 +56,6 @@ export function parseBearer(header: string | null): { login: string; apiKey: str
 }
 
 interface ResUsersRow {
-  name: string;
   groups_id: number[];
 }
 
@@ -50,20 +64,57 @@ interface ResGroupsRow {
   full_name?: string;
 }
 
+/**
+ * A thrown OdooRpcError is "transient" — worth a 503 rather than a 401 —
+ * when it never got a real answer from Odoo at all: our own timeout, a
+ * network-level failure, or Odoo itself erroring at the HTTP level (5xx).
+ * A bad login/API key never throws here (`common.authenticate` returns
+ * `false`, see rpcAuthenticate) so anything else thrown is either this, or
+ * a genuinely unexpected Odoo-side error we still don't want to mislabel
+ * as "bad token" — see verifyMcpToken below for how each branch is used.
+ * Duck-typed on `.name`/`.errorName`/`.httpStatus` (set by rpc.ts's
+ * OdooRpcError) instead of `instanceof` so this module doesn't need a
+ * top-level, always-evaluated import of rpc.ts just for a class reference.
+ */
+function isTransientOdooError(e: unknown): boolean {
+  if (!(e instanceof Error) || e.name !== "OdooRpcError") return false;
+  const err = e as Error & { errorName?: string; httpStatus?: number };
+  if (err.errorName === "TIMEOUT" || err.errorName === "NETWORK") return true;
+  return typeof err.httpStatus === "number" && err.httpStatus >= 500;
+}
+
+/**
+ * Verifies an MCP bearer token against Odoo and returns the caller's
+ * identity, or `null` if the credentials are genuinely invalid (bad key,
+ * disabled user, deleted user). Errs closed on ambiguity: `null` becomes an
+ * HTTP 401 in the route.
+ *
+ * Deliberately does NOT swallow a transient failure (Odoo down, timeout,
+ * connection refused) into that same `null` — those are rethrown so the
+ * route can answer 503 instead of telling someone their token is invalid
+ * during an Odoo restart. See isTransientOdooError above.
+ */
 export async function verifyMcpToken(header: string | null): Promise<McpIdentity | null> {
   const pair = parseBearer(header);
   if (!pair) return null;
-  try {
-    const { rpcAuthenticate, rpcExecuteKw } = await getRpc();
-    const uid = await rpcAuthenticate(pair.login, pair.apiKey);
-    if (!uid) return null;
+  const { rpcAuthenticate, rpcExecuteKw } = await getRpc();
 
+  let uid: number | null;
+  try {
+    uid = await rpcAuthenticate(pair.login, pair.apiKey);
+  } catch (e) {
+    if (isTransientOdooError(e)) throw e;
+    return null;
+  }
+  if (!uid) return null;
+
+  try {
     const userRows = await rpcExecuteKw<ResUsersRow[]>(
       uid,
       pair.apiKey,
       "res.users",
       "read",
-      [[uid], ["name", "groups_id"]],
+      [[uid], ["groups_id"]],
       {},
     );
     const user = userRows[0];
@@ -86,12 +137,13 @@ export async function verifyMcpToken(header: string | null): Promise<McpIdentity
     return {
       uid,
       login: pair.login,
-      name: user.name,
       groups,
       apiKey: pair.apiKey,
     };
-  } catch {
-    // Bad key, disabled user, Odoo down — all are "no identity" to the caller.
+  } catch (e) {
+    if (isTransientOdooError(e)) throw e;
+    // Disabled/deleted user between authenticate and this read, or any
+    // other unexpected Odoo error reading identity — still "no identity".
     return null;
   }
 }
