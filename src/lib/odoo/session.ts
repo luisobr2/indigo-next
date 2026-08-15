@@ -11,19 +11,29 @@ import type { SessionPayload } from "./types";
 export type { SessionPayload, SessionUser } from "./types";
 export { deriveRole } from "./types";
 import { signPayload, verifyPayload, requireSessionSecret } from "./session-cookie.ts";
+import { SESSION_LIFETIME_SECONDS } from "../session-cookie-edge.ts";
 
 const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "indigo_session";
 
-/** Verify + parse a cookie value, or null if it is missing, forged or legacy. */
-function readSigned(raw: string | undefined): SessionPayload | null {
+/**
+ * Purpose strings mixed into each cookie's MAC (see signPayload/verifyPayload
+ * in ./session-cookie.ts). A value signed for one purpose must not verify
+ * under the other, even though both cookies share a secret and payload
+ * shape today — see the "purpose separation" tests in session-cookie.test.ts.
+ */
+const SESSION_PURPOSE = "session";
+const ORIGINAL_SESSION_PURPOSE = "session-original";
+
+/** Verify + parse a cookie value, or null if it is missing, forged, expired or legacy. */
+function readSigned(raw: string | undefined, purpose: string): SessionPayload | null {
   if (!raw) return null;
-  const payload = verifyPayload(raw, requireSessionSecret());
+  const payload = verifyPayload(raw, requireSessionSecret(), purpose, Date.now());
   return payload ? (payload as SessionPayload) : null;
 }
 
 export async function getSession(): Promise<SessionPayload | null> {
   const store = await cookies();
-  return readSigned(store.get(COOKIE_NAME)?.value);
+  return readSigned(store.get(COOKIE_NAME)?.value, SESSION_PURPOSE);
 }
 
 export async function requireSession(): Promise<SessionPayload> {
@@ -50,13 +60,17 @@ const COOKIE_SECURE = (() => {
 
 export async function writeSession(payload: SessionPayload): Promise<void> {
   const store = await cookies();
-  store.set(COOKIE_NAME, signPayload(payload, requireSessionSecret()), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: COOKIE_SECURE,
-    path: "/",
-    maxAge: 60 * 60 * 8,
-  });
+  store.set(
+    COOKIE_NAME,
+    signPayload(payload, requireSessionSecret(), SESSION_PURPOSE, Date.now()),
+    {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: COOKIE_SECURE,
+      path: "/",
+      maxAge: SESSION_LIFETIME_SECONDS,
+    },
+  );
 }
 
 export async function clearSession(): Promise<void> {
@@ -75,13 +89,17 @@ export async function pushOriginalSession(
   payload: SessionPayload,
 ): Promise<void> {
   const store = await cookies();
-  store.set(ORIGINAL_COOKIE, signPayload(payload, requireSessionSecret()), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: COOKIE_SECURE,
-    path: "/",
-    maxAge: 60 * 60 * 8,
-  });
+  store.set(
+    ORIGINAL_COOKIE,
+    signPayload(payload, requireSessionSecret(), ORIGINAL_SESSION_PURPOSE, Date.now()),
+    {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: COOKIE_SECURE,
+      path: "/",
+      maxAge: SESSION_LIFETIME_SECONDS,
+    },
+  );
 }
 
 export async function popOriginalSession(): Promise<SessionPayload | null> {
@@ -89,12 +107,12 @@ export async function popOriginalSession(): Promise<SessionPayload | null> {
   const raw = store.get(ORIGINAL_COOKIE)?.value;
   if (!raw) return null;
   store.delete(ORIGINAL_COOKIE);
-  return readSigned(raw);
+  return readSigned(raw, ORIGINAL_SESSION_PURPOSE);
 }
 
 export async function getOriginalSession(): Promise<SessionPayload | null> {
   const store = await cookies();
-  return readSigned(store.get(ORIGINAL_COOKIE)?.value);
+  return readSigned(store.get(ORIGINAL_COOKIE)?.value, ORIGINAL_SESSION_PURPOSE);
 }
 
 export const SESSION_COOKIE = COOKIE_NAME;

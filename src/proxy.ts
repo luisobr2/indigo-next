@@ -1,21 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { installerRedirect } from "./lib/installer-guard.ts";
-import { decodeUnverified } from "./lib/session-cookie-edge.ts";
+import { decodeFreshUnverified } from "./lib/session-cookie-edge.ts";
 
 const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "indigo_session";
 
 /**
  * Gate-keeper for the (app) routes. Anything that isn't /login or /api/auth/*
- * needs an indigo_session cookie that actually decodes. Edge runtime, no Odoo
- * calls here — decodeUnverified does NOT check the signature (node:crypto
- * isn't available on Edge), it only rules out a cookie that can't even be
- * parsed: missing, garbage, or a legacy unsigned cookie from before this
- * cookie format shipped. Treating those as "no session" matters because a
- * forged/expired signature still decodes fine and must reach /api/auth/me
- * (which DOES verify) to be told apart from a live session — see app-shell.tsx.
+ * needs an indigo_session cookie that actually decodes AND is unexpired.
+ * Edge runtime, no Odoo calls here — decodeFreshUnverified does NOT check the
+ * signature (node:crypto isn't available on Edge), it only rules out a
+ * cookie that can't be parsed (missing, garbage, legacy unsigned) or whose
+ * embedded `exp` has passed. Treating those as "no session" matters because
+ * a forged-but-fresh-looking signature still decodes fine here and must
+ * reach /api/auth/me (which DOES verify the MAC) to be told apart from a
+ * live session — see app-shell.tsx. An expired one, though, is now caught
+ * right here, so a stale cookie bounces straight to /login without that
+ * round-trip.
  */
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const now = Date.now();
   if (
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/auth") ||
@@ -38,11 +42,11 @@ export function proxy(req: NextRequest) {
     if (pathname === "/") {
       const url = req.nextUrl.clone();
       const raw = req.cookies.get(COOKIE_NAME)?.value;
-      if (!raw || !decodeUnverified(raw)) {
+      if (!raw || !decodeFreshUnverified(raw, now)) {
         url.pathname = "/login";
       } else {
         // Installers have no dashboard — send them straight to /installs.
-        url.pathname = installerRedirect("/", raw) ?? "/dashboard";
+        url.pathname = installerRedirect("/", raw, now) ?? "/dashboard";
       }
       return NextResponse.redirect(url);
     }
@@ -51,9 +55,10 @@ export function proxy(req: NextRequest) {
 
   const cookie = req.cookies.get(COOKIE_NAME);
   // A cookie that is present but undecodable (legacy unsigned cookie, or
-  // garbage) is treated the same as no cookie at all — otherwise it waves
-  // the request through to a shell that can never actually load data.
-  if (!cookie || !decodeUnverified(cookie.value)) {
+  // garbage) or expired is treated the same as no cookie at all — otherwise
+  // it waves the request through to a shell that can never actually load
+  // data.
+  if (!cookie || !decodeFreshUnverified(cookie.value, now)) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
@@ -62,7 +67,7 @@ export function proxy(req: NextRequest) {
 
   // Confine a pure installer to their /installs view — the management pages
   // (e.g. /installations) 403 their data. API routes handle their own authz.
-  const dest = installerRedirect(pathname, cookie.value);
+  const dest = installerRedirect(pathname, cookie.value, now);
   if (dest) {
     const url = req.nextUrl.clone();
     url.pathname = dest;
