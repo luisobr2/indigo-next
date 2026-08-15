@@ -68,6 +68,7 @@ const EXPECTED_TOOL_NAMES = [
   "list_stages",
   "list_dealers",
   "list_designs",
+  "list_people",
   "advance_order",
   "assign_order",
   "schedule_install",
@@ -513,40 +514,65 @@ async function scenarioBadTokenIs401() {
 }
 
 /**
- * Regression guard for the "create-refusal" evidence that, before this
- * scenario existed, was only a one-off manual observation in the review
- * notes — never re-checked automatically. No MCP tool can write (every
- * tool implementation in tools.ts only ever calls search_read/read/
- * search_count), so there is no tool call that could even attempt this —
- * that absence is the read-only guarantee at the tool layer, and it's
- * already covered by every other scenario in this file only ever calling
- * read-style tools. What this scenario checks INSTEAD is the layer below
- * that: does Odoo's own ACL also refuse a write for the exact credential
- * pair (login + API key) an MCP bearer token is built from, in case that
- * pair is ever used directly (e.g. extracted from a token) rather than
- * through this app? It authenticates against Odoo's `/jsonrpc` exactly
- * like src/lib/odoo/rpc.ts does, then attempts `indigo.design.create` and
- * asserts Odoo itself rejects it.
+ * Regression guard for Odoo's own ACL as a SECOND barrier behind whichever
+ * write tools this project chooses to expose — no MCP tool can write on its
+ * own here (every tool implementation in tools.ts only ever calls
+ * search_read/read/search_count outside the five gated Fase 2 write tools,
+ * and this scenario doesn't call any tool at all), so what this checks is
+ * the layer below that: does Odoo's own ACL ALSO refuse the exact write an
+ * MCP credential (login + API key) could attempt directly, bypassing this
+ * app entirely?
+ *
+ * **That second barrier only exists for RESTRICTED roles** (office, painter,
+ * CNC, designer, installer) — see
+ * docs/superpowers/notes/2026-08-15-mcp-acl-boundary.md for the full
+ * measurement. Manager accounts — which includes Majela, the primary
+ * operator of this whole MCP surface — are granted `create` on
+ * `indigo.design` directly by the addon (`group_indigo_manager` in
+ * c:/Trabajo/odoo-indigo/addons/indigo_decors/security/ir.model.access.csv,
+ * read-only reference: `access_indigo_design_manager` grants create=1,
+ * while `access_indigo_design_office` grants create=0). Asserting refusal
+ * unconditionally is simply FALSE for a manager identity — not a stricter
+ * guarantee neither side happens to enforce, a guarantee Odoo genuinely does
+ * NOT provide there.
+ *
+ * This scenario used to assert refusal unconditionally, generalising from a
+ * single manual test against an OFFICE account
+ * (`ics-service@indigodecors.com` — see the corrected "Real run output"
+ * section of docs/superpowers/notes/2026-08-15-mcp-evals.md). It now checks
+ * the caller's own Indigo role FIRST — the same res.users/res.groups read
+ * verifyMcpToken (src/lib/mcp/token.ts) does — and only asserts refusal for
+ * a non-manager identity, which is the guarantee that's actually real. For a
+ * manager identity it SKIPs with an explicit explanation of which guarantee
+ * is (and isn't) being checked, rather than either failing on expected
+ * behaviour or silently passing without checking anything.
+ *
+ * Uses `check_access_rights('create', {raise_exception: false})` — a pure
+ * permission check with no side effects — instead of an actual `create`
+ * attempt, so this scenario never has to create-then-hope-to-clean-up a junk
+ * `indigo.design` row in whatever Odoo instance ODOO_URL/ODOO_DB happen to
+ * point at. This is also exactly the method the ACL boundary doc's own
+ * measurement used, so the two stay consistent.
  *
  * Requires ODOO_URL/ODOO_DB (NOT passed by this script's own MCP_URL/
  * MCP_TOKEN — deliberately separate env vars so a normal `mcp-eval.mjs`
  * run against a server that already has them configured doesn't
- * accidentally attempt a write against whatever Odoo that server points
- * at). SKIPs with a clear line if either is unset, per the brief — do not
- * default them to anything.
+ * accidentally probe whatever Odoo that server points at). SKIPs with a
+ * clear line if either is unset, per the brief — do not default them to
+ * anything.
  */
 async function scenarioWriteIsRefused() {
   const odooUrl = process.env.ODOO_URL;
   const odooDb = process.env.ODOO_DB;
   if (!odooUrl || !odooDb) {
-    skip("ODOO_URL and/or ODOO_DB are not set for this eval process — refusing to guess an Odoo instance to write-probe. Set both explicitly to run this scenario.");
+    skip("ODOO_URL and/or ODOO_DB are not set for this eval process — refusing to guess an Odoo instance to probe. Set both explicitly to run this scenario.");
   }
 
   // Same <login>.<apikey> split as parseBearer() in src/lib/mcp/token.ts —
   // split on the LAST dot, since Odoo logins are emails and contain dots.
   const idx = MCP_TOKEN.lastIndexOf(".");
   if (idx <= 0 || idx === MCP_TOKEN.length - 1) {
-    skip("MCP_TOKEN doesn't look like a '<login>.<apikey>' pair — cannot derive an Odoo credential for a direct write attempt");
+    skip("MCP_TOKEN doesn't look like a '<login>.<apikey>' pair — cannot derive an Odoo credential to check");
   }
   const login = MCP_TOKEN.slice(0, idx);
   const apiKey = MCP_TOKEN.slice(idx + 1);
@@ -580,29 +606,55 @@ async function scenarioWriteIsRefused() {
   const uid = auth.json?.result;
   expect(
     typeof uid === "number" && uid > 0,
-    "direct Odoo authenticate with the MCP_TOKEN credential pair failed — cannot test write refusal without a valid uid",
+    "direct Odoo authenticate with the MCP_TOKEN credential pair failed — cannot check ACLs without a valid uid",
     "a numeric uid",
     truncate(auth.json),
   );
 
-  // A throwaway, obviously-labeled probe row — only matters if Odoo
-  // unexpectedly ALLOWS this (see the assertion below), in which case a
-  // human needs to find and remove it manually; nothing here can delete
-  // it, on purpose.
-  const probeCode = `MCP-EVAL-WRITE-PROBE-${Date.now()}`;
-  const create = await odooRpc("object", "execute_kw", [
+  // Which guarantee are we even checking? Depends entirely on the caller's
+  // own Indigo role — see this function's doc comment. Same technique as
+  // verifyMcpToken (src/lib/mcp/token.ts): read groups_id off res.users,
+  // then resolve full_name on res.groups.
+  const userRead = await odooRpc("object", "execute_kw", [odooDb, uid, apiKey, "res.users", "read", [[uid], ["groups_id"]]]);
+  const groupIds = userRead.json?.result?.[0]?.groups_id ?? [];
+  let groupFullNames = [];
+  if (groupIds.length) {
+    const groupsRead = await odooRpc("object", "execute_kw", [odooDb, uid, apiKey, "res.groups", "read", [groupIds, ["name", "full_name"]]]);
+    groupFullNames = (groupsRead.json?.result ?? []).map((g) => g.full_name ?? g.name);
+  }
+  const isManager = groupFullNames.includes("Indigo Decors / Manager");
+
+  const accessCheck = await odooRpc("object", "execute_kw", [
     odooDb,
     uid,
     apiKey,
     "indigo.design",
-    "create",
-    [{ code: probeCode, name: "MCP eval write probe — should be refused by Odoo" }],
+    "check_access_rights",
+    ["create"],
+    { raise_exception: false },
   ]);
   expect(
-    !!create.json?.error,
-    `a direct indigo.design create over the MCP credential pair (login=${login}) was NOT refused by Odoo — read-only-ness is not actually enforced at the Odoo ACL layer for this account. If this created record ${probeCode}, remove it manually.`,
-    "a JSON-RPC error (e.g. AccessError) from Odoo",
-    truncate(create.json),
+    accessCheck.json?.error === undefined,
+    `check_access_rights('create') on indigo.design errored for login=${login}`,
+    "a boolean result, no JSON-RPC error",
+    truncate(accessCheck.json),
+  );
+  const canCreate = accessCheck.json?.result === true;
+
+  if (isManager) {
+    skip(
+      `MCP_TOKEN's identity (login=${login}) is an Indigo Manager — Odoo's ACL does NOT refuse indigo.design create for that role ` +
+        `(check_access_rights('create') returned ${canCreate}; measured and documented in docs/superpowers/notes/2026-08-15-mcp-acl-boundary.md). ` +
+        "For managers, this project's own tool surface is the only boundary — there is no Odoo-ACL guarantee left for this scenario to check. " +
+        "Re-run with a non-manager MCP_TOKEN (office/painter/CNC/designer/installer) to exercise the refusal assertion this scenario makes for everyone else.",
+    );
+  }
+
+  expect(
+    canCreate === false,
+    `indigo.design create was NOT refused by Odoo's ACL for a non-manager identity (login=${login}) — the second barrier behind this project's own tool surface is not actually enforced for this account.`,
+    "check_access_rights('create') === false",
+    `check_access_rights('create') === ${canCreate}`,
   );
 }
 

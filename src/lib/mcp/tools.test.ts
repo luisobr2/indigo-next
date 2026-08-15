@@ -9,6 +9,7 @@ import {
   toMcpToolError,
   McpToolError,
   runWriteTool,
+  personRoleLabels,
 } from "./tools.ts";
 import { issueConfirmToken, CONFIRM_TOKEN_TTL_MS } from "./confirm.ts";
 import type { McpIdentity } from "./token.ts";
@@ -48,6 +49,65 @@ test("formatOrder flattens Odoo's many2one tuples and false-for-empty", () => {
     installation_date: null,
     doors: 2,
   });
+});
+
+// ---------------------------------------------------------------------
+// list_people — the discovery tool that lets an agent turn a name like
+// "Javier" into the res.partner id assign_order needs. Pure-logic pieces
+// only (personRoleLabels, TOOL_DEFS shape) are unit-testable here; the
+// Odoo-touching part (listPeople itself: res.users + res.groups reads,
+// isInternalUser filtering) needs a real Odoo, same split as every other
+// list tool in this file — see this suite's own top-of-file precedent.
+// ---------------------------------------------------------------------
+
+const NO_ROLES = {
+  isManager: false,
+  isOffice: false,
+  isDesigner: false,
+  isCnc: false,
+  isPainter: false,
+  isInstaller: false,
+};
+
+test("personRoleLabels returns an empty array when no Indigo group matched", () => {
+  assert.deepEqual(personRoleLabels(NO_ROLES), []);
+});
+
+test("personRoleLabels maps a single role flag to its human label", () => {
+  assert.deepEqual(personRoleLabels({ ...NO_ROLES, isInstaller: true }), ["Installer"]);
+  assert.deepEqual(personRoleLabels({ ...NO_ROLES, isPainter: true }), ["Painter"]);
+});
+
+test("personRoleLabels reports EVERY role a person holds, not just the first (disambiguation is the point)", () => {
+  assert.deepEqual(personRoleLabels({ ...NO_ROLES, isManager: true, isOffice: true }), ["Manager", "Office"]);
+});
+
+test("personRoleLabels orders labels Manager, Office, Designer, CNC, Painter, Installer regardless of input order", () => {
+  const allRoles = { isManager: true, isOffice: true, isDesigner: true, isCnc: true, isPainter: true, isInstaller: true };
+  assert.deepEqual(personRoleLabels(allRoles), ["Manager", "Office", "Designer", "CNC", "Painter", "Installer"]);
+});
+
+test("list_people is registered with an optional 'q' and no required arguments", () => {
+  const def = TOOL_DEFS.find((t) => t.name === "list_people");
+  assert.ok(def, "expected a 'list_people' tool in TOOL_DEFS");
+  const props = def!.inputSchema.properties as Record<string, { type?: string }>;
+  assert.equal(props.q?.type, "string");
+  assert.equal(props.limit?.type, "number");
+  assert.equal(props.offset?.type, "number");
+  assert.ok(!def!.inputSchema.required?.length, "list_people should have no required arguments");
+});
+
+test("list_people's description tells the model to call it before assign_order and to ask on ambiguity", () => {
+  const def = TOOL_DEFS.find((t) => t.name === "list_people")!;
+  assert.ok(/assign_order/.test(def.description), "should reference assign_order by name");
+  assert.ok(/before/i.test(def.description), "should instruct calling it BEFORE assign_order");
+  assert.ok(/ask/i.test(def.description), "should instruct asking the human on ambiguity, not guessing");
+  assert.ok(/res\.partner/.test(def.description), "should state the id is a res.partner id");
+});
+
+test("assign_order's description points at list_people for resolving a name to an id", () => {
+  const def = TOOL_DEFS.find((t) => t.name === "assign_order")!;
+  assert.ok(/list_people/.test(def.description), "assign_order should reference list_people");
 });
 
 // ---------------------------------------------------------------------

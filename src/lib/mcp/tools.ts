@@ -1,7 +1,9 @@
 /**
- * MCP tools over the Indigo panel's Odoo data: six read-only (Fase 1) plus
- * five reversible write tools (Fase 2) — advance_order, assign_order,
- * schedule_install, hold_order, add_note.
+ * MCP tools over the Indigo panel's Odoo data: seven read-only tools (the six
+ * from Fase 1 plus list_people, added once assign_order's name-to-id gap
+ * became a real usability blocker) plus five reversible write tools
+ * (Fase 2) — advance_order, assign_order, schedule_install, hold_order,
+ * add_note.
  *
  * Every Odoo call runs through `rpcExecuteKw(id.uid, id.apiKey, ...)` —
  * Odoo's external API (see src/lib/odoo/rpc.ts) — so it executes as the
@@ -47,7 +49,7 @@
  *    panel, not in Odoo" problem the design doc's "Por qué NO hablarle a
  *    Odoo directo" section warns about, encountered firsthand.
  */
-import type { McpIdentity } from "./token";
+import { isInternalUser, type McpIdentity } from "./token.ts";
 import { requireSessionSecret } from "../odoo/session-cookie.ts";
 import { issueConfirmToken, verifyConfirmToken } from "./confirm.ts";
 
@@ -522,6 +524,24 @@ export const TOOL_DEFS: ToolDef[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "list_people",
+    title: "List internal staff",
+    description:
+      "Looks up internal Indigo staff by name and returns, per match, the numeric id — a res.partner id, exactly what assign_order's painter_id / installer_ids / clear_painter expect — their name, and their Indigo role(s) in plain terms (Manager, Office, Designer, CNC, Painter, Installer; a person can hold more than one). ALWAYS call this BEFORE assign_order to turn a name like 'Javier' into an id — never guess or invent one. Staff only: dealers and customers never show up here, no matter what they're named. If more than one plausible match comes back — there are, for example, two people named Javier in this deployment — do NOT pick one yourself: show the candidates (name + role) to the human and ask which one they mean. That disambiguation is the entire reason this tool reports roles. Wrapped as `{ items, total, truncated }`; narrow with `q` or page with `offset` if `truncated` is true.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: {
+          type: "string",
+          description: "Optional free text to match against the person's name (ilike, case-insensitive, partial).",
+        },
+        limit: LIMIT_SCHEMA_PROPERTY,
+        offset: OFFSET_SCHEMA_PROPERTY,
+      },
+      additionalProperties: false,
+    },
+  },
 
   // ---------------------------------------------------------------------
   // Write tools (Fase 2) — every one previews before it writes. Call once
@@ -579,7 +599,7 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "assign_order",
     title: "Assign painter / installers to an order",
     description:
-      "Sets who is responsible for painting and/or installing ONE order: the painter (single contractor) and/or the installer(s). installer_ids REPLACES the current set entirely — send the full list you want assigned, not just the ones to add. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm'). Provide at least one of painter_id, clear_painter or installer_ids — omit a field entirely to leave that assignment untouched.",
+      "Sets who is responsible for painting and/or installing ONE order: the painter (single contractor) and/or the installer(s). installer_ids REPLACES the current set entirely — send the full list you want assigned, not just the ones to add. painter_id and installer_ids are res.partner ids — call list_people FIRST to resolve a name (e.g. 'Javier') to the right id, and to tell apart two staff members who share a first name; never guess one. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm'). Provide at least one of painter_id, clear_painter or installer_ids — omit a field entirely to leave that assignment untouched.",
     inputSchema: {
       type: "object",
       properties: {
@@ -589,7 +609,7 @@ export const TOOL_DEFS: ToolDef[] = [
         },
         painter_id: {
           type: "number",
-          description: "res.partner id of the painter to assign. Omit to leave the current painter unchanged; use clear_painter instead to remove one.",
+          description: "res.partner id of the painter to assign. Get it from list_people — do not guess one. Omit to leave the current painter unchanged; use clear_painter instead to remove one.",
         },
         clear_painter: {
           type: "boolean",
@@ -598,7 +618,7 @@ export const TOOL_DEFS: ToolDef[] = [
         installer_ids: {
           type: "array",
           items: { type: "number" },
-          description: "res.partner ids of the installer(s) to assign — REPLACES the current set. Pass an empty array to clear all installers. Omit to leave installers unchanged.",
+          description: "res.partner ids of the installer(s) to assign — REPLACES the current set. Get them from list_people — do not guess one. Pass an empty array to clear all installers. Omit to leave installers unchanged.",
         },
         confirm: CONFIRM_SCHEMA_PROPERTY,
       },
@@ -959,6 +979,137 @@ async function listDesigns(args: Record<string, unknown>, id: McpIdentity) {
     door_type: emptyToNull(r.door_type as string | false),
   }));
   return { items, total, truncated: offset + items.length < total };
+}
+
+/** Raw fetch cap for list_people's res.users read — NOT the caller-facing
+ *  `limit` (that's applied afterward, to the already-internal-only list; see
+ *  listPeople below). Exists only to bound the initial fetch before this
+ *  tool's own internal-only filtering runs client-side, because that filter
+ *  can't be pushed into the Odoo domain (see listPeople's doc comment for
+ *  why). A taller running ~20-40 doors at a time has, at most, a handful of
+ *  internal accounts — nowhere near this ceiling.
+ */
+const PEOPLE_FETCH_LIMIT = 500;
+
+interface PersonUserRow {
+  id: number;
+  name: string;
+  partner_id: [number, string] | false;
+  groups_id: number[];
+}
+
+/** Same shape token.ts's verifyMcpToken reads res.groups into: `full_name`
+ *  when present (Odoo's "<Category> / <Group>" form, e.g. "Indigo Decors /
+ *  Manager" or "User types / Internal User"), falling back to `name`. Both
+ *  isInternalUser (./token.ts) and deriveRole (@/lib/odoo/types) key off
+ *  this exact string shape — see PersonRow's derivation in listPeople.
+ */
+interface PersonGroupRow {
+  id: number;
+  name: string;
+  full_name?: string;
+}
+
+export interface PersonRow {
+  id: number;
+  name: string;
+  roles: string[];
+}
+
+/**
+ * Human labels for deriveRole's flags — Manager / Office / Designer / CNC /
+ * Painter / Installer, the exact wording list_people's own tool description
+ * promises. Unlike indigo_team_list's `role` field
+ * (c:/Trabajo/odoo-indigo/addons/indigo_decors/models/indigo_team.py,
+ * read-only reference), which reports only the FIRST matching role, this
+ * reports EVERY role the person actually holds: list_people's whole job is
+ * disambiguating people, so silently hiding a second role a person holds
+ * would work against the tool's own purpose.
+ */
+export function personRoleLabels(role: {
+  isManager: boolean;
+  isOffice: boolean;
+  isDesigner: boolean;
+  isCnc: boolean;
+  isPainter: boolean;
+  isInstaller: boolean;
+}): string[] {
+  const labels: string[] = [];
+  if (role.isManager) labels.push("Manager");
+  if (role.isOffice) labels.push("Office");
+  if (role.isDesigner) labels.push("Designer");
+  if (role.isCnc) labels.push("CNC");
+  if (role.isPainter) labels.push("Painter");
+  if (role.isInstaller) labels.push("Installer");
+  return labels;
+}
+
+/**
+ * Resolves internal staff by name to the res.partner id assign_order needs
+ * (painter_id / installer_ids are Many2one/Many2many onto res.partner, NOT
+ * res.users — verified against
+ * c:/Trabajo/odoo-indigo/addons/indigo_decors/models/indigo_order.py and
+ * against how the panel's own /api/contractors route already resolves this
+ * exact id for its assignment dropdowns: `u.partner_id[0]`, never `u.id`).
+ * Every res.users record carries a linked res.partner, so this is available
+ * for any internal user, not just contractors.
+ *
+ * "Internal" is decided the SAME way route.ts's own MCP-access gate decides
+ * it — isInternalUser(groups) from ./token.ts, checking for the "User types
+ * / Internal User" group — deliberately NOT a hand-rolled Odoo domain
+ * (e.g. `share = false`, the mechanism a couple of panel routes use): a
+ * second, different definition of "internal" living in this file would be
+ * one more thing that could quietly drift from what actually gates the MCP
+ * server itself. Because that check needs each user's group NAMES (not just
+ * ids), this fetches res.users broadly first, then res.groups once for the
+ * union of every group id referenced, then filters/shapes client-side —
+ * there's no way to ask Odoo for "share this JS function's definition of
+ * internal" directly in a domain.
+ */
+async function listPeople(args: Record<string, unknown>, id: McpIdentity) {
+  const execute = await getRpc();
+  const deriveRole = await getDeriveRole();
+  const limit = clampLimit(args.limit);
+  const offset = clampOffset(args.offset);
+
+  const domain: unknown[] = [];
+  const q = typeof args.q === "string" ? args.q.trim() : "";
+  if (q) domain.push(["name", "ilike", q]);
+
+  const users = await execute<PersonUserRow[]>(
+    id.uid,
+    id.apiKey,
+    "res.users",
+    "search_read",
+    [domain, ["id", "name", "partner_id", "groups_id"]],
+    { order: "name asc", limit: PEOPLE_FETCH_LIMIT },
+  );
+
+  const groupIds = [...new Set(users.flatMap((u) => u.groups_id))];
+  const groupNameById = new Map<number, string>();
+  if (groupIds.length) {
+    const groupRows = await execute<PersonGroupRow[]>(
+      id.uid,
+      id.apiKey,
+      "res.groups",
+      "read",
+      [groupIds, ["name", "full_name"]],
+      {},
+    );
+    for (const g of groupRows) groupNameById.set(g.id, g.full_name ?? g.name);
+  }
+
+  const people: PersonRow[] = [];
+  for (const u of users) {
+    const groupNames = u.groups_id.map((gid) => groupNameById.get(gid)).filter((n): n is string => !!n);
+    if (!isInternalUser(groupNames)) continue; // dealer/customer portal login — never staff
+    const partnerId = Array.isArray(u.partner_id) ? u.partner_id[0] : null;
+    if (!partnerId) continue; // defensive: every real res.users has one, but never fabricate an id
+    people.push({ id: partnerId, name: u.name, roles: personRoleLabels(deriveRole(groupNames)) });
+  }
+
+  const items = people.slice(offset, offset + limit);
+  return { items, total: people.length, truncated: offset + items.length < people.length };
 }
 
 // ---------------------------------------------------------------------
@@ -1569,6 +1720,8 @@ async function dispatchTool(
       return listDealers(args, id);
     case "list_designs":
       return listDesigns(args, id);
+    case "list_people":
+      return listPeople(args, id);
     case "advance_order":
       return advanceOrder(args, id, now);
     case "assign_order":
