@@ -6,6 +6,7 @@ import {
 } from "@modelcontextprotocol/server";
 
 import { verifyMcpToken, isInternalUser, type McpIdentity } from "@/lib/mcp/token";
+import { checkRate, clientKeyFromHeaders } from "@/lib/mcp/rate-limit";
 import { TOOL_DEFS, runTool } from "@/lib/mcp/tools";
 
 export const runtime = "nodejs";
@@ -83,6 +84,35 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json(
       { jsonrpc: "2.0", error: { code: -32000, message: "MCP deshabilitado." }, id: null },
       { status: 503 },
+    );
+  }
+
+  // Rate limit BEFORE any Odoo call. This endpoint is reachable pre-auth,
+  // and verifyMcpToken below always costs an Odoo round-trip (authenticate
+  // + a res.groups read) even for a garbage bearer — production Odoo runs
+  // single-threaded (workers=0, see CLAUDE.md sec. 7), shared by the
+  // panel, the storefront and the dealer portal. A flood here must be
+  // rejected in-process, not after it already reached Odoo.
+  const rateLimitKey = clientKeyFromHeaders(req.headers);
+  const rate = checkRate(rateLimitKey, Date.now());
+  if (!rate.ok) {
+    const retryAfterSeconds = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
+    console.log(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        ip: rateLimitKey,
+        ok: false,
+        reason: "rate_limited",
+        retryAfterMs: rate.retryAfterMs,
+      }),
+    );
+    return Response.json(
+      {
+        jsonrpc: "2.0",
+        error: { code: -32004, message: "Demasiadas solicitudes. Intenta de nuevo en unos segundos." },
+        id: null,
+      },
+      { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
     );
   }
 
