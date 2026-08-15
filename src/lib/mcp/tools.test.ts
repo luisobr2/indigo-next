@@ -1,7 +1,17 @@
-import test from "node:test";
+import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 
-import { TOOL_DEFS, formatOrder, clampLimit, mcpError, toMcpToolError, McpToolError } from "./tools.ts";
+import {
+  TOOL_DEFS,
+  formatOrder,
+  clampLimit,
+  mcpError,
+  toMcpToolError,
+  McpToolError,
+  runWriteTool,
+} from "./tools.ts";
+import { issueConfirmToken, CONFIRM_TOKEN_TTL_MS } from "./confirm.ts";
+import type { McpIdentity } from "./token.ts";
 
 test("every tool advertises a name, description and object schema", () => {
   assert.ok(TOOL_DEFS.length >= 6, `expected at least 6 tools, got ${TOOL_DEFS.length}`);
@@ -138,4 +148,193 @@ test("toMcpToolError falls back to ERROR_ODOO for a plain Error", () => {
 
 test("toMcpToolError falls back to ERROR_ODOO for a non-Error throw", () => {
   assert.equal(toMcpToolError("just a string").code, "ERROR_ODOO");
+});
+
+// ---------------------------------------------------------------------
+// Fase 2 write tools — schema shape. The full read/write/execute behavior
+// of each write tool talks to Odoo (via the lazily-imported rpc.ts), which
+// this plain `node --test` environment can't reach — same reason
+// today_board/find_orders/etc. aren't exercised end-to-end here either (see
+// this file's own top-of-suite tests, and docs/superpowers/notes/2026-08-
+// 15-mcp-evals.md for where that contract-level testing actually lives).
+// What IS fully testable here, with zero Odoo dependency, is the preview ->
+// confirm handshake itself — see the runWriteTool suite below.
+// ---------------------------------------------------------------------
+
+const WRITE_TOOL_NAMES = ["advance_order", "assign_order", "schedule_install", "hold_order", "add_note"];
+
+test("all five Fase 2 write tools are registered in TOOL_DEFS", () => {
+  const names = new Set(TOOL_DEFS.map((t) => t.name));
+  for (const name of WRITE_TOOL_NAMES) {
+    assert.ok(names.has(name), `expected TOOL_DEFS to include '${name}'`);
+  }
+  assert.ok(TOOL_DEFS.length >= 11, `expected at least 11 tools (6 read + 5 write), got ${TOOL_DEFS.length}`);
+});
+
+test("every write tool's schema declares an optional 'confirm' string argument", () => {
+  for (const name of WRITE_TOOL_NAMES) {
+    const def = TOOL_DEFS.find((t) => t.name === name);
+    assert.ok(def, `missing tool def for ${name}`);
+    const props = def!.inputSchema.properties as Record<string, { type?: string }>;
+    assert.equal(props.confirm?.type, "string", `${name} should have a string 'confirm' property`);
+    assert.ok(
+      !def!.inputSchema.required?.includes("confirm"),
+      `${name} must NOT require 'confirm' — omitting it is what triggers a preview`,
+    );
+  }
+});
+
+test("every write tool's schema requires an 'order_id'", () => {
+  for (const name of WRITE_TOOL_NAMES) {
+    const def = TOOL_DEFS.find((t) => t.name === name)!;
+    const props = def.inputSchema.properties as Record<string, { type?: string }>;
+    assert.equal(props.order_id?.type, "number", `${name} should take a numeric order_id`);
+    assert.ok(def.inputSchema.required?.includes("order_id"), `${name} should require order_id`);
+  }
+});
+
+// ---------------------------------------------------------------------
+// runWriteTool — the shared preview -> confirm orchestration every write
+// tool is built on (src/lib/mcp/tools.ts). Exercised directly with a fake
+// plan so this suite has ZERO Odoo dependency, matching this project's
+// existing split between "pure logic, unit tested here" and "real Odoo,
+// covered by the eval harness" (see docs/superpowers/notes/2026-08-15-mcp-
+// evals.md). This is where the task's four required properties are proven
+// end-to-end through the actual code path a real tool call takes, not just
+// at the confirm.ts crypto layer (see confirm.test.ts for that layer).
+// ---------------------------------------------------------------------
+
+const SECRET = "w".repeat(32);
+let savedSecret: string | undefined;
+
+before(() => {
+  savedSecret = process.env.SESSION_SECRET;
+  process.env.SESSION_SECRET = SECRET;
+});
+
+after(() => {
+  if (savedSecret === undefined) delete process.env.SESSION_SECRET;
+  else process.env.SESSION_SECRET = savedSecret;
+});
+
+const FAKE_ID: McpIdentity = { uid: 42, login: "majela@indigodecors.com", groups: [], apiKey: "fake-key" };
+const NOW = 1_700_000_000_000;
+
+function fakePlan(executed: { count: number; builds: number }) {
+  return async () => {
+    executed.builds += 1;
+    return {
+      message: "hacer la cosa de prueba",
+      extra: { order: "IND/2026/00001", client: "Cliente de prueba" },
+      execute: async () => {
+        executed.count += 1;
+      },
+    };
+  };
+}
+
+test("runWriteTool: a preview call (no confirm) performs zero writes", async () => {
+  const executed = { count: 0, builds: 0 };
+  const result = (await runWriteTool("advance_order", { order_id: 1 }, FAKE_ID, fakePlan(executed), NOW)) as {
+    preview: boolean;
+    confirm: string;
+    message: string;
+  };
+  assert.equal(executed.count, 0, "buildPlan's execute() must not run on a preview call");
+  assert.equal(executed.builds, 1, "buildPlan itself DOES run on preview — that's how it reads current state");
+  assert.equal(result.preview, true);
+  assert.ok(result.message.includes("Vista previa"));
+  assert.equal(typeof result.confirm, "string");
+  assert.ok(result.confirm.length > 0);
+});
+
+test("runWriteTool: a valid confirm token executes the plan exactly once", async () => {
+  const executed = { count: 0, builds: 0 };
+  const args = { order_id: 1 };
+  const preview = (await runWriteTool("advance_order", args, FAKE_ID, fakePlan(executed), NOW)) as { confirm: string };
+
+  const result = (await runWriteTool(
+    "advance_order",
+    { ...args, confirm: preview.confirm },
+    FAKE_ID,
+    fakePlan(executed),
+    NOW + 1_000,
+  )) as { ok: boolean; message: string };
+
+  assert.equal(executed.count, 1, "execute() must run exactly once on a valid confirm");
+  assert.equal(result.ok, true);
+  assert.ok(result.message.includes("Hecho"));
+});
+
+test("runWriteTool: a token replayed with different arguments is rejected, and never executes", async () => {
+  const executed = { count: 0, builds: 0 };
+  const preview = (await runWriteTool("advance_order", { order_id: 1 }, FAKE_ID, fakePlan(executed), NOW)) as {
+    confirm: string;
+  };
+
+  await assert.rejects(
+    () =>
+      runWriteTool(
+        "advance_order",
+        { order_id: 999, confirm: preview.confirm }, // different order_id than what was previewed
+        FAKE_ID,
+        fakePlan(executed),
+        NOW + 1_000,
+      ),
+    (err: unknown) => {
+      assert.ok(err instanceof McpToolError);
+      assert.equal((err as McpToolError).code, "CONFIRMACION_INVALIDA");
+      return true;
+    },
+  );
+  assert.equal(executed.count, 0, "a mismatched confirm must never reach plan.execute()");
+});
+
+test("runWriteTool: an expired token is rejected, and never executes", async () => {
+  const executed = { count: 0, builds: 0 };
+  const preview = (await runWriteTool("advance_order", { order_id: 1 }, FAKE_ID, fakePlan(executed), NOW)) as {
+    confirm: string;
+  };
+
+  const wayAfterExpiry = NOW + CONFIRM_TOKEN_TTL_MS + 60_000;
+  await assert.rejects(
+    () => runWriteTool("advance_order", { order_id: 1, confirm: preview.confirm }, FAKE_ID, fakePlan(executed), wayAfterExpiry),
+    (err: unknown) => {
+      assert.ok(err instanceof McpToolError);
+      assert.equal((err as McpToolError).code, "CONFIRMACION_INVALIDA");
+      return true;
+    },
+  );
+  assert.equal(executed.count, 0, "an expired confirm must never reach plan.execute()");
+});
+
+test("runWriteTool: a token minted for a DIFFERENT tool name is rejected even with identical arguments", async () => {
+  const executed = { count: 0, builds: 0 };
+  const secret = SECRET;
+  // Minted directly via confirm.ts for "assign_order", then presented to "advance_order".
+  const foreignToken = issueConfirmToken("assign_order", { order_id: 1 }, FAKE_ID.uid, secret, NOW);
+
+  await assert.rejects(
+    () =>
+      runWriteTool("advance_order", { order_id: 1, confirm: foreignToken }, FAKE_ID, fakePlan(executed), NOW + 1_000),
+    (err: unknown) => {
+      assert.ok(err instanceof McpToolError);
+      assert.equal((err as McpToolError).code, "CONFIRMACION_INVALIDA");
+      return true;
+    },
+  );
+  assert.equal(executed.count, 0);
+});
+
+test("runWriteTool: buildPlan is re-evaluated fresh on the confirm call, not reused from the preview", async () => {
+  // A confirm must re-read current Odoo state (order might have moved
+  // stages, been reassigned, etc. between preview and confirm) rather than
+  // trusting whatever the preview computed — see WritePlan's doc comment.
+  const executed = { count: 0, builds: 0 };
+  const args = { order_id: 1 };
+  const preview = (await runWriteTool("advance_order", args, FAKE_ID, fakePlan(executed), NOW)) as { confirm: string };
+  assert.equal(executed.builds, 1);
+
+  await runWriteTool("advance_order", { ...args, confirm: preview.confirm }, FAKE_ID, fakePlan(executed), NOW + 1_000);
+  assert.equal(executed.builds, 2, "buildPlan should run again on the confirm call, not be cached from the preview");
 });

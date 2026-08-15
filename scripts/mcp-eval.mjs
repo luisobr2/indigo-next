@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * MCP eval harness for the Indigo panel's read-only MCP server.
+ * MCP eval harness for the Indigo panel's MCP server — read-only tools
+ * (Fase 1) and the reversible write tools' preview -> confirm handshake
+ * (Fase 2).
  *
  * Speaks raw JSON-RPC 2.0 over HTTP directly against `POST /api/mcp` — no
  * MCP SDK client, no LLM, no agent. It exists to answer one question after
@@ -19,6 +21,19 @@
  * against a server that already points at a real Odoo doesn't
  * accidentally attempt a write there; that scenario SKIPs (not fails)
  * when they're absent.
+ *
+ * WRITE-TOOL SCENARIOS (advance_order/assign_order/schedule_install/
+ * hold_order/add_note) additionally require `ODOO_DB` to be the LITERAL
+ * string `indigo-staging` — see requireStagingOrSkip() below and
+ * docs/superpowers/notes/2026-08-15-staging.md for how to stand up and
+ * tunnel to that environment. Every one of them SKIPs loudly (never
+ * silently) otherwise. This is not a courtesy check: a write eval that ran
+ * against production because someone forgot to set an env var would be the
+ * worst possible outcome of this whole phase, per the task brief that
+ * built these tools. Even the PREVIEW-only assertions are gated the same
+ * way, on purpose — proving "a preview writes nothing" is only meaningful
+ * against a real Odoo, and the one place that's safe to prove it is
+ * staging.
  *
  * Exit code: 0 if every scenario passed (SKIPs allowed), 1 if any FAILed,
  * missing env, or an unrecoverable harness error.
@@ -53,6 +68,11 @@ const EXPECTED_TOOL_NAMES = [
   "list_stages",
   "list_dealers",
   "list_designs",
+  "advance_order",
+  "assign_order",
+  "schedule_install",
+  "hold_order",
+  "add_note",
 ];
 
 // ---------------------------------------------------------------------
@@ -587,6 +607,179 @@ async function scenarioWriteIsRefused() {
 }
 
 // ---------------------------------------------------------------------
+// Write-tool (Fase 2) scenarios — the preview -> confirm handshake,
+// exercised against a REAL Odoo. Every one refuses to run unless ODOO_DB is
+// the literal string "indigo-staging" — see the module doc comment above.
+// ---------------------------------------------------------------------
+
+/**
+ * Every write-tool scenario calls this FIRST, before touching the MCP
+ * server at all. `ODOO_DB` is the same env var the existing
+ * `write_is_refused` scenario already requires (the operator is expected to
+ * set it to whatever the target panel instance was actually started with —
+ * this script has no way to introspect that from the MCP endpoint alone),
+ * so this reuses that existing convention rather than inventing a second
+ * flag. The check is an exact string match on purpose: no prefix/substring
+ * match, no case-insensitivity, nothing that could accidentally accept
+ * "indigo-prod-staging-copy" or similar.
+ */
+function requireStagingOrSkip(scenarioLabel) {
+  const odooDb = process.env.ODOO_DB;
+  if (odooDb !== "indigo-staging") {
+    skip(
+      `refusing to run ${scenarioLabel}: ODOO_DB is '${odooDb || "(unset)"}', not the literal 'indigo-staging'. ` +
+        "Set ODOO_DB=indigo-staging (and point MCP_URL at a panel instance actually running against staging — " +
+        "see docs/superpowers/notes/2026-08-15-staging.md) to run this scenario. This check exists specifically " +
+        "so a write eval can never silently run against production.",
+    );
+  }
+}
+
+/**
+ * Like parseToolData, but for calls this harness EXPECTS to be rejected
+ * (a mismatched or tampered confirm token). Accepts either a top-level
+ * JSON-RPC error or a tool result with `isError: true` — same duality as
+ * scenarioUnknownToolIsError, for the same protocol-level reason — and
+ * asserts the error text contains `codeSubstring` (e.g. "CONFIRMACION_
+ * INVALIDA"), not just that SOME error came back, so this can't pass
+ * against a call that failed for an unrelated reason.
+ */
+function expectToolIsError(resp, toolName, codeSubstring) {
+  expect(resp.status >= 200 && resp.status < 300, `tools/call(${toolName}) returned HTTP ${resp.status}`, "HTTP 2xx (the error rides inside the JSON-RPC body)", `HTTP ${resp.status}: ${truncate(resp.rawText)}`);
+  expect(!!resp.json, `tools/call(${toolName}) returned no parseable JSON-RPC message`, "a JSON-RPC response", truncate(resp.rawText));
+
+  if (resp.json.error) {
+    const msg = truncate(resp.json.error);
+    expect(String(msg).includes(codeSubstring), `tools/call(${toolName}) errored, but not with the expected code`, codeSubstring, msg);
+    return;
+  }
+  const result = resp.json.result;
+  expect(!!result && result.isError, `tools/call(${toolName}) unexpectedly SUCCEEDED`, `isError:true or a JSON-RPC error containing '${codeSubstring}'`, truncate(result));
+  const text = result?.content?.[0]?.text;
+  expect(typeof text === "string" && text.includes(codeSubstring), `tools/call(${toolName}) isError text did not contain the expected code`, codeSubstring, truncate(text));
+}
+
+/** Scans up to 20 recent orders and returns the full get_order detail of
+ *  the first one that is NOT currently on hold — the safe target for the
+ *  hold/release round trip below, so the scenario never touches an order a
+ *  real person genuinely put on hold for a real reason. Returns null if
+ *  every recent order happens to be on hold (extremely unlikely; the
+ *  scenario SKIPs in that case rather than picking one anyway). */
+async function findOrderNotOnHold() {
+  const envelope = parseToolData(await callTool("find_orders", { limit: 20 }), "find_orders");
+  const rows = expectListEnvelope(envelope, "find_orders");
+  for (const row of rows) {
+    const detail = parseToolData(await callTool("get_order", { id: row.id }), "get_order");
+    if (detail && detail.on_hold === false) return detail;
+  }
+  return null;
+}
+
+let safeOrderForWriteEvals; // set by hold_order_preview_and_rejections_make_no_change, reused by the round-trip scenario
+
+async function scenarioHoldOrderPreviewAndRejectionsMakeNoChange() {
+  requireStagingOrSkip("hold_order_preview_and_rejections_make_no_change");
+
+  const order = await findOrderNotOnHold();
+  if (!order) skip("every recent order is already on hold — nothing safe to probe without disturbing a real hold");
+  safeOrderForWriteEvals = order;
+
+  const previewArgs = { order_id: order.id, action: "hold", reason: "MCP eval harness probe (should never actually apply)" };
+  const preview = parseToolData(await callTool("hold_order", previewArgs), "hold_order");
+  expect(preview.preview === true, "hold_order without 'confirm' did not return preview:true", true, preview.preview);
+  expect(typeof preview.confirm === "string" && preview.confirm.length > 0, "hold_order preview did not return a usable 'confirm' token", "non-empty string", truncate(preview.confirm));
+  expect(typeof preview.message === "string" && preview.message.includes(order.order), "hold_order preview message does not name the order by its human number", `a message containing '${order.order}'`, truncate(preview.message));
+
+  // The preview itself must be a pure read: re-fetch and confirm on_hold is
+  // still false. This is the "a preview performs no write" property, proven
+  // against the real server rather than only at the confirm.ts/tools.ts
+  // unit-test layer (see confirm.test.ts and tools.test.ts's runWriteTool suite).
+  const afterPreview = parseToolData(await callTool("get_order", { id: order.id }), "get_order");
+  expect(afterPreview.on_hold === false, "calling hold_order WITHOUT confirm changed on_hold — a preview must never write", false, afterPreview.on_hold);
+
+  // Argument-bound rejection: same token, different reason.
+  const mismatchedArgs = { ...previewArgs, reason: "a different reason than what was previewed", confirm: preview.confirm };
+  const mismatchResp = await callTool("hold_order", mismatchedArgs);
+  expectToolIsError(mismatchResp, "hold_order", "CONFIRMACION_INVALIDA");
+
+  // Tampered-token rejection: correct args, corrupted token.
+  const tamperedConfirm = `${preview.confirm}tampered`;
+  const tamperedResp = await callTool("hold_order", { ...previewArgs, confirm: tamperedConfirm });
+  expectToolIsError(tamperedResp, "hold_order", "CONFIRMACION_INVALIDA");
+
+  // Neither rejected attempt should have written anything either.
+  const afterRejections = parseToolData(await callTool("get_order", { id: order.id }), "get_order");
+  expect(afterRejections.on_hold === false, "a rejected (mismatched/tampered) confirm changed on_hold — it must never reach the write", false, afterRejections.on_hold);
+}
+
+async function scenarioHoldOrderConfirmAppliesAndReleaseReverts() {
+  requireStagingOrSkip("hold_order_confirm_applies_and_release_reverts");
+
+  const order = safeOrderForWriteEvals ?? (await findOrderNotOnHold());
+  if (!order) skip("no safe (not-on-hold) order found to run the hold/release round trip on");
+
+  let holdApplied = false;
+  try {
+    const holdArgs = { order_id: order.id, action: "hold", reason: "MCP eval harness round-trip (auto-released)" };
+    const holdPreview = parseToolData(await callTool("hold_order", holdArgs), "hold_order");
+    const holdResult = parseToolData(await callTool("hold_order", { ...holdArgs, confirm: holdPreview.confirm }), "hold_order");
+    expect(holdResult.ok === true, "confirmed hold_order did not report ok:true", true, holdResult.ok);
+    holdApplied = true;
+
+    const afterHold = parseToolData(await callTool("get_order", { id: order.id }), "get_order");
+    expect(afterHold.on_hold === true, "confirmed hold_order did not actually set on_hold on the order", true, afterHold.on_hold);
+  } finally {
+    // Best-effort revert, even if an assertion above threw — never leave a
+    // real order on hold because this harness ran. Not wrapped in its own
+    // try/catch: if the release itself fails, that SHOULD surface as an
+    // uncaught error for a human to notice, since it means a probe order is
+    // now stuck on hold.
+    if (holdApplied) {
+      const releaseArgs = { order_id: order.id, action: "release" };
+      const releasePreview = parseToolData(await callTool("hold_order", releaseArgs), "hold_order");
+      const releaseResult = parseToolData(await callTool("hold_order", { ...releaseArgs, confirm: releasePreview.confirm }), "hold_order");
+      expect(releaseResult.ok === true, "confirmed hold_order (release) did not report ok:true — order may still be on hold, check manually", true, releaseResult.ok);
+
+      const afterRelease = parseToolData(await callTool("get_order", { id: order.id }), "get_order");
+      expect(afterRelease.on_hold === false, "order is still on_hold after the release round-trip — check manually", false, afterRelease.on_hold);
+    }
+  }
+}
+
+async function scenarioAddNoteConfirmIsVisibleInGetOrder() {
+  requireStagingOrSkip("add_note_confirm_is_visible_in_get_order");
+
+  const envelope = parseToolData(await callTool("find_orders", { limit: 1 }), "find_orders");
+  const rows = expectListEnvelope(envelope, "find_orders");
+  if (rows.length === 0) skip("no orders exist in this environment to add a note to");
+  const orderId = rows[0].id;
+
+  const marker = `MCP-EVAL-NOTE-PROBE-${Date.now()}`;
+  const args = { order_id: orderId, note: marker };
+  const preview = parseToolData(await callTool("add_note", args), "add_note");
+  expect(preview.preview === true, "add_note without 'confirm' did not return preview:true", true, preview.preview);
+
+  const beforeConfirm = parseToolData(await callTool("get_order", { id: orderId }), "get_order");
+  expect(
+    !beforeConfirm.notes || !beforeConfirm.notes.includes(marker),
+    "the note text appeared BEFORE confirming — add_note's preview must not write",
+    "notes does not yet contain the probe marker",
+    truncate(beforeConfirm.notes),
+  );
+
+  const result = parseToolData(await callTool("add_note", { ...args, confirm: preview.confirm }), "add_note");
+  expect(result.ok === true, "confirmed add_note did not report ok:true", true, result.ok);
+
+  const afterConfirm = parseToolData(await callTool("get_order", { id: orderId }), "get_order");
+  expect(
+    typeof afterConfirm.notes === "string" && afterConfirm.notes.includes(marker),
+    "confirmed add_note did not actually append the note visible via get_order",
+    `notes containing '${marker}'`,
+    truncate(afterConfirm.notes),
+  );
+}
+
+// ---------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------
 
@@ -604,6 +797,9 @@ const SCENARIOS = [
   ["unknown_tool_is_an_error", scenarioUnknownToolIsError],
   ["bad_token_is_401", scenarioBadTokenIs401],
   ["write_is_refused", scenarioWriteIsRefused],
+  ["hold_order_preview_and_rejections_make_no_change", scenarioHoldOrderPreviewAndRejectionsMakeNoChange],
+  ["hold_order_confirm_applies_and_release_reverts", scenarioHoldOrderConfirmAppliesAndReleaseReverts],
+  ["add_note_confirm_is_visible_in_get_order", scenarioAddNoteConfirmIsVisibleInGetOrder],
 ];
 
 async function main() {

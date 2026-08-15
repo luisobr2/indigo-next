@@ -1,20 +1,55 @@
 /**
- * Six read-only MCP tools over the Indigo panel's Odoo data.
+ * MCP tools over the Indigo panel's Odoo data: six read-only (Fase 1) plus
+ * five reversible write tools (Fase 2) — advance_order, assign_order,
+ * schedule_install, hold_order, add_note.
  *
  * Every Odoo call runs through `rpcExecuteKw(id.uid, id.apiKey, ...)` —
  * Odoo's external API (see src/lib/odoo/rpc.ts) — so it executes as the
  * real logged-in person and Odoo's own ACLs / record rules apply, same
  * as every BFF route under src/app/api (those go through the session-cookie
  * transport in src/lib/odoo/client.ts instead; MCP tokens are API keys,
- * which only the external API accepts). Nothing here writes, creates or
- * unlinks anything: this file is read-only by construction, and stays
- * that way until a future phase deliberately adds a write tool.
+ * which only the external API accepts).
  *
  * Field names and domains below are copied verbatim from the panel
- * routes that already query these models (see comments per tool) —
+ * routes that already query/write these models (see comments per tool) —
  * never invented, so a tool call can't 500 on an Odoo "Invalid field".
+ *
+ * Every write tool follows the SAME preview -> confirm handshake, built on
+ * top of ./confirm.ts's argument-bound HMAC tokens: called without
+ * `confirm`, it only reads Odoo state and returns a Spanish description of
+ * what would change (zero writes); called again with the `confirm` token
+ * that call returned, it executes. See runWriteTool() below for the shared
+ * plumbing and docs/superpowers/specs/2026-08-14-mcp-ai-control-design.md's
+ * "Guardrails" section for why this exists (it's binding, not advisory).
+ *
+ * Two write-tool-specific guardrails worth calling out up front, because
+ * they only became visible by reading the Odoo module directly (see
+ * c:/Trabajo/odoo-indigo/addons/indigo_decors/security/ir.model.access.csv
+ * and indigo_role_rules.xml, read-only, never modified from here):
+ *
+ *  - advance_order drives one of five Odoo stage wizards (never a sixth,
+ *    money-moving one — see ADVANCE_OUTCOMES below), and those wizards
+ *    enforce their own role check server-side via `_indigo_require_groups`
+ *    in the addon's wizards/indigo_stage_wizards.py. A caller whose role
+ *    doesn't match gets a genuine Odoo AccessError, which this file maps to
+ *    PERMISO_DENEGADO naming the action attempted (see driveStageWizard).
+ *  - assign_order / schedule_install / hold_order / add_note do NOT go
+ *    through a wizard — they write indigo.order fields directly, exactly
+ *    like the panel routes they mirror (src/app/api/orders/[id]/{assign,
+ *    schedule,hold,note}/route.ts). Odoo's own ir.model.access.csv grants
+ *    write=1 on indigo.order to `group_indigo_user` — the base group every
+ *    internal role implies — with NO field-level restriction, so Odoo's ACL
+ *    alone would let a painter's API key reassign painters or release a
+ *    hold. The office/manager-only gate on those four actions exists ONLY
+ *    in the panel's route handlers today; requireOfficeRole() below is that
+ *    same gate, reimplemented here so an MCP caller can't bypass it by
+ *    skipping the panel — this is exactly the "invariants live in the
+ *    panel, not in Odoo" problem the design doc's "Por qué NO hablarle a
+ *    Odoo directo" section warns about, encountered firsthand.
  */
 import type { McpIdentity } from "./token";
+import { requireSessionSecret } from "../odoo/session-cookie.ts";
+import { issueConfirmToken, verifyConfirmToken } from "./confirm.ts";
 
 // Lazy import so this module can be loaded (and its pure exports tested)
 // in a plain `node --test` environment that doesn't resolve the `@/`
@@ -22,6 +57,18 @@ import type { McpIdentity } from "./token";
 async function getRpc() {
   const { rpcExecuteKw } = await import("@/lib/odoo/rpc");
   return rpcExecuteKw;
+}
+
+// Same lazy-import trick, for the one non-Odoo `@/`-aliased dependency the
+// write tools need: the exact same role derivation the panel routes use
+// (src/lib/odoo/types.ts's deriveRole), so requireOfficeRole() below can't
+// silently drift from what "office or manager" means anywhere else in the
+// app. That module has no Node imports of its own (see its file doc
+// comment) — only the `@/` alias itself is the obstacle under plain
+// `node --test`.
+async function getDeriveRole() {
+  const { deriveRole } = await import("@/lib/odoo/types");
+  return deriveRole;
 }
 
 // ---------------------------------------------------------------------
@@ -203,6 +250,157 @@ export function toMcpToolError(e: unknown): McpToolError {
 }
 
 // ---------------------------------------------------------------------
+// Write-tool infrastructure — shared by all five reversible write tools
+// (advance_order, assign_order, schedule_install, hold_order, add_note).
+// Nothing above this point writes anything; everything below it exists
+// specifically to gate writes behind the preview -> confirm handshake.
+// ---------------------------------------------------------------------
+
+/** JSON Schema fragment shared by every write tool's `confirm` argument. */
+const CONFIRM_SCHEMA_PROPERTY = {
+  type: "string",
+  description:
+    "The 'confirm' token returned by a PREVIOUS call to this SAME tool with these SAME arguments. Omit this argument to preview — that call makes no change and costs nothing to undo. Pass the token back, unchanged, alongside the identical arguments to execute. It expires a few minutes after the preview; if execution is rejected as expired or mismatched, call again without 'confirm' to get a fresh preview and token.",
+};
+
+/**
+ * One order per write-tool call, always. Stricter than `Number(args.id)`
+ * (used by the read-only get_order) on purpose: get_order returning null
+ * for a garbage id is harmless, but a write tool accepting something
+ * Number()-coercible-but-not-actually-a-number (e.g. an array like `[5]`,
+ * which `Number([5])` silently accepts as `5`) would blur the "one order,
+ * never bulk" blast-radius guarantee at the type-check level, before any
+ * business logic even runs.
+ */
+function requireOrderId(args: Record<string, unknown>, toolName: string): number {
+  const raw = args.order_id;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    throw mcpError("ENTRADA_INVALIDA", `${toolName} requiere un 'order_id' numérico de una sola orden.`);
+  }
+  return raw;
+}
+
+/**
+ * The role gate the panel's own /assign, /schedule, /hold and /note routes
+ * apply (src/app/api/orders/[id]/{assign,schedule,hold,note}/route.ts all
+ * check `role.isManager || role.isOffice || s.user.isAdmin`) — reproduced
+ * here because, per this file's top doc comment, Odoo's own ACL does NOT
+ * enforce it for these four direct-write actions.
+ *
+ * Narrower than the panel's own check in one respect: MCP identities
+ * (McpIdentity, from an Odoo API key) don't carry an `isAdmin` flag the way
+ * a browser session does — verifyMcpToken only reads `groups_id`, never
+ * whether the user is Odoo's technical superadmin. That's acceptable here:
+ * it makes this gate fail CLOSED for an edge case (a bare superadmin
+ * account with no Indigo group membership calling the MCP) rather than
+ * open, and the real people this surface is for (Majela, Javier, and
+ * whoever else is issued an MCP token) are expected to hold an actual
+ * Indigo role group either way.
+ */
+async function requireOfficeRole(id: McpIdentity, action: string): Promise<void> {
+  const deriveRole = await getDeriveRole();
+  const role = deriveRole(id.groups);
+  if (!role.isManager && !role.isOffice) {
+    throw mcpError(
+      "PERMISO_DENEGADO",
+      `Esta cuenta no tiene permiso para ${action}. Solo oficina o gerencia pueden hacerlo desde el asistente — pídeselo a alguien con ese rol.`,
+    );
+  }
+}
+
+/**
+ * A write tool's plan: computed fresh on EVERY call (preview or confirm —
+ * see runWriteTool), never cached between them, so a confirm always
+ * re-validates against Odoo's current state rather than trusting what was
+ * true when the preview ran. `message` is written tense-neutral ("marcar la
+ * orden X como instalada", not "se marcará"/"se marcó") so runWriteTool can
+ * prefix it for either a preview or a completed action without the two
+ * reading like they contradict each other.
+ */
+interface WritePlan {
+  message: string;
+  /** Extra fields merged into the tool's JSON result alongside `message`
+   *  (e.g. `{ order, client }`) — never anything security-relevant, since
+   *  this is included verbatim in BOTH the preview and the executed result. */
+  extra?: Record<string, unknown>;
+  /** Performs the actual Odoo write(s). Only ever invoked after a valid,
+   *  argument-bound confirm token has verified — see runWriteTool. */
+  execute: () => Promise<void>;
+}
+
+/**
+ * Shared preview -> confirm orchestration for every write tool. `buildPlan`
+ * does ALL the Odoo reads and business-rule validation and must be safe to
+ * call on every invocation, preview or confirm alike, with no side effects
+ * of its own — only `plan.execute()` writes, and this function calls it in
+ * exactly one place, gated by a verified token. That single call site is
+ * the entire write surface of this module; see the doc comment above
+ * WritePlan for why re-running buildPlan on confirm (rather than trusting
+ * whatever the preview computed) matters.
+ *
+ * `now` is an explicit parameter rather than read internally — same
+ * convention as checkRate() in ./rate-limit.ts — so callers control the
+ * clock in tests instead of this function reading Date.now() itself.
+ */
+export async function runWriteTool(
+  toolName: string,
+  args: Record<string, unknown>,
+  id: McpIdentity,
+  buildPlan: () => Promise<WritePlan>,
+  now: number,
+): Promise<unknown> {
+  const { confirm, ...boundArgs } = args;
+  const plan = await buildPlan();
+
+  if (typeof confirm !== "string" || !confirm) {
+    const secret = requireSessionSecret();
+    const token = issueConfirmToken(toolName, boundArgs, id.uid, secret, now);
+    return { preview: true, message: `Vista previa — ${plan.message}`, confirm: token, ...(plan.extra ?? {}) };
+  }
+
+  const secret = requireSessionSecret();
+  const decision = verifyConfirmToken(confirm, toolName, boundArgs, id.uid, secret, now);
+  if (!decision.ok) {
+    const reasonMsg =
+      decision.reason === "expired"
+        ? "El token de confirmación venció (expiran a los pocos minutos)."
+        : "El token de confirmación no corresponde exactamente a esta acción — cambiaron los datos, es de otra herramienta, o es inválido.";
+    throw mcpError("CONFIRMACION_INVALIDA", `${reasonMsg} Vuelve a llamar a esta herramienta SIN 'confirm' para previsualizar de nuevo, y confirma con el token nuevo.`);
+  }
+
+  await plan.execute();
+  return { ok: true, message: `Hecho — ${plan.message}`, ...(plan.extra ?? {}) };
+}
+
+/**
+ * Runs an Odoo write behind a Spanish, action-naming PERMISO_DENEGADO on
+ * AccessError, instead of the generic ("no tienes permiso para VER estos
+ * datos") mapping toMcpToolError gives every other AccessError in this
+ * file. Only advance_order needs this: its writes go through an Odoo
+ * wizard that enforces its OWN role check server-side (see this file's top
+ * doc comment) — a caller can genuinely be rejected there even after
+ * passing every check this file itself makes. The other four write tools
+ * never hit Odoo's ACL this way; they're stopped earlier by
+ * requireOfficeRole() before any RPC happens.
+ */
+async function withActionAccessError<T>(action: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof Error && e.name === "OdooRpcError") {
+      const err = e as Error & { errorName?: string };
+      if (err.errorName === "odoo.exceptions.AccessError") {
+        throw mcpError(
+          "PERMISO_DENEGADO",
+          `No tienes permiso en Odoo para ${action}. Pídele a alguien con el rol de esa etapa (o de oficina/gerencia) que lo haga.`,
+        );
+      }
+    }
+    throw e;
+  }
+}
+
+// ---------------------------------------------------------------------
 // Tool definitions (JSON Schema) — what the calling model reads to
 // decide which tool to use and how to call it.
 // ---------------------------------------------------------------------
@@ -321,6 +519,170 @@ export const TOOL_DEFS: ToolDef[] = [
         limit: LIMIT_SCHEMA_PROPERTY,
         offset: OFFSET_SCHEMA_PROPERTY,
       },
+      additionalProperties: false,
+    },
+  },
+
+  // ---------------------------------------------------------------------
+  // Write tools (Fase 2) — every one previews before it writes. Call once
+  // WITHOUT 'confirm' to see exactly what would change (no write happens);
+  // call again with the returned 'confirm' token, unchanged, to execute.
+  // See CONFIRM_SCHEMA_PROPERTY and runWriteTool() above.
+  // ---------------------------------------------------------------------
+  {
+    name: "advance_order",
+    title: "Advance an order to its next stage",
+    description:
+      "Moves ONE order forward in production by describing what actually happened — never by naming an Odoo model or wizard. The server picks the right step from the order's CURRENT stage and the 'outcome' you give it, and refuses (code CONFLICTO) if the order isn't in the stage that outcome applies to — call get_order first if you're not sure which stage it's in. Preview-then-confirm like every write tool here (see 'confirm'); the preview also tells you if this step will trigger a contractor payout or an email notification, so nothing is a surprise on confirm. Valid 'outcome' values: 'measurements_taken' (Measurement Pending -> Measured; installers/office/manager only; needs 'line_dimensions' with real width/height for every piece, inches), 'digitalization_done' (Ready for Digitalization -> CNC; design/office/manager only; needs 'line_sqf' with the REAL decorated square footage the designer measured for every piece — this number becomes the painter's pay, never estimate or invent it), 'cnc_done' (CNC -> Painting; CNC/office/manager only), 'painting_done' (Painting -> Ready for Installation; painter/office/manager only; may generate a painter payout if one is assigned; optional 'photo_base64'), 'installed' (Installation Scheduled -> Installed; the assigned installer, office, or manager only; may generate installer payout(s); optional 'photo_base64'). Does NOT cover invoicing or marking an order paid — money is out of scope for this tool entirely, in every phase this tool exists in today.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        order_id: {
+          type: "number",
+          description: "The numeric indigo.order id to advance. One order per call — this tool never advances more than one.",
+        },
+        outcome: {
+          type: "string",
+          enum: ["measurements_taken", "digitalization_done", "cnc_done", "painting_done", "installed"],
+          description: "What actually happened, in the shop's own terms — see the tool description for what each one requires and which stage it moves from/to.",
+        },
+        note: {
+          type: "string",
+          description: "Optional short note added to the order's timeline alongside the stage change.",
+        },
+        photo_base64: {
+          type: "string",
+          description: "Optional photo as raw base64 (no 'data:' prefix). Only used for outcomes 'painting_done' and 'installed'; ignored for the others.",
+        },
+        line_sqf: {
+          type: "object",
+          description: "REQUIRED for outcome 'digitalization_done', ignored otherwise. Maps EVERY order-line id (string key — get ids from get_order's 'lines') to its real decorated square footage. Must cover every piece on the order, no more and no less — the tool refuses if any piece is missing or an unknown line id is included.",
+          additionalProperties: { type: "number" },
+        },
+        line_dimensions: {
+          type: "object",
+          description: "REQUIRED for outcome 'measurements_taken', ignored otherwise. Maps EVERY order-line id (string key) to its real {width, height} in inches. Must cover every piece on the order, no more and no less.",
+          additionalProperties: {
+            type: "object",
+            properties: { width: { type: "number" }, height: { type: "number" } },
+            required: ["width", "height"],
+            additionalProperties: false,
+          },
+        },
+        confirm: CONFIRM_SCHEMA_PROPERTY,
+      },
+      required: ["order_id", "outcome"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "assign_order",
+    title: "Assign painter / installers to an order",
+    description:
+      "Sets who is responsible for painting and/or installing ONE order: the painter (single contractor) and/or the installer(s). installer_ids REPLACES the current set entirely — send the full list you want assigned, not just the ones to add. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm'). Provide at least one of painter_id, clear_painter or installer_ids — omit a field entirely to leave that assignment untouched.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        order_id: {
+          type: "number",
+          description: "The numeric indigo.order id to update. One order per call.",
+        },
+        painter_id: {
+          type: "number",
+          description: "res.partner id of the painter to assign. Omit to leave the current painter unchanged; use clear_painter instead to remove one.",
+        },
+        clear_painter: {
+          type: "boolean",
+          description: "true removes the currently assigned painter. Mutually exclusive with painter_id.",
+        },
+        installer_ids: {
+          type: "array",
+          items: { type: "number" },
+          description: "res.partner ids of the installer(s) to assign — REPLACES the current set. Pass an empty array to clear all installers. Omit to leave installers unchanged.",
+        },
+        confirm: CONFIRM_SCHEMA_PROPERTY,
+      },
+      required: ["order_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "schedule_install",
+    title: "Schedule (or reschedule) an installation",
+    description:
+      "Sets the installation date for ONE order and moves it to the 'Installation Scheduled' stage, optionally (re)assigning installer(s) in the same call. installer_ids, if given, REPLACES the current set. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm').",
+    inputSchema: {
+      type: "object",
+      properties: {
+        order_id: {
+          type: "number",
+          description: "The numeric indigo.order id to schedule. One order per call.",
+        },
+        installation_date: {
+          type: "string",
+          description: "Installation date as YYYY-MM-DD.",
+        },
+        installer_ids: {
+          type: "array",
+          items: { type: "number" },
+          description: "res.partner ids of the installer(s) — REPLACES the current set. Omit to leave the currently assigned installer(s) unchanged.",
+        },
+        confirm: CONFIRM_SCHEMA_PROPERTY,
+      },
+      required: ["order_id", "installation_date"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "hold_order",
+    title: "Put an order on hold, or release it",
+    description:
+      "Puts ONE order on hold (with an optional reason) or releases it from hold. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm').",
+    inputSchema: {
+      type: "object",
+      properties: {
+        order_id: {
+          type: "number",
+          description: "The numeric indigo.order id to hold or release. One order per call.",
+        },
+        action: {
+          type: "string",
+          enum: ["hold", "release"],
+          description: "'hold' puts the order on hold; 'release' clears an existing hold.",
+        },
+        reason: {
+          type: "string",
+          description: "Optional reason, used only when action is 'hold'. Shown on the order's hold banner in the panel and in its timeline.",
+        },
+        confirm: CONFIRM_SCHEMA_PROPERTY,
+      },
+      required: ["order_id", "action"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "add_note",
+    title: "Add a note to an order's timeline",
+    description:
+      "Appends a note to ONE order's timeline without changing its stage — the right tool for logging an incident, a client call, or any other context that shouldn't move the order backward or forward. Can also open or close the order's 'incidence' flag (visible on dashboards) in the same call. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm').",
+    inputSchema: {
+      type: "object",
+      properties: {
+        order_id: {
+          type: "number",
+          description: "The numeric indigo.order id to annotate. One order per call.",
+        },
+        note: {
+          type: "string",
+          description: "The note text.",
+        },
+        incidence: {
+          type: "boolean",
+          description: "Optional. true flags the order as an open incidence; false closes an open incidence. Omit to leave the incidence flag unchanged.",
+        },
+        confirm: CONFIRM_SCHEMA_PROPERTY,
+      },
+      required: ["order_id", "note"],
       additionalProperties: false,
     },
   },
@@ -600,6 +962,574 @@ async function listDesigns(args: Record<string, unknown>, id: McpIdentity) {
 }
 
 // ---------------------------------------------------------------------
+// Write tools (Fase 2)
+// ---------------------------------------------------------------------
+
+/** Posted to indigo.order's chatter after every successful write made via
+ *  advance_order, in addition to (never instead of) the wizard's own
+ *  descriptive note — attribution to the real person happens automatically
+ *  (the RPC runs as them), this just marks that an assistant drove it. */
+const AI_ORIGIN_NOTE = "Acción ejecutada a través del asistente de IA (MCP).";
+
+/** Appended to the human-written note body posted by assign_order,
+ *  schedule_install, hold_order and add_note — those tools construct their
+ *  OWN descriptive chatter message directly (there's no separate wizard
+ *  note to avoid duplicating), so the origin marker rides in the same
+ *  message rather than as a second chatter line. */
+const AI_ORIGIN_SUFFIX = " (vía asistente de IA)";
+
+interface AdvanceOutcome {
+  wizardModel: string;
+  fromStageCode: string;
+  toStageLabel: string;
+  actionLabel: string;
+  roleHint: string;
+  requiresLineSqf?: boolean;
+  requiresLineDimensions?: boolean;
+  supportsPhoto?: boolean;
+  /** When set, order.write's stage-change hook
+   *  (c:/Trabajo/odoo-indigo/addons/indigo_decors/models/indigo_order.py,
+   *  read-only reference — see this file's top doc comment) generates a
+   *  draft payout for whoever is assigned to this role, IF anyone is. */
+  triggersPayoutFor?: "painter" | "installer";
+}
+
+/**
+ * outcome -> Odoo wizard, verified against
+ * c:/Trabajo/odoo-indigo/addons/indigo_decors/wizards/{indigo_stage_wizards,
+ * indigo_measurement_entry_wizard}.py and data/indigo_stages.xml (read-only
+ * reference, never modified from this repo). Deliberately excludes the
+ * sixth stage wizard, indigo.invoiced.paid.wizard (installed -> invoiced) —
+ * it moves money, which is out of scope for advance_order entirely, per
+ * this phase's brief ("never anything touching money"), not merely
+ * role-gated like the other five already are inside Odoo itself.
+ */
+const ADVANCE_OUTCOMES: Record<string, AdvanceOutcome> = {
+  measurements_taken: {
+    wizardModel: "indigo.measurement.entry.wizard",
+    fromStageCode: "measure_pending",
+    toStageLabel: "Measured",
+    actionLabel: "registrar las medidas y pasar la orden a 'Measured'",
+    roleHint: "Pueden hacerlo instaladores, oficina o gerencia.",
+    requiresLineDimensions: true,
+  },
+  digitalization_done: {
+    wizardModel: "indigo.sqf.entry.wizard",
+    fromStageCode: "ready_digitalization",
+    toStageLabel: "CNC / Router",
+    actionLabel: "registrar el SQF de cada pieza y enviar la orden a CNC",
+    roleHint: "Pueden hacerlo diseño, oficina o gerencia.",
+    requiresLineSqf: true,
+  },
+  cnc_done: {
+    wizardModel: "indigo.cnc.done.wizard",
+    fromStageCode: "cnc",
+    toStageLabel: "Painting",
+    actionLabel: "marcar el corte CNC como terminado y enviar la orden a Pintura",
+    roleHint: "Pueden hacerlo CNC, oficina o gerencia.",
+  },
+  painting_done: {
+    wizardModel: "indigo.painter.done.wizard",
+    fromStageCode: "painting",
+    toStageLabel: "Ready for Installation",
+    actionLabel: "marcar la pintura como terminada y dejar la orden lista para instalación",
+    roleHint: "Pueden hacerlo pintura, oficina o gerencia.",
+    supportsPhoto: true,
+    triggersPayoutFor: "painter",
+  },
+  installed: {
+    wizardModel: "indigo.installed.wizard",
+    fromStageCode: "install_scheduled",
+    toStageLabel: "Installed",
+    actionLabel: "marcar la orden como instalada",
+    roleHint: "Puede hacerlo el instalador asignado a esta orden, oficina o gerencia.",
+    supportsPhoto: true,
+    triggersPayoutFor: "installer",
+  },
+};
+
+interface AdvanceOrderRow {
+  id: number;
+  name: string;
+  client_name: string;
+  stage_id: [number, string] | false;
+  stage_code: string | false;
+  painter_id: [number, string] | false;
+  installer_ids: number[];
+  assigned_user_ids: number[];
+}
+
+/** Validates that `provided`'s keys are EXACTLY the order's line ids (as
+ *  strings) — no missing piece, no unknown line id — and that every value
+ *  passes `checkValue`. Shared by the line_sqf and line_dimensions checks
+ *  in planAdvanceOrder, which differ only in field name and value shape. */
+function requireCompleteLineMap(
+  provided: unknown,
+  lineIds: number[],
+  fieldName: string,
+  outcome: string,
+  checkValue: (v: unknown) => boolean,
+  valueHint: string,
+): Record<string, unknown> {
+  if (!provided || typeof provided !== "object" || Array.isArray(provided)) {
+    throw mcpError(
+      "ENTRADA_INVALIDA",
+      `outcome '${outcome}' requiere '${fieldName}' como un objeto con una entrada por cada pieza de la orden (ids: ${lineIds.join(", ") || "ninguna"}).`,
+    );
+  }
+  const map = provided as Record<string, unknown>;
+  const expected = new Set(lineIds.map(String));
+  const providedKeys = Object.keys(map);
+  const missing = [...expected].filter((k) => !providedKeys.includes(k));
+  const extra = providedKeys.filter((k) => !expected.has(k));
+  if (missing.length || extra.length || expected.size === 0) {
+    const parts: string[] = [];
+    if (expected.size === 0) parts.push("esta orden no tiene piezas registradas");
+    if (missing.length) parts.push(`faltan las piezas ${missing.join(", ")}`);
+    if (extra.length) parts.push(`hay ids que no pertenecen a esta orden: ${extra.join(", ")}`);
+    throw mcpError(
+      "ENTRADA_INVALIDA",
+      `'${fieldName}' debe traer exactamente una entrada por cada pieza de la orden (${parts.join("; ")}). No lo completes a medias ni lo inventes — pídele el dato real a la persona.`,
+    );
+  }
+  for (const [lineId, value] of Object.entries(map)) {
+    if (!checkValue(value)) {
+      throw mcpError("ENTRADA_INVALIDA", `'${fieldName}' de la pieza ${lineId} ${valueHint}.`);
+    }
+  }
+  return map;
+}
+
+async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
+  const orderId = requireOrderId(args, "advance_order");
+  const outcome = typeof args.outcome === "string" ? args.outcome : "";
+  const config = ADVANCE_OUTCOMES[outcome];
+  if (!config) {
+    throw mcpError(
+      "ENTRADA_INVALIDA",
+      `outcome inválido: '${args.outcome ?? ""}'. Usa uno de: ${Object.keys(ADVANCE_OUTCOMES).join(", ")}.`,
+    );
+  }
+
+  const execute = await getRpc();
+  const rows = await execute<AdvanceOrderRow[]>(
+    id.uid,
+    id.apiKey,
+    "indigo.order",
+    "search_read",
+    [
+      [["id", "=", orderId]],
+      ["id", "name", "client_name", "stage_id", "stage_code", "painter_id", "installer_ids", "assigned_user_ids"],
+    ],
+    { limit: 1 },
+  );
+  if (!rows.length) throw mcpError("NO_ENCONTRADO", `No existe la orden ${orderId}.`);
+  const order = rows[0];
+
+  if (order.stage_code !== config.fromStageCode) {
+    const currentStage = m2oLabel(order.stage_id) ?? "(sin etapa)";
+    throw mcpError(
+      "CONFLICTO",
+      `La orden ${order.name} está actualmente en la etapa '${currentStage}', no en la etapa donde aplica el outcome '${outcome}'. Usa get_order para confirmar la etapa actual y elige el outcome correcto.`,
+    );
+  }
+
+  let lineIds: number[] = [];
+  if (config.requiresLineSqf || config.requiresLineDimensions) {
+    const lineRows = await execute<Array<{ id: number }>>(
+      id.uid,
+      id.apiKey,
+      "indigo.order.line",
+      "search_read",
+      [[["order_id", "=", orderId]], ["id"]],
+      {},
+    );
+    lineIds = lineRows.map((l) => l.id);
+  }
+
+  let lineSqf: Record<string, unknown> | undefined;
+  if (config.requiresLineSqf) {
+    lineSqf = requireCompleteLineMap(
+      args.line_sqf,
+      lineIds,
+      "line_sqf",
+      outcome,
+      (v) => typeof v === "number" && Number.isFinite(v) && v > 0,
+      "debe ser un número mayor que 0 (SQF real, no estimado)",
+    );
+  }
+
+  let lineDims: Record<string, unknown> | undefined;
+  if (config.requiresLineDimensions) {
+    lineDims = requireCompleteLineMap(
+      args.line_dimensions,
+      lineIds,
+      "line_dimensions",
+      outcome,
+      (v) =>
+        !!v &&
+        typeof v === "object" &&
+        typeof (v as { width?: unknown }).width === "number" &&
+        Number.isFinite((v as { width: number }).width) &&
+        (v as { width: number }).width > 0 &&
+        typeof (v as { height?: unknown }).height === "number" &&
+        Number.isFinite((v as { height: number }).height) &&
+        (v as { height: number }).height > 0,
+      "debe traer {width, height} en pulgadas, ambos mayores que 0",
+    );
+  }
+
+  const noteArg = typeof args.note === "string" ? args.note.trim() : "";
+  const photoArg = config.supportsPhoto && typeof args.photo_base64 === "string" ? args.photo_base64 : "";
+
+  const messageParts = [`Orden ${order.name} (${order.client_name}): ${config.actionLabel}.`];
+  if (config.triggersPayoutFor === "painter" && order.painter_id) {
+    messageParts.push(`Esto generará un pago borrador para el pintor asignado (${m2oLabel(order.painter_id)}).`);
+  }
+  if (config.triggersPayoutFor === "installer" && order.installer_ids.length > 0) {
+    messageParts.push(
+      `Esto generará pago(s) borrador para ${order.installer_ids.length === 1 ? "el instalador asignado" : "los instaladores asignados"}.`,
+    );
+  }
+  if (order.assigned_user_ids.length > 0) {
+    messageParts.push("Se enviará un correo de notificación a los usuarios asignados a la orden.");
+  }
+  messageParts.push(config.roleHint);
+
+  return {
+    message: messageParts.join(" "),
+    extra: { order: order.name, client: order.client_name },
+    execute: async () => {
+      if (lineSqf) {
+        await Promise.all(
+          Object.entries(lineSqf).map(([lineIdStr, sqf]) =>
+            execute(id.uid, id.apiKey, "indigo.order.line", "write", [[Number(lineIdStr)], { sqf: sqf as number }], {}),
+          ),
+        );
+      }
+      if (lineDims) {
+        await Promise.all(
+          Object.entries(lineDims).map(([lineIdStr, dim]) => {
+            const d = dim as { width: number; height: number };
+            return execute(
+              id.uid,
+              id.apiKey,
+              "indigo.order.line",
+              "write",
+              [[Number(lineIdStr)], { width: d.width, height: d.height }],
+              {},
+            );
+          }),
+        );
+      }
+
+      const payload: Record<string, unknown> = { order_id: orderId };
+      if (noteArg) payload.note = noteArg;
+      if (photoArg) payload.photo = photoArg;
+
+      await withActionAccessError(config.actionLabel, async () => {
+        const wizardId = await execute<number>(id.uid, id.apiKey, config.wizardModel, "create", [payload], {});
+        await execute(id.uid, id.apiKey, config.wizardModel, "action_save_and_advance", [[wizardId]], {});
+      });
+
+      await execute(id.uid, id.apiKey, "indigo.order", "message_post", [[orderId]], {
+        body: AI_ORIGIN_NOTE,
+        message_type: "comment",
+      }).catch(() => undefined);
+    },
+  };
+}
+
+async function advanceOrder(args: Record<string, unknown>, id: McpIdentity, now: number) {
+  return runWriteTool("advance_order", args, id, () => planAdvanceOrder(args, id), now);
+}
+
+interface PartnerRow {
+  id: number;
+  name: string;
+}
+
+async function resolvePartnerNames(
+  execute: Awaited<ReturnType<typeof getRpc>>,
+  id: McpIdentity,
+  ids: number[],
+  fieldLabel: string,
+): Promise<Map<number, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await execute<PartnerRow[]>(id.uid, id.apiKey, "res.partner", "read", [ids, ["name"]], {});
+  const found = new Map(rows.map((r) => [r.id, r.name]));
+  const missing = ids.filter((i) => !found.has(i));
+  if (missing.length) {
+    throw mcpError("NO_ENCONTRADO", `${fieldLabel}: no existe(n) el/los contacto(s) con id ${missing.join(", ")}.`);
+  }
+  return found;
+}
+
+async function planAssignOrder(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
+  const orderId = requireOrderId(args, "assign_order");
+  const hasPainterId = "painter_id" in args && args.painter_id !== undefined;
+  const clearPainter = args.clear_painter === true;
+  const hasInstallerIds = Array.isArray(args.installer_ids);
+
+  if (hasPainterId && clearPainter) {
+    throw mcpError("ENTRADA_INVALIDA", "assign_order: no pases 'painter_id' y 'clear_painter' a la vez.");
+  }
+  if (!hasPainterId && !clearPainter && !hasInstallerIds) {
+    throw mcpError(
+      "ENTRADA_INVALIDA",
+      "assign_order requiere al menos uno de 'painter_id', 'clear_painter' o 'installer_ids'.",
+    );
+  }
+  if (hasPainterId && typeof args.painter_id !== "number") {
+    throw mcpError("ENTRADA_INVALIDA", "'painter_id' debe ser un id numérico.");
+  }
+  const installerIds = hasInstallerIds ? (args.installer_ids as unknown[]) : [];
+  if (hasInstallerIds && !installerIds.every((v) => typeof v === "number")) {
+    throw mcpError("ENTRADA_INVALIDA", "'installer_ids' debe ser un arreglo de ids numéricos.");
+  }
+
+  await requireOfficeRole(id, "asignar pintor o instaladores");
+
+  const execute = await getRpc();
+  const rows = await execute<AdvanceOrderRow[]>(
+    id.uid,
+    id.apiKey,
+    "indigo.order",
+    "search_read",
+    [[["id", "=", orderId]], ["id", "name", "client_name", "painter_id", "installer_ids"]],
+    { limit: 1 },
+  );
+  if (!rows.length) throw mcpError("NO_ENCONTRADO", `No existe la orden ${orderId}.`);
+  const order = rows[0];
+
+  const newPainterId = hasPainterId ? (args.painter_id as number) : null;
+  const newInstallerIds = installerIds as number[];
+
+  const names = await resolvePartnerNames(
+    execute,
+    id,
+    [...(newPainterId ? [newPainterId] : []), ...newInstallerIds],
+    "assign_order",
+  );
+
+  const messageParts = [`Orden ${order.name} (${order.client_name}):`];
+  if (hasPainterId) {
+    messageParts.push(`se asignará como pintor a ${names.get(newPainterId as number)}.`);
+  } else if (clearPainter) {
+    messageParts.push(
+      order.painter_id ? `se quitará el pintor actual (${m2oLabel(order.painter_id)}).` : "no tiene pintor asignado; no habrá cambio.",
+    );
+  }
+  if (hasInstallerIds) {
+    const label = newInstallerIds.length ? newInstallerIds.map((i) => names.get(i)).join(", ") : "(ninguno)";
+    messageParts.push(`instaladores → ${label} (reemplaza el set actual).`);
+  }
+
+  return {
+    message: messageParts.join(" "),
+    extra: { order: order.name, client: order.client_name },
+    execute: async () => {
+      const vals: Record<string, unknown> = {};
+      if (hasPainterId) vals.painter_id = newPainterId;
+      if (clearPainter) vals.painter_id = false;
+      if (hasInstallerIds) vals.installer_ids = [[6, 0, newInstallerIds]];
+
+      await execute(id.uid, id.apiKey, "indigo.order", "write", [[orderId], vals], {});
+      await execute(id.uid, id.apiKey, "indigo.order", "message_post", [[orderId]], {
+        body: `Asignación actualizada: ${messageParts.slice(1).join(" ")}${AI_ORIGIN_SUFFIX}`,
+        message_type: "comment",
+      }).catch(() => undefined);
+    },
+  };
+}
+
+async function assignOrder(args: Record<string, unknown>, id: McpIdentity, now: number) {
+  return runWriteTool("assign_order", args, id, () => planAssignOrder(args, id), now);
+}
+
+async function planScheduleInstall(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
+  const orderId = requireOrderId(args, "schedule_install");
+  const date = typeof args.installation_date === "string" ? args.installation_date.trim() : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw mcpError("ENTRADA_INVALIDA", "schedule_install requiere 'installation_date' en formato YYYY-MM-DD.");
+  }
+  const hasInstallerIds = Array.isArray(args.installer_ids);
+  const installerIds = hasInstallerIds ? (args.installer_ids as unknown[]) : [];
+  if (hasInstallerIds && !installerIds.every((v) => typeof v === "number")) {
+    throw mcpError("ENTRADA_INVALIDA", "'installer_ids' debe ser un arreglo de ids numéricos.");
+  }
+
+  await requireOfficeRole(id, "programar una instalación");
+
+  const execute = await getRpc();
+  const rows = await execute<AdvanceOrderRow[]>(
+    id.uid,
+    id.apiKey,
+    "indigo.order",
+    "search_read",
+    [[["id", "=", orderId]], ["id", "name", "client_name", "stage_code", "installer_ids"]],
+    { limit: 1 },
+  );
+  if (!rows.length) throw mcpError("NO_ENCONTRADO", `No existe la orden ${orderId}.`);
+  const order = rows[0];
+
+  const newInstallerIds = installerIds as number[];
+  const names = hasInstallerIds ? await resolvePartnerNames(execute, id, newInstallerIds, "schedule_install") : new Map();
+
+  const messageParts = [`Orden ${order.name} (${order.client_name}): se programará la instalación para el ${date}.`];
+  if (hasInstallerIds) {
+    const label = newInstallerIds.length ? newInstallerIds.map((i) => names.get(i)).join(", ") : "(ninguno)";
+    messageParts.push(`Instaladores → ${label} (reemplaza el set actual).`);
+  }
+  if (order.stage_code === "closed" || order.stage_code === "invoiced") {
+    messageParts.push(`Aviso: esta orden ya está en '${order.stage_code}' — programar una instalación en este punto es inusual.`);
+  }
+
+  return {
+    message: messageParts.join(" "),
+    extra: { order: order.name, client: order.client_name },
+    execute: async () => {
+      const vals: Record<string, unknown> = { installation_date: date };
+      if (hasInstallerIds) vals.installer_ids = [[6, 0, newInstallerIds]];
+
+      const stages = await execute<Array<{ id: number }>>(
+        id.uid,
+        id.apiKey,
+        "indigo.stage",
+        "search_read",
+        [[["code", "=", "install_scheduled"]], ["id"]],
+        { limit: 1 },
+      ).catch(() => [] as Array<{ id: number }>);
+      if (stages[0]?.id) vals.stage_id = stages[0].id;
+
+      await execute(id.uid, id.apiKey, "indigo.order", "write", [[orderId], vals], {});
+      await execute(id.uid, id.apiKey, "indigo.order", "message_post", [[orderId]], {
+        body: `Instalación programada para <b>${date}</b>.${AI_ORIGIN_SUFFIX}`,
+        message_type: "comment",
+      }).catch(() => undefined);
+    },
+  };
+}
+
+async function scheduleInstall(args: Record<string, unknown>, id: McpIdentity, now: number) {
+  return runWriteTool("schedule_install", args, id, () => planScheduleInstall(args, id), now);
+}
+
+async function planHoldOrder(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
+  const orderId = requireOrderId(args, "hold_order");
+  const action = args.action;
+  if (action !== "hold" && action !== "release") {
+    throw mcpError("ENTRADA_INVALIDA", "hold_order requiere 'action' igual a 'hold' o 'release'.");
+  }
+  const reason = typeof args.reason === "string" ? args.reason.trim() : "";
+
+  await requireOfficeRole(id, "poner en espera o liberar una orden");
+
+  const execute = await getRpc();
+  const rows = await execute<Array<{ id: number; name: string; client_name: string; on_hold: boolean }>>(
+    id.uid,
+    id.apiKey,
+    "indigo.order",
+    "search_read",
+    [[["id", "=", orderId]], ["id", "name", "client_name", "on_hold"]],
+    { limit: 1 },
+  );
+  if (!rows.length) throw mcpError("NO_ENCONTRADO", `No existe la orden ${orderId}.`);
+  const order = rows[0];
+
+  const release = action === "release";
+  let effectMessage: string;
+  if (release) {
+    effectMessage = order.on_hold
+      ? "se liberará de la espera."
+      : "no está en espera actualmente; esto no tendrá efecto.";
+  } else {
+    effectMessage = `se pondrá EN ESPERA${reason ? ` — motivo: "${reason}"` : ""}.`;
+  }
+
+  const chatterBody = release
+    ? "Orden liberada de espera."
+    : reason
+      ? `Movida a espera — ${reason}`
+      : "Movida a espera.";
+
+  return {
+    message: `Orden ${order.name} (${order.client_name}): ${effectMessage}`,
+    extra: { order: order.name, client: order.client_name },
+    execute: async () => {
+      await execute(
+        id.uid,
+        id.apiKey,
+        "indigo.order",
+        "write",
+        [[orderId], { on_hold: !release, hold_reason: release ? false : reason || false }],
+        {},
+      );
+      await execute(id.uid, id.apiKey, "indigo.order", "message_post", [[orderId]], {
+        body: `${chatterBody}${AI_ORIGIN_SUFFIX}`,
+        message_type: "comment",
+      }).catch(() => undefined);
+    },
+  };
+}
+
+async function holdOrder(args: Record<string, unknown>, id: McpIdentity, now: number) {
+  return runWriteTool("hold_order", args, id, () => planHoldOrder(args, id), now);
+}
+
+async function planAddNote(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
+  const orderId = requireOrderId(args, "add_note");
+  const note = typeof args.note === "string" ? args.note.trim() : "";
+  if (!note) throw mcpError("ENTRADA_INVALIDA", "add_note requiere 'note' (no vacío).");
+  const hasIncidence = typeof args.incidence === "boolean";
+  const incidence = args.incidence === true;
+
+  await requireOfficeRole(id, "agregar una nota o incidencia");
+
+  const execute = await getRpc();
+  const rows = await execute<Array<{ id: number; name: string; client_name: string; notes: string | false }>>(
+    id.uid,
+    id.apiKey,
+    "indigo.order",
+    "search_read",
+    [[["id", "=", orderId]], ["id", "name", "client_name", "notes"]],
+    { limit: 1 },
+  );
+  if (!rows.length) throw mcpError("NO_ENCONTRADO", `No existe la orden ${orderId}.`);
+  const order = rows[0];
+
+  const messageParts = [`Orden ${order.name} (${order.client_name}): se agregará la nota "${note}".`];
+  if (hasIncidence) {
+    messageParts.push(incidence ? "Se marcará como INCIDENCIA ABIERTA." : "Se cerrará la incidencia abierta (si había alguna).");
+  }
+
+  return {
+    message: messageParts.join(" "),
+    extra: { order: order.name, client: order.client_name },
+    execute: async () => {
+      const existing = (order.notes || "") as string;
+      const dateStr = new Date().toLocaleDateString("en-US");
+      const tag = hasIncidence && incidence ? " ⚠️ INCIDENT" : "";
+      const line = `${dateStr}${tag}: ${note}`;
+      await execute(id.uid, id.apiKey, "indigo.order", "write", [[orderId], { notes: existing ? `${line}\n${existing}` : line }], {});
+
+      await execute(id.uid, id.apiKey, "indigo.order", "message_post", [[orderId]], {
+        body: `${hasIncidence && incidence ? "⚠️ Incident: " : "Note: "}${note}${AI_ORIGIN_SUFFIX}`,
+        message_type: "comment",
+      }).catch(() => undefined);
+
+      if (hasIncidence) {
+        await execute(id.uid, id.apiKey, "indigo.order", "write", [[orderId], { incidence }], {}).catch(() => undefined);
+      }
+    },
+  };
+}
+
+async function addNote(args: Record<string, unknown>, id: McpIdentity, now: number) {
+  return runWriteTool("add_note", args, id, () => planAddNote(args, id), now);
+}
+
+// ---------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------
 
@@ -620,6 +1550,12 @@ async function dispatchTool(
   args: Record<string, unknown>,
   id: McpIdentity,
 ): Promise<unknown> {
+  // Read-only tools have no clock dependency; write tools need `now` for
+  // their confirm-token issue/verify — Date.now() read exactly once here,
+  // at the actual dispatch boundary, not inside each tool. Tests reach the
+  // token logic deterministically instead via runWriteTool() directly
+  // (see tools.test.ts), which takes `now` as an explicit argument.
+  const now = Date.now();
   switch (name) {
     case "today_board":
       return todayBoard(args, id);
@@ -633,6 +1569,16 @@ async function dispatchTool(
       return listDealers(args, id);
     case "list_designs":
       return listDesigns(args, id);
+    case "advance_order":
+      return advanceOrder(args, id, now);
+    case "assign_order":
+      return assignOrder(args, id, now);
+    case "schedule_install":
+      return scheduleInstall(args, id, now);
+    case "hold_order":
+      return holdOrder(args, id, now);
+    case "add_note":
+      return addNote(args, id, now);
     default:
       // Unreachable via the MCP transport today (route.ts only ever calls
       // this with a literal def.name from TOOL_DEFS), but runTool is
