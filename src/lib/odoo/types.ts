@@ -22,14 +22,20 @@ export function deriveRole(groups: string[]): {
   isCnc: boolean;
   isInstaller: boolean;
 } {
-  // Odoo's res.groups full_name comes through as "<Category> / <Group>"
-  // with spaces around the slash. We compare on the trailing group name
-  // (everything after the last slash), and only inside the Indigo Decors
-  // category — so a "Sales / Manager" never matches our Indigo Manager.
+  // Odoo's res.groups full_name comes through as "<Category> / <Group name>"
+  // with spaces around the slash — but the group *name* itself can contain
+  // its own " / " (e.g. "CNC / Router", "Office / Administracion"), so the
+  // full string can have three (or more) " / "-separated segments even
+  // though there are only two logical parts: category, then name. We only
+  // consider groups inside the Indigo Decors category (so a "Sales /
+  // Manager" never matches our Indigo Manager), and strip off just that
+  // leading category segment — everything up to the *first* slash — rather
+  // than keeping only the text after the *last* slash, so a group name that
+  // itself contains a slash survives intact for the has(...) checks below.
   const indigoGroups = groups
     .filter((g) => g.startsWith("Indigo Decors"))
     .map((g) => {
-      const idx = g.lastIndexOf("/");
+      const idx = g.indexOf("/");
       return idx >= 0 ? g.slice(idx + 1).trim() : g.trim();
     });
   const has = (name: string) => indigoGroups.includes(name);
