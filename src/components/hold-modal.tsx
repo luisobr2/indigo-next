@@ -14,6 +14,21 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+/** Must match indigo.order's hold_cause selection (Odoo 17.0.0.88.0+). */
+export type HoldCause = "dealer" | "client" | "other";
+const CAUSE_OPTIONS: Array<{ value: HoldCause; label: string }> = [
+  { value: "dealer", label: "Dealer — they need to fix/provide something" },
+  { value: "client", label: "Client — not available / hasn't confirmed" },
+  { value: "other", label: "Other" },
+];
 
 interface HoldModalProps {
   open: boolean;
@@ -24,6 +39,7 @@ interface HoldModalProps {
   /** Show the "Release" variant if the order is already on hold. */
   releasing?: boolean;
   defaultReason?: string;
+  defaultCause?: HoldCause;
 }
 
 export function HoldModal({
@@ -34,22 +50,35 @@ export function HoldModal({
   orderName,
   releasing,
   defaultReason,
+  defaultCause,
 }: HoldModalProps) {
   const [reason, setReason] = useState(defaultReason ?? "");
+  const [cause, setCause] = useState<HoldCause | "">(defaultCause ?? "");
   const [busy, setBusy] = useState(false);
 
-  // The modal stays mounted between opens — reset the reason each time it opens
-  // so a stale reason from a previous order isn't submitted by accident.
+  // The modal stays mounted between opens — reset the fields each time it
+  // opens so a stale reason/cause from a previous order isn't submitted by
+  // accident.
   useEffect(() => {
-    if (open) setReason(defaultReason ?? "");
-  }, [open, defaultReason]);
+    if (open) {
+      setReason(defaultReason ?? "");
+      setCause(defaultCause ?? "");
+    }
+  }, [open, defaultReason, defaultCause]);
+
+  // Odoo's indigo.order rejects an on_hold write with no hold_cause (a
+  // cause is what makes "7 doors blocked by the dealer" countable — see
+  // indigo_order.py's _check_hold_requires_cause), so the button stays
+  // disabled until one is picked.
+  const canSubmit = releasing || !!cause;
 
   async function submit() {
+    if (!canSubmit) return;
     setBusy(true);
     const promise = fetch(`/api/orders/${orderId}/hold`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason, release: !!releasing }),
+      body: JSON.stringify({ reason, release: !!releasing, cause }),
     })
       .then(async (r) => {
         const j = await r.json();
@@ -90,15 +119,37 @@ export function HoldModal({
         </DialogHeader>
 
         {!releasing && (
-          <div className="space-y-1.5">
-            <Label htmlFor="hold-reason">Reason</Label>
-            <Textarea
-              id="hold-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              rows={3}
-              placeholder="e.g. Customer asked to postpone install until next week"
-            />
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="hold-cause">
+                Who's blocking this? <span className="text-rose-600">*</span>
+              </Label>
+              <Select value={cause} onValueChange={(v) => setCause(v as HoldCause)}>
+                <SelectTrigger id="hold-cause" className="h-9 w-full">
+                  <SelectValue placeholder="Select a cause..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {CAUSE_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">
+                Drives the dealer/client counters and colors on the Installations screen.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="hold-reason">Reason (detail)</Label>
+              <Textarea
+                id="hold-reason"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                rows={3}
+                placeholder="e.g. Dealer needs to confirm the color change before we cut"
+              />
+            </div>
           </div>
         )}
 
@@ -109,7 +160,7 @@ export function HoldModal({
           <Button
             type="button"
             onClick={submit}
-            disabled={busy}
+            disabled={busy || !canSubmit}
             className={
               releasing
                 ? "bg-emerald-600 text-white shadow shadow-emerald-600/30 hover:bg-emerald-700"

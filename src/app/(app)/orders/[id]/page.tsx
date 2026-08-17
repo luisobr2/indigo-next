@@ -187,6 +187,7 @@ export default function OrderDetailPage({
     stage_id: [number, string] | false;
     stage_code: string;
     on_hold: boolean;
+    hold_cause?: "dealer" | "client" | "other" | false;
     door_count: number;
     total_sqf: number;
     total_dealer_charge: number;
@@ -284,8 +285,20 @@ export default function OrderDetailPage({
               ● {m2o(o.stage_id)?.name}
             </span>
             {o.on_hold && (
-              <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold uppercase text-amber-700">
+              <span
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-bold uppercase",
+                  o.hold_cause === "dealer"
+                    ? "bg-sky-50 text-sky-700"
+                    : o.hold_cause === "client"
+                      ? "bg-orange-50 text-orange-700"
+                      : "bg-amber-50 text-amber-700",
+                )}
+              >
                 On hold
+                {o.hold_cause === "dealer" && " — Dealer"}
+                {o.hold_cause === "client" && " — Client"}
+                {(!o.hold_cause || o.hold_cause === "other") && " — Unclassified"}
               </span>
             )}
             {o.incidence && (

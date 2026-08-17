@@ -24,6 +24,7 @@ const ORDER_FIELDS_BASE = [
   "stage_id",
   "stage_code",
   "on_hold",
+  "hold_cause",
   "hold_reason",
   "payment_state",
   "price_per_sqf",

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 import { deriveRole } from "@/lib/odoo/types";
+import { groupOrdersByHoldCause, type HoldCause } from "@/lib/installations/hold-groups";
 
 export const runtime = "nodejs";
 
@@ -209,11 +210,50 @@ export async function GET(req: NextRequest) {
       kwargs: { limit: 500, order: "installation_date" },
     });
 
+    // 1d. On hold — Majela's 2026-08-15 request (item 3): tell a door
+    //     blocked by the DEALER apart from one blocked by the CLIENT, with
+    //     a count per cause, instead of everything reading as one
+    //     undifferentiated "on hold". Week-agnostic like unscheduled/
+    //     overdue (a hold isn't tied to a scheduled date), and excludes
+    //     'closed' orders — fully wrapped up, so a leftover on_hold flag on
+    //     one no longer needs anyone's attention here.
+    interface OnHoldRow extends OrderRow {
+      hold_cause: HoldCause | false;
+      hold_reason: string | false;
+    }
+    const onHold = await call<OnHoldRow[]>({
+      session: s.session,
+      model: "indigo.order",
+      method: "search_read",
+      args: [
+        [
+          ["on_hold", "=", true],
+          ["stage_id.code", "!=", "closed"],
+        ],
+        [
+          "id",
+          "name",
+          "dealer_ref",
+          "client_name",
+          "client_phone",
+          "client_address",
+          "installer_ids",
+          "door_count",
+          "installation_date",
+          "stage_code",
+          "total_sqf",
+          "hold_cause",
+          "hold_reason",
+        ],
+      ],
+      kwargs: { limit: 500, order: "write_date desc" },
+    });
+
     // 2. Resolve installer names from res.partner (since installer_ids is
     //    a m2m to res.partner via the `installer_partner_rel` table). Read
-    //    them once for the whole batch (weekly + unscheduled + overdue).
+    //    them once for the whole batch (weekly + unscheduled + overdue + on hold).
     const installerIdSet = new Set<number>();
-    for (const o of [...orders, ...unscheduled, ...overdue]) {
+    for (const o of [...orders, ...unscheduled, ...overdue, ...onHold]) {
       for (const iid of o.installer_ids || []) installerIdSet.add(iid);
     }
     interface PartnerRow {
@@ -232,7 +272,7 @@ export async function GET(req: NextRequest) {
     const nameOf = new Map(installers.map((p) => [p.id, p.name]));
 
     // 3. Pull first_line per order for door_type + color (all buckets).
-    const orderIds = [...orders, ...unscheduled, ...overdue].map((o) => o.id);
+    const orderIds = [...orders, ...unscheduled, ...overdue, ...onHold].map((o) => o.id);
     interface LineRow {
       id: number;
       order_id: [number, string] | false;
@@ -395,6 +435,48 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // 4d. On-hold rows, grouped by cause (dealer / client / other) with a
+    //     door count per group — the "Problema del dealer · 7 puertas"
+    //     counters plus the per-cause panels on the Installations screen.
+    //     groupOrdersByHoldCause is pure/unit-tested (hold-groups.test.ts);
+    //     it also folds any row with a missing/unrecognized cause into
+    //     'other' rather than dropping it from every count.
+    const onHoldRowOf = (o: OnHoldRow) => {
+      const firstLine = firstLineByOrder.get(o.id);
+      const names = (o.installer_ids || [])
+        .map((iid) => nameOf.get(iid))
+        .filter(Boolean) as string[];
+      return {
+        id: o.id,
+        name: o.name,
+        dealer_ref: o.dealer_ref || "",
+        client_name: o.client_name,
+        client_address: o.client_address || "",
+        door_type: firstLine?.door_type ?? "",
+        color: firstLine?.color ?? "",
+        door_count: o.door_count || 1,
+        stage_code: o.stage_code,
+        hold_cause: (o.hold_cause || "other") as HoldCause,
+        hold_reason: o.hold_reason || "",
+        installer: names.length ? names.join(", ") : "Unassigned",
+      };
+    };
+    const onHoldGroups = groupOrdersByHoldCause(onHold);
+    const onHoldPayload = {
+      dealer: {
+        doorCount: onHoldGroups.dealer.doorCount,
+        orders: onHoldGroups.dealer.orders.map(onHoldRowOf),
+      },
+      client: {
+        doorCount: onHoldGroups.client.doorCount,
+        orders: onHoldGroups.client.orders.map(onHoldRowOf),
+      },
+      other: {
+        doorCount: onHoldGroups.other.doorCount,
+        orders: onHoldGroups.other.orders.map(onHoldRowOf),
+      },
+    };
+
     // 5. Daily breakdown for the bar chart — one bar per day across the whole
     //    range (capped so a very long range doesn't produce an unusable chart).
     const days: Array<{
@@ -510,6 +592,7 @@ export async function GET(req: NextRequest) {
       installers: installerBuckets,
       unscheduled: unscheduledRows,
       overdue: overdueRows,
+      onHold: onHoldPayload,
       days,
     });
   } catch (e) {

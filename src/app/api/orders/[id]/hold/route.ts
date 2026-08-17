@@ -13,12 +13,23 @@ const escapeHtml = (str: string) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
+const HOLD_CAUSES = new Set(["dealer", "client", "other"]);
+const HOLD_CAUSE_LABEL: Record<string, string> = {
+  dealer: "Dealer",
+  client: "Client",
+  other: "Other / unclassified",
+};
+
 /**
  * POST /api/orders/[id]/hold
- *   body: { reason?: string, release?: boolean }
+ *   body: { reason?: string, release?: boolean, cause?: "dealer" | "client" | "other" }
  *
  * Toggle the order's on_hold flag + record a chatter note with the reason.
- * `release: true` clears the hold.
+ * `release: true` clears the hold. `cause` is REQUIRED when setting a hold
+ * (release ignores it) — indigo.order's own constraint rejects an on_hold
+ * write with no hold_cause (Majela's 2026-08-15 request, item 3: a hold
+ * with no cause can't be counted or colored on the Installations screen),
+ * so this checks it up front for a clean 400 instead of a raw Odoo error.
  */
 export async function POST(
   req: NextRequest,
@@ -35,6 +46,14 @@ export async function POST(
     const body = await req.json();
     const release = !!body.release;
     const reason = (body.reason ?? "").toString().trim();
+    const cause = (body.cause ?? "").toString().trim();
+
+    if (!release && !HOLD_CAUSES.has(cause)) {
+      return NextResponse.json(
+        { error: "Select a cause (Dealer / Client / Other) before moving the order to hold." },
+        { status: 400 },
+      );
+    }
 
     await call({
       session: s.session,
@@ -44,6 +63,7 @@ export async function POST(
         [id],
         {
           on_hold: !release,
+          hold_cause: release ? false : cause,
           hold_reason: release ? false : reason || false,
         },
       ],
@@ -53,8 +73,8 @@ export async function POST(
     const note = release
       ? "Order released from hold."
       : reason
-        ? `Moved to hold — <b>${escapeHtml(reason)}</b>`
-        : "Moved to hold.";
+        ? `Moved to hold (${escapeHtml(HOLD_CAUSE_LABEL[cause])}) — <b>${escapeHtml(reason)}</b>`
+        : `Moved to hold (${escapeHtml(HOLD_CAUSE_LABEL[cause])}).`;
 
     await call({
       session: s.session,

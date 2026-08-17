@@ -664,7 +664,7 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "hold_order",
     title: "Put an order on hold, or release it",
     description:
-      "Puts ONE order on hold (with an optional reason) or releases it from hold. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm').",
+      "Puts ONE order on hold (with a cause and an optional free-text reason) or releases it from hold. 'cause' is REQUIRED when action is 'hold' — it's how Majela tells apart a door blocked by the DEALER (they need to fix something first) from one blocked by the CLIENT (not available / hasn't responded), and it drives the dealer/client counters and colors on the Installations screen. If the human hasn't said which one it is, ASK before calling this tool with action 'hold' — never guess a cause. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm').",
     inputSchema: {
       type: "object",
       properties: {
@@ -677,9 +677,14 @@ export const TOOL_DEFS: ToolDef[] = [
           enum: ["hold", "release"],
           description: "'hold' puts the order on hold; 'release' clears an existing hold.",
         },
+        cause: {
+          type: "string",
+          enum: ["dealer", "client", "other"],
+          description: "Who/what is blocking this order. REQUIRED when action is 'hold' — ask the human if they didn't say: 'dealer' when the dealer has to fix or provide something before work can continue, 'client' when the end client isn't available or hasn't confirmed, 'other' only when neither fits. Ignored when action is 'release'.",
+        },
         reason: {
           type: "string",
-          description: "Optional reason, used only when action is 'hold'. Shown on the order's hold banner in the panel and in its timeline.",
+          description: "Optional free-text detail on top of 'cause' (e.g. exactly what the dealer needs to fix), used only when action is 'hold'. Shown on the order's hold banner in the panel and in its timeline.",
         },
         confirm: CONFIRM_SCHEMA_PROPERTY,
       },
@@ -1653,12 +1658,47 @@ async function scheduleInstall(args: Record<string, unknown>, id: McpIdentity, n
   return runWriteTool("schedule_install", args, id, () => planScheduleInstall(args, id), now);
 }
 
+/** The three hold_cause values indigo.order accepts (Odoo 17.0.0.88.0+). */
+export type HoldCause = "dealer" | "client" | "other";
+const HOLD_CAUSES: HoldCause[] = ["dealer", "client", "other"];
+const HOLD_CAUSE_LABEL: Record<HoldCause, string> = {
+  dealer: "problema del dealer",
+  client: "problema del cliente",
+  other: "otro / sin clasificar",
+};
+
+/**
+ * hold_order's 'cause' argument is required whenever action is 'hold' — a
+ * hold with no cause is exactly the unclassifiable row Majela's 2026-08-15
+ * request (item 3) exists to eliminate: free text can't be counted or
+ * colored, so 'dealer' vs 'client' vs 'other' is what makes the "7 doors
+ * blocked by the dealer" counter possible at all. indigo.order's own
+ * _check_hold_requires_cause constraint would reject a bare write() too
+ * (it's the actual enforcement, covering every caller including this one),
+ * but validating it HERE first — before any RPC — gives the model a clean,
+ * actionable error instead of a raw Odoo ValidationError, and (like
+ * requireLineSqf above) makes this rule directly unit-testable without a
+ * live Odoo behind it.
+ */
+export function requireHoldCause(args: Record<string, unknown>, action: "hold" | "release"): HoldCause | undefined {
+  if (action === "release") return undefined;
+  const raw = args.cause;
+  if (typeof raw !== "string" || !HOLD_CAUSES.includes(raw as HoldCause)) {
+    throw mcpError(
+      "ENTRADA_INVALIDA",
+      "hold_order requiere 'cause' ('dealer', 'client' u 'other') para poner una orden en espera — si la persona no dijo cuál es, pregúntale antes de llamar a esta herramienta en vez de adivinar.",
+    );
+  }
+  return raw as HoldCause;
+}
+
 async function planHoldOrder(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
   const orderId = requireOrderId(args, "hold_order");
   const action = args.action;
   if (action !== "hold" && action !== "release") {
     throw mcpError("ENTRADA_INVALIDA", "hold_order requiere 'action' igual a 'hold' o 'release'.");
   }
+  const cause = requireHoldCause(args, action);
   const reason = typeof args.reason === "string" ? args.reason.trim() : "";
 
   await requireOfficeRole(id, "poner en espera o liberar una orden");
@@ -1682,14 +1722,12 @@ async function planHoldOrder(args: Record<string, unknown>, id: McpIdentity): Pr
       ? "se liberará de la espera."
       : "no está en espera actualmente; esto no tendrá efecto.";
   } else {
-    effectMessage = `se pondrá EN ESPERA${reason ? ` — motivo: "${reason}"` : ""}.`;
+    effectMessage = `se pondrá EN ESPERA (${HOLD_CAUSE_LABEL[cause!]})${reason ? ` — motivo: "${reason}"` : ""}.`;
   }
 
   const chatterBody = release
     ? "Orden liberada de espera."
-    : reason
-      ? `Movida a espera — ${reason}`
-      : "Movida a espera.";
+    : `Movida a espera — ${HOLD_CAUSE_LABEL[cause!]}${reason ? `: ${reason}` : ""}.`;
 
   return {
     message: `Orden ${order.name} (${order.client_name}): ${effectMessage}`,
@@ -1700,7 +1738,14 @@ async function planHoldOrder(args: Record<string, unknown>, id: McpIdentity): Pr
         id.apiKey,
         "indigo.order",
         "write",
-        [[orderId], { on_hold: !release, hold_reason: release ? false : reason || false }],
+        [
+          [orderId],
+          {
+            on_hold: !release,
+            hold_cause: release ? false : cause,
+            hold_reason: release ? false : reason || false,
+          },
+        ],
         {},
       );
       await execute(id.uid, id.apiKey, "indigo.order", "message_post", [[orderId]], {

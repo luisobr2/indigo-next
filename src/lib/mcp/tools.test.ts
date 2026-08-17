@@ -12,6 +12,7 @@ import {
   personRoleLabels,
   ADVANCE_OUTCOMES,
   requireLineSqf,
+  requireHoldCause,
 } from "./tools.ts";
 import { issueConfirmToken, CONFIRM_TOKEN_TTL_MS } from "./confirm.ts";
 import type { McpIdentity } from "./token.ts";
@@ -478,4 +479,54 @@ test("cnc_done refuses a zero SQF instead of silently sending it (would pay the 
 test("cnc_done accepts a complete map of real, positive SQF values", () => {
   const result = requireLineSqf({ "10": 5.5, "11": 3.25 }, [10, 11], "cnc_done");
   assert.deepEqual(result, { "10": 5.5, "11": 3.25 });
+});
+
+// ---------------------------------------------------------------------
+// hold_order — requireHoldCause. Majela's 2026-08-15 request (item 3): a
+// hold with no cause can't be counted or colored on the Installations
+// screen, so the assistant must be blocked from creating one — same
+// "money/data bug prevention" reasoning as requireLineSqf above, and same
+// testable-without-Odoo split (indigo.order's own constraint is the real
+// enforcement; this is the assistant-facing guard that fires first).
+// ---------------------------------------------------------------------
+
+test("hold_order refuses action 'hold' with no cause at all", () => {
+  assert.throws(
+    () => requireHoldCause({ order_id: 5, action: "hold" }, "hold"),
+    (err: unknown) => {
+      assert.ok(err instanceof McpToolError);
+      assert.equal((err as McpToolError).code, "ENTRADA_INVALIDA");
+      assert.match((err as McpToolError).message, /cause/);
+      return true;
+    },
+  );
+});
+
+test("hold_order refuses action 'hold' with a cause that isn't one of the three values", () => {
+  assert.throws(
+    () => requireHoldCause({ order_id: 5, action: "hold", cause: "weather" }, "hold"),
+    (err: unknown) => {
+      assert.ok(err instanceof McpToolError);
+      assert.equal((err as McpToolError).code, "ENTRADA_INVALIDA");
+      return true;
+    },
+  );
+});
+
+test("hold_order accepts each of the three valid causes", () => {
+  for (const cause of ["dealer", "client", "other"]) {
+    assert.equal(requireHoldCause({ order_id: 5, action: "hold", cause }, "hold"), cause);
+  }
+});
+
+test("hold_order's release action never requires a cause, even if omitted", () => {
+  assert.equal(requireHoldCause({ order_id: 5, action: "release" }, "release"), undefined);
+});
+
+test("hold_order's description requires 'cause' when holding and tells the model to ask, not guess", () => {
+  const def = TOOL_DEFS.find((t) => t.name === "hold_order")!;
+  assert.match(def.description, /REQUIRED when action is 'hold'/);
+  assert.match(def.description, /ask/i);
+  const props = def.inputSchema.properties as Record<string, { enum?: string[] }>;
+  assert.deepEqual(props.cause?.enum, ["dealer", "client", "other"]);
 });

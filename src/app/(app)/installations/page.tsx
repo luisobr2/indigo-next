@@ -21,11 +21,15 @@ import {
   CircleDollarSign,
   AlertTriangle,
   X,
+  Building2,
+  UserRound,
+  HelpCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { fmtMoney, fmtNum, fmtDate, cn } from "@/lib/utils";
 import { toCsv, downloadCsv } from "@/lib/csv";
 import { fetchJson } from "@/lib/fetch-json";
+import { holdCounterLabel } from "@/lib/installations/hold-groups";
 import { ErrorState } from "@/components/state-cards";
 import { AddInstallerModal } from "@/components/add-installer-modal";
 import {
@@ -119,6 +123,30 @@ interface DashboardData {
     installer: string;
     installer_ids: number[];
   }>;
+  // Majela's 2026-08-15 request (item 3): tell a door blocked by the
+  // DEALER apart from one blocked by the CLIENT, with a count per cause —
+  // NOT folded into overdue/unscheduled, which is exactly what she said
+  // she didn't want ("no que sea overdue y pending schedule").
+  onHold: Record<
+    "dealer" | "client" | "other",
+    {
+      doorCount: number;
+      orders: Array<{
+        id: number;
+        name: string;
+        dealer_ref: string;
+        client_name: string;
+        client_address: string;
+        door_type: string;
+        color: string;
+        door_count: number;
+        stage_code: string;
+        hold_cause: "dealer" | "client" | "other";
+        hold_reason: string;
+        installer: string;
+      }>;
+    }
+  >;
   days: Array<{
     date: string;
     label: string;
@@ -455,6 +483,26 @@ export default function InstallationsPage() {
     );
   }, [data, q]);
 
+  // On hold, by cause — Majela's 2026-08-15 request (item 3). Week-agnostic
+  // like unscheduled/overdue, filtered the same way by the search box.
+  // Counter chips (below) use the UNfiltered door counts from `data` so
+  // they stay a stable summary, same as the KPI tiles above.
+  function filterHoldRows(rows: DashboardData["onHold"]["dealer"]["orders"] | undefined) {
+    const list = rows ?? [];
+    if (!q.trim()) return list;
+    const needle = q.toLowerCase();
+    return list.filter(
+      (o) =>
+        o.client_name.toLowerCase().includes(needle) ||
+        o.name.toLowerCase().includes(needle) ||
+        o.dealer_ref.toLowerCase().includes(needle) ||
+        o.client_address.toLowerCase().includes(needle),
+    );
+  }
+  const holdDealer = useMemo(() => filterHoldRows(data?.onHold.dealer.orders), [data, q]);
+  const holdClient = useMemo(() => filterHoldRows(data?.onHold.client.orders), [data, q]);
+  const holdOther = useMemo(() => filterHoldRows(data?.onHold.other.orders), [data, q]);
+
   // Days in the current range (for the prev/next period stepping).
   const rangeDays = useMemo(() => {
     const a = new Date(range.from + "T00:00:00").getTime();
@@ -692,6 +740,33 @@ export default function InstallationsPage() {
           </button>
         </div>
       </div>
+
+      {/* On-hold counters, by cause — Majela's 2026-08-15 request: "arriba"
+          ("va a estar eso recorrido en la parte superior"), independent of
+          the week range below (holds aren't tied to a scheduled date). The
+          label carries the meaning on its own (not just the color) so it
+          reads the same for anyone who can't easily tell blue from orange. */}
+      {data && (data.onHold.dealer.doorCount > 0 || data.onHold.client.doorCount > 0 || data.onHold.other.doorCount > 0) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            On hold
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-bold text-sky-800">
+            <Building2 size={12} />
+            {holdCounterLabel("dealer", data.onHold.dealer.doorCount)}
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-bold text-orange-800">
+            <UserRound size={12} />
+            {holdCounterLabel("client", data.onHold.client.doorCount)}
+          </span>
+          {data.onHold.other.doorCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+              <HelpCircle size={12} />
+              {holdCounterLabel("other", data.onHold.other.doorCount)}
+            </span>
+          )}
+        </div>
+      )}
 
       {data?.truncated && (
         <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
@@ -1029,6 +1104,32 @@ export default function InstallationsPage() {
           </div>
         </section>
       )}
+
+      {/* On hold, by cause — Majela's 2026-08-15 request (item 3): separate
+          from Overdue / Pending Scheduling above ("no que sea overdue y
+          pending schedule"), so a door blocked by the dealer never gets
+          mixed in with one that's simply late or unscheduled. */}
+      <HoldSection
+        icon={Building2}
+        title="ON HOLD – DEALER"
+        subtitle="Blocked by the dealer — waiting on them to fix or provide something."
+        theme={HOLD_SECTION_THEME.dealer}
+        rows={holdDealer}
+      />
+      <HoldSection
+        icon={UserRound}
+        title="PENDING – CLIENT"
+        subtitle="Blocked by the client — not available or hasn't confirmed."
+        theme={HOLD_SECTION_THEME.client}
+        rows={holdClient}
+      />
+      <HoldSection
+        icon={HelpCircle}
+        title="ON HOLD – UNCLASSIFIED"
+        subtitle="No cause set yet — open each order and pick Dealer or Client."
+        theme={HOLD_SECTION_THEME.other}
+        rows={holdOther}
+      />
 
       {/* Body */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
@@ -1527,6 +1628,133 @@ function KpiTile({
         </div>
       </div>
     </div>
+  );
+}
+
+// Section theme per hold cause — dealer = blue, client = orange, Majela's
+// own words (2026-08-15 audio). Kept distinct from the top counter chips'
+// classes so the two never drift apart by accident.
+const HOLD_SECTION_THEME: Record<
+  "dealer" | "client" | "other",
+  {
+    section: string;
+    headerBorder: string;
+    headerText: string;
+    badgeBg: string;
+    badgeText: string;
+    theadBg: string;
+    theadText: string;
+    rowBorder: string;
+    rowHover: string;
+  }
+> = {
+  dealer: {
+    section: "border-sky-200 bg-sky-50/50",
+    headerBorder: "border-sky-200",
+    headerText: "text-sky-900",
+    badgeBg: "bg-sky-200",
+    badgeText: "text-sky-800",
+    theadBg: "bg-sky-100/60",
+    theadText: "text-sky-800",
+    rowBorder: "border-sky-100",
+    rowHover: "hover:bg-sky-100/40",
+  },
+  client: {
+    section: "border-orange-200 bg-orange-50/50",
+    headerBorder: "border-orange-200",
+    headerText: "text-orange-900",
+    badgeBg: "bg-orange-200",
+    badgeText: "text-orange-800",
+    theadBg: "bg-orange-100/60",
+    theadText: "text-orange-800",
+    rowBorder: "border-orange-100",
+    rowHover: "hover:bg-orange-100/40",
+  },
+  other: {
+    section: "border-slate-200 bg-slate-50",
+    headerBorder: "border-slate-200",
+    headerText: "text-slate-700",
+    badgeBg: "bg-slate-200",
+    badgeText: "text-slate-700",
+    theadBg: "bg-slate-100",
+    theadText: "text-slate-600",
+    rowBorder: "border-slate-100",
+    rowHover: "hover:bg-slate-100/60",
+  },
+};
+
+/**
+ * One "blocked doors" panel for a single hold cause — the two-panel shape
+ * from Majela's own mockup (ON HOLD – DEALER / PENDING – CLIENT), each with
+ * its own door count and a per-row reason. Color is never the only signal:
+ * the section title and every badge carry a text label too, so this still
+ * reads correctly for someone who can't easily tell blue from orange apart.
+ */
+function HoldSection({
+  icon: Icon,
+  title,
+  subtitle,
+  theme,
+  rows,
+}: {
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  title: string;
+  subtitle: string;
+  theme: (typeof HOLD_SECTION_THEME)[keyof typeof HOLD_SECTION_THEME];
+  rows: DashboardData["onHold"]["dealer"]["orders"];
+}) {
+  if (!rows.length) return null;
+  return (
+    <section className={cn("overflow-hidden rounded-2xl border shadow-sm", theme.section)}>
+      <div className={cn("flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3", theme.headerBorder)}>
+        <h3 className={cn("flex items-center gap-1.5 font-semibold", theme.headerText)}>
+          <Icon size={15} />
+          {title}
+          <Badge variant="secondary" className={cn("text-[10px] font-bold", theme.badgeBg, theme.badgeText)}>
+            {rows.length}
+          </Badge>
+        </h3>
+        <span className={cn("text-xs", theme.headerText)}>{subtitle}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[860px] text-sm">
+          <thead className={cn("text-left text-[10px] font-bold uppercase tracking-wide", theme.theadBg, theme.theadText)}>
+            <tr>
+              <th className="px-4 py-2.5">Order Number</th>
+              <th className="px-4 py-2.5">Client Name</th>
+              <th className="px-4 py-2.5">Address</th>
+              <th className="px-4 py-2.5">Reason</th>
+              <th className="px-4 py-2.5">Door Type</th>
+              <th className="px-4 py-2.5 text-right">Qty</th>
+              <th className="px-4 py-2.5">Installer</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((o) => (
+              <tr key={o.id} className={cn("border-t transition", theme.rowBorder, theme.rowHover)}>
+                <td className="px-4 py-2.5">
+                  <Link
+                    href={`/orders/${o.id}`}
+                    className="font-mono text-xs font-semibold text-indigo-700 hover:underline"
+                    title={o.name}
+                  >
+                    {o.dealer_ref || o.name}
+                  </Link>
+                </td>
+                <td className="px-4 py-2.5 text-slate-700">{o.client_name}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-600">{o.client_address || "—"}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-600">{o.hold_reason || "—"}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-700">
+                  {DOOR_TYPE_LABEL[o.door_type] ?? o.door_type ?? "—"}
+                </td>
+                <td className="px-4 py-2.5 text-right font-mono text-xs">{o.door_count}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-600">{o.installer}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
