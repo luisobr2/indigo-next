@@ -18,7 +18,6 @@ const SENSITIVE_WIZARDS = new Set([
  */
 const ALLOWED_WIZARDS = new Set([
   "indigo.measurement.entry.wizard",
-  "indigo.sqf.entry.wizard",
   "indigo.cnc.done.wizard",
   "indigo.painter.done.wizard",
   "indigo.installed.wizard",

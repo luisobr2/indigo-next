@@ -10,6 +10,8 @@ import {
   McpToolError,
   runWriteTool,
   personRoleLabels,
+  ADVANCE_OUTCOMES,
+  requireLineSqf,
 } from "./tools.ts";
 import { issueConfirmToken, CONFIRM_TOKEN_TTL_MS } from "./confirm.ts";
 import type { McpIdentity } from "./token.ts";
@@ -397,4 +399,83 @@ test("runWriteTool: buildPlan is re-evaluated fresh on the confirm call, not reu
 
   await runWriteTool("advance_order", { ...args, confirm: preview.confirm }, FAKE_ID, fakePlan(executed), NOW + 1_000);
   assert.equal(executed.builds, 2, "buildPlan should run again on the confirm call, not be cached from the preview");
+});
+
+// ---------------------------------------------------------------------
+// advance_order — 'digitalization_done' / 'cnc_done' wiring, and the
+// per-line SQF requirement that moved from the (now-deleted)
+// indigo.sqf.entry.wizard to indigo.cnc.done.wizard.
+//
+// The painter is paid total_sqf x rate, computed from line_ids.sqf at the
+// moment the order LEAVES Painting (indigo_order.py's write() stage-change
+// hook, via _create_painter_payout — see the ADVANCE_OUTCOMES doc comment
+// in tools.ts). SQF is entered at 'cnc_done' and never touched again before
+// that payout is created, so if 'cnc_done' silently accepted a missing or
+// zero SQF, the painter's payout would be computed from zero. This is the
+// money bug the wizard-removal task exists to prevent — hence its own test,
+// separate from the generic runWriteTool coverage above.
+// ---------------------------------------------------------------------
+
+test("ADVANCE_OUTCOMES: SQF entry lives on cnc_done now, not digitalization_done", () => {
+  assert.equal(
+    ADVANCE_OUTCOMES.cnc_done?.requiresLineSqf,
+    true,
+    "cnc_done must require line_sqf -- it's the only place SQF is ever entered now",
+  );
+  assert.equal(ADVANCE_OUTCOMES.cnc_done?.wizardModel, "indigo.cnc.done.wizard");
+  assert.ok(
+    !ADVANCE_OUTCOMES.digitalization_done?.requiresLineSqf,
+    "digitalization_done must NOT require line_sqf -- Majela asked for SQF entry to be removed from Digitalization",
+  );
+  assert.equal(
+    ADVANCE_OUTCOMES.digitalization_done?.orderMethod,
+    "action_send_to_designer",
+    "digitalization_done drives indigo.order.action_send_to_designer(), not a wizard",
+  );
+  assert.equal(ADVANCE_OUTCOMES.digitalization_done?.wizardModel, undefined);
+  assert.equal(
+    ADVANCE_OUTCOMES.digitalization_done?.requiresDesigner,
+    true,
+    "must refuse up front if no designer is assigned, rather than guessing one",
+  );
+});
+
+test("cnc_done refuses when line_sqf is missing entirely", () => {
+  assert.throws(
+    () => requireLineSqf(undefined, [10, 11], "cnc_done"),
+    (err: unknown) => {
+      assert.ok(err instanceof McpToolError);
+      assert.equal((err as McpToolError).code, "ENTRADA_INVALIDA");
+      assert.match((err as McpToolError).message, /line_sqf/);
+      return true;
+    },
+  );
+});
+
+test("cnc_done refuses when line_sqf is missing SQF for one piece out of several", () => {
+  assert.throws(
+    () => requireLineSqf({ "10": 5.5 }, [10, 11], "cnc_done"),
+    (err: unknown) => {
+      assert.ok(err instanceof McpToolError);
+      assert.equal((err as McpToolError).code, "ENTRADA_INVALIDA");
+      assert.match((err as McpToolError).message, /pieza 11|piezas 11/);
+      return true;
+    },
+  );
+});
+
+test("cnc_done refuses a zero SQF instead of silently sending it (would pay the painter $0)", () => {
+  assert.throws(
+    () => requireLineSqf({ "10": 0, "11": 5 }, [10, 11], "cnc_done"),
+    (err: unknown) => {
+      assert.ok(err instanceof McpToolError);
+      assert.equal((err as McpToolError).code, "ENTRADA_INVALIDA");
+      return true;
+    },
+  );
+});
+
+test("cnc_done accepts a complete map of real, positive SQF values", () => {
+  const result = requireLineSqf({ "10": 5.5, "11": 3.25 }, [10, 11], "cnc_done");
+  assert.deepEqual(result, { "10": 5.5, "11": 3.25 });
 });

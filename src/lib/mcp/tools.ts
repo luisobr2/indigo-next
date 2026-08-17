@@ -29,12 +29,19 @@
  * c:/Trabajo/odoo-indigo/addons/indigo_decors/security/ir.model.access.csv
  * and indigo_role_rules.xml, read-only, never modified from here):
  *
- *  - advance_order drives one of five Odoo stage wizards (never a sixth,
- *    money-moving one — see ADVANCE_OUTCOMES below), and those wizards
- *    enforce their own role check server-side via `_indigo_require_groups`
- *    in the addon's wizards/indigo_stage_wizards.py. A caller whose role
- *    doesn't match gets a genuine Odoo AccessError, which this file maps to
- *    PERMISO_DENEGADO naming the action attempted (see driveStageWizard).
+ *  - advance_order drives four Odoo stage wizards plus one direct
+ *    indigo.order method call — indigo.order.action_send_to_designer() for
+ *    'digitalization_done', since Majela's 2026-08-15 request removed
+ *    per-line SQF entry from Digitalization and deleted the wizard that
+ *    used to live there (indigo.sqf.entry.wizard). It never drives the
+ *    sixth, money-moving wizard (indigo.invoiced.paid.wizard — see
+ *    ADVANCE_OUTCOMES below). Both the wizards and action_send_to_designer
+ *    enforce their own role check server-side (`_indigo_require_groups` in
+ *    the addon's wizards/indigo_stage_wizards.py,
+ *    `_indigo_assert_can_send_to_designer` in models/indigo_order.py). A
+ *    caller whose role doesn't match gets a genuine Odoo AccessError, which
+ *    this file maps to PERMISO_DENEGADO naming the action attempted (see
+ *    withActionAccessError).
  *  - assign_order / schedule_install / hold_order / add_note do NOT go
  *    through a wizard — they write indigo.order fields directly, exactly
  *    like the panel routes they mirror (src/app/api/orders/[id]/{assign,
@@ -553,7 +560,7 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "advance_order",
     title: "Advance an order to its next stage",
     description:
-      "Moves ONE order forward in production by describing what actually happened — never by naming an Odoo model or wizard. The server picks the right step from the order's CURRENT stage and the 'outcome' you give it, and refuses (code CONFLICTO) if the order isn't in the stage that outcome applies to — call get_order first if you're not sure which stage it's in. Preview-then-confirm like every write tool here (see 'confirm'); the preview also tells you if this step will trigger a contractor payout or an email notification, so nothing is a surprise on confirm. Valid 'outcome' values: 'measurements_taken' (Measurement Pending -> Measured; installers/office/manager only; needs 'line_dimensions' with real width/height for every piece, inches), 'digitalization_done' (Ready for Digitalization -> CNC; design/office/manager only; needs 'line_sqf' with the REAL decorated square footage the designer measured for every piece — this number becomes the painter's pay, never estimate or invent it), 'cnc_done' (CNC -> Painting; CNC/office/manager only), 'painting_done' (Painting -> Ready for Installation; painter/office/manager only; may generate a painter payout if one is assigned; optional 'photo_base64'), 'installed' (Installation Scheduled -> Installed; the assigned installer, office, or manager only; may generate installer payout(s); optional 'photo_base64'). Does NOT cover invoicing or marking an order paid — money is out of scope for this tool entirely, in every phase this tool exists in today.",
+      "Moves ONE order forward in production by describing what actually happened — never by naming an Odoo model or wizard. The server picks the right step from the order's CURRENT stage and the 'outcome' you give it, and refuses (code CONFLICTO) if the order isn't in the stage that outcome applies to — call get_order first if you're not sure which stage it's in. Preview-then-confirm like every write tool here (see 'confirm'); the preview also tells you if this step will trigger a contractor payout or an email notification, so nothing is a surprise on confirm. Valid 'outcome' values: 'measurements_taken' (Measurement Pending -> Measured; installers/office/manager only; needs 'line_dimensions' with real width/height for every piece, inches), 'digitalization_done' (Ready for Digitalization -> CNC; office/manager only, NOT the designer — this emails the Ficha de orden PDF to the order's assigned designer and moves it to CNC; the order MUST already have a designer assigned or this refuses with CONFLICTO telling you to assign one first — never guess a designer; no SQF is entered at this step anymore), 'cnc_done' (CNC -> Painting; CNC/office/manager only; needs 'line_sqf' with the REAL decorated square footage measured for every piece — this number becomes the painter's pay, never estimate or invent it, and the call is refused if any piece is missing it), 'painting_done' (Painting -> Ready for Installation; painter/office/manager only; may generate a painter payout if one is assigned; optional 'photo_base64'), 'installed' (Installation Scheduled -> Installed; the assigned installer, office, or manager only; may generate installer payout(s); optional 'photo_base64'). Does NOT cover invoicing or marking an order paid — money is out of scope for this tool entirely, in every phase this tool exists in today.",
     inputSchema: {
       type: "object",
       properties: {
@@ -576,7 +583,7 @@ export const TOOL_DEFS: ToolDef[] = [
         },
         line_sqf: {
           type: "object",
-          description: "REQUIRED for outcome 'digitalization_done', ignored otherwise. Maps EVERY order-line id (string key — get ids from get_order's 'lines') to its real decorated square footage. Must cover every piece on the order, no more and no less — the tool refuses if any piece is missing or an unknown line id is included.",
+          description: "REQUIRED for outcome 'cnc_done', ignored otherwise. Maps EVERY order-line id (string key — get ids from get_order's 'lines') to its real decorated square footage. Must cover every piece on the order, no more and no less — the tool refuses if any piece is missing, an unknown line id is included, or a value is zero/not a positive number. This is what the painter gets paid on; never estimate or invent it.",
           additionalProperties: { type: "number" },
         },
         line_dimensions: {
@@ -1130,13 +1137,25 @@ const AI_ORIGIN_NOTE = "Acción ejecutada a través del asistente de IA (MCP).";
 const AI_ORIGIN_SUFFIX = " (vía asistente de IA)";
 
 interface AdvanceOutcome {
-  wizardModel: string;
+  /** Odoo TransientModel wizard driven via create() + action_save_and_advance().
+   *  Exactly one of `wizardModel` / `orderMethod` is set per outcome. */
+  wizardModel?: string;
+  /** A plain method called directly on indigo.order — no wizard record,
+   *  no per-piece line writes, no note/photo (Odoo's method takes no
+   *  arguments beyond the order id). Only 'digitalization_done' uses this;
+   *  see planAdvanceOrder's execute() below for the two different Odoo
+   *  call shapes this drives. */
+  orderMethod?: string;
   fromStageCode: string;
   toStageLabel: string;
   actionLabel: string;
   roleHint: string;
   requiresLineSqf?: boolean;
   requiresLineDimensions?: boolean;
+  /** Refuse up front (CONFLICTO) if the order has no designer_id, instead
+   *  of letting action_send_to_designer's own UserError surface deep in
+   *  execute() — the assistant must never guess who the Ficha goes to. */
+  requiresDesigner?: boolean;
   supportsPhoto?: boolean;
   /** When set, order.write's stage-change hook
    *  (c:/Trabajo/odoo-indigo/addons/indigo_decors/models/indigo_order.py,
@@ -1146,16 +1165,35 @@ interface AdvanceOutcome {
 }
 
 /**
- * outcome -> Odoo wizard, verified against
+ * outcome -> either an Odoo stage wizard (wizardModel) or a direct
+ * indigo.order method call (orderMethod), verified against
  * c:/Trabajo/odoo-indigo/addons/indigo_decors/wizards/{indigo_stage_wizards,
- * indigo_measurement_entry_wizard}.py and data/indigo_stages.xml (read-only
- * reference, never modified from this repo). Deliberately excludes the
- * sixth stage wizard, indigo.invoiced.paid.wizard (installed -> invoiced) —
- * it moves money, which is out of scope for advance_order entirely, per
- * this phase's brief ("never anything touching money"), not merely
- * role-gated like the other five already are inside Odoo itself.
+ * indigo_measurement_entry_wizard}.py, models/indigo_order.py and
+ * data/indigo_stages.xml (read-only reference, never modified from this
+ * repo).
+ *
+ * 'digitalization_done' is the odd one out. Majela's 2026-08-15 request
+ * removed per-line SQF entry from Digitalization entirely — the wizard
+ * that used to live there (indigo.sqf.entry.wizard) was deleted from the
+ * addon, not just unwired. The ONLY way out of that stage now is
+ * indigo.order.action_send_to_designer(), a plain model method (not a
+ * TransientModel wizard): it emails the Ficha de orden PDF to designer_id
+ * and advances the stage in one call, and it requires designer_id to
+ * already be set (requiresDesigner below) — Odoo raises a UserError
+ * otherwise, which this tool pre-empts with a clearer CONFLICTO. SQF entry
+ * moved to 'cnc_done' instead (requiresLineSqf there): it's still needed,
+ * just one stage later, because total_painter_payout is computed from
+ * line_ids.sqf when the order LEAVES Painting (indigo_order.py's write()
+ * stage-change hook via _create_painter_payout), and nothing else ever
+ * sets it — skipping SQF at cnc_done would silently pay the painter $0.
+ *
+ * Deliberately excludes the sixth stage wizard, indigo.invoiced.paid.wizard
+ * (installed -> invoiced) — it moves money, which is out of scope for
+ * advance_order entirely, per this phase's brief ("never anything touching
+ * money"), not merely role-gated like the rest already are inside Odoo
+ * itself.
  */
-const ADVANCE_OUTCOMES: Record<string, AdvanceOutcome> = {
+export const ADVANCE_OUTCOMES: Record<string, AdvanceOutcome> = {
   measurements_taken: {
     wizardModel: "indigo.measurement.entry.wizard",
     fromStageCode: "measure_pending",
@@ -1165,19 +1203,20 @@ const ADVANCE_OUTCOMES: Record<string, AdvanceOutcome> = {
     requiresLineDimensions: true,
   },
   digitalization_done: {
-    wizardModel: "indigo.sqf.entry.wizard",
+    orderMethod: "action_send_to_designer",
     fromStageCode: "ready_digitalization",
     toStageLabel: "CNC / Router",
-    actionLabel: "registrar el SQF de cada pieza y enviar la orden a CNC",
-    roleHint: "Pueden hacerlo diseño, oficina o gerencia.",
-    requiresLineSqf: true,
+    actionLabel: "enviar la Ficha de orden por correo al diseñador/a asignado y pasar la orden a CNC",
+    roleHint: "Solo puede hacerlo oficina o gerencia (no el diseñador/a) — es quien confirma que la Ficha está lista para salir.",
+    requiresDesigner: true,
   },
   cnc_done: {
     wizardModel: "indigo.cnc.done.wizard",
     fromStageCode: "cnc",
     toStageLabel: "Painting",
-    actionLabel: "marcar el corte CNC como terminado y enviar la orden a Pintura",
+    actionLabel: "registrar el SQF real de cada pieza, marcar el corte CNC como terminado y enviar la orden a Pintura",
     roleHint: "Pueden hacerlo CNC, oficina o gerencia.",
+    requiresLineSqf: true,
   },
   painting_done: {
     wizardModel: "indigo.painter.done.wizard",
@@ -1208,6 +1247,7 @@ interface AdvanceOrderRow {
   painter_id: [number, string] | false;
   installer_ids: number[];
   assigned_user_ids: number[];
+  designer_id: [number, string] | false;
 }
 
 /** Validates that `provided`'s keys are EXACTLY the order's line ids (as
@@ -1251,6 +1291,23 @@ function requireCompleteLineMap(
   return map;
 }
 
+/** cnc_done's per-line SQF requirement — extracted from planAdvanceOrder so
+ *  it's directly unit-testable without a live Odoo (see tools.test.ts):
+ *  this is the exact validation that stands between the assistant and
+ *  silently sending the painter's payout computation a bunch of zeros (see
+ *  the ADVANCE_OUTCOMES doc comment above for why line_ids.sqf feeds
+ *  total_painter_payout down the line). */
+export function requireLineSqf(provided: unknown, lineIds: number[], outcome: string): Record<string, unknown> {
+  return requireCompleteLineMap(
+    provided,
+    lineIds,
+    "line_sqf",
+    outcome,
+    (v) => typeof v === "number" && Number.isFinite(v) && v > 0,
+    "debe ser un número mayor que 0 (SQF real, no estimado)",
+  );
+}
+
 async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
   const orderId = requireOrderId(args, "advance_order");
   const outcome = typeof args.outcome === "string" ? args.outcome : "";
@@ -1270,7 +1327,17 @@ async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity):
     "search_read",
     [
       [["id", "=", orderId]],
-      ["id", "name", "client_name", "stage_id", "stage_code", "painter_id", "installer_ids", "assigned_user_ids"],
+      [
+        "id",
+        "name",
+        "client_name",
+        "stage_id",
+        "stage_code",
+        "painter_id",
+        "installer_ids",
+        "assigned_user_ids",
+        "designer_id",
+      ],
     ],
     { limit: 1 },
   );
@@ -1282,6 +1349,13 @@ async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity):
     throw mcpError(
       "CONFLICTO",
       `La orden ${order.name} está actualmente en la etapa '${currentStage}', no en la etapa donde aplica el outcome '${outcome}'. Usa get_order para confirmar la etapa actual y elige el outcome correcto.`,
+    );
+  }
+
+  if (config.requiresDesigner && !order.designer_id) {
+    throw mcpError(
+      "CONFLICTO",
+      `La orden ${order.name} no tiene diseñador/a asignado. Asígnalo desde la ficha de la orden en el panel de Odoo antes de enviarla a digitalización — el asistente no puede adivinar quién debe recibir la Ficha.`,
     );
   }
 
@@ -1300,14 +1374,7 @@ async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity):
 
   let lineSqf: Record<string, unknown> | undefined;
   if (config.requiresLineSqf) {
-    lineSqf = requireCompleteLineMap(
-      args.line_sqf,
-      lineIds,
-      "line_sqf",
-      outcome,
-      (v) => typeof v === "number" && Number.isFinite(v) && v > 0,
-      "debe ser un número mayor que 0 (SQF real, no estimado)",
-    );
+    lineSqf = requireLineSqf(args.line_sqf, lineIds, outcome);
   }
 
   let lineDims: Record<string, unknown> | undefined;
@@ -1334,6 +1401,11 @@ async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity):
   const photoArg = config.supportsPhoto && typeof args.photo_base64 === "string" ? args.photo_base64 : "";
 
   const messageParts = [`Orden ${order.name} (${order.client_name}): ${config.actionLabel}.`];
+  if (config.orderMethod === "action_send_to_designer" && order.designer_id) {
+    messageParts.push(
+      `Se enviará la Ficha de orden (PDF) por correo a ${m2oLabel(order.designer_id)} y la orden pasará a CNC.`,
+    );
+  }
   if (config.triggersPayoutFor === "painter" && order.painter_id) {
     messageParts.push(`Esto generará un pago borrador para el pintor asignado (${m2oLabel(order.painter_id)}).`);
   }
@@ -1374,14 +1446,29 @@ async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity):
         );
       }
 
-      const payload: Record<string, unknown> = { order_id: orderId };
-      if (noteArg) payload.note = noteArg;
-      if (photoArg) payload.photo = photoArg;
-
       await withActionAccessError(config.actionLabel, async () => {
-        const wizardId = await execute<number>(id.uid, id.apiKey, config.wizardModel, "create", [payload], {});
-        await execute(id.uid, id.apiKey, config.wizardModel, "action_save_and_advance", [[wizardId]], {});
+        if (config.orderMethod) {
+          // Direct indigo.order method call (action_send_to_designer) —
+          // no wizard record to create, and the Odoo method itself takes
+          // no arguments beyond the order id (it reads designer_id off the
+          // order). note/photo_base64 aren't accepted by it, so a caller's
+          // 'note' is posted separately below instead of silently dropped.
+          await execute(id.uid, id.apiKey, "indigo.order", config.orderMethod, [[orderId]], {});
+        } else if (config.wizardModel) {
+          const payload: Record<string, unknown> = { order_id: orderId };
+          if (noteArg) payload.note = noteArg;
+          if (photoArg) payload.photo = photoArg;
+          const wizardId = await execute<number>(id.uid, id.apiKey, config.wizardModel, "create", [payload], {});
+          await execute(id.uid, id.apiKey, config.wizardModel, "action_save_and_advance", [[wizardId]], {});
+        }
       });
+
+      if (config.orderMethod && noteArg) {
+        await execute(id.uid, id.apiKey, "indigo.order", "message_post", [[orderId]], {
+          body: noteArg,
+          message_type: "comment",
+        }).catch(() => undefined);
+      }
 
       await execute(id.uid, id.apiKey, "indigo.order", "message_post", [[orderId]], {
         body: AI_ORIGIN_NOTE,
