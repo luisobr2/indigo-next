@@ -36,6 +36,7 @@ const ORDER_FIELDS_BASE = [
   "total_installer_payout",
   "door_count",
   "assigned_user_ids",
+  "designer_id",
   "painter_id",
   "installer_ids",
   "installation_date",

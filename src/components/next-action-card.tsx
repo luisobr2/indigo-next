@@ -79,15 +79,14 @@ const RECIPES: Record<string, Recipe> = {
   ready_digitalization: {
     icon: Wand2,
     tone: "warn",
-    title: "Capture SQF and produce the CNC file",
-    hint: "Open the wizard to enter SQF, attach the CNC artwork, and route to CNC.",
-    cta: "Open Digitalization wizard",
+    title: "Send the Ficha de orden to the designer",
+    hint: "Assign a designer and send — the PDF is attached, emailed, and the order moves to CNC automatically. Use the Digitalization screen.",
   },
   cnc: {
     icon: Wand2,
     tone: "warn",
-    title: "Cut the pieces, then send to Painting",
-    hint: "Mark CNC complete in the wizard when the cut is finished.",
+    title: "Enter SQF, then send to Painting",
+    hint: "Enter the SQF per piece and mark cutting done in the wizard.",
     cta: "Open CNC wizard",
   },
   painting: {

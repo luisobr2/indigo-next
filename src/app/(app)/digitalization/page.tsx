@@ -1,7 +1,9 @@
 "use client";
-import { Pencil, Settings as Gear, CheckCircle2, PauseCircle, Tag } from "lucide-react";
+import { Tag } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { StageScreenV2 } from "@/components/stage-screen-v2";
-import { fmtDate, fmtNum } from "@/lib/utils";
+import { SendToDesignerControl } from "@/components/send-to-designer-control";
+import { fmtDate } from "@/lib/utils";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 
 const DOOR_TYPE_LABEL: Record<string, string> = {
@@ -10,52 +12,59 @@ const DOOR_TYPE_LABEL: Record<string, string> = {
   sidelite: "Door with Sidelites",
 };
 
+/**
+ * Majela's counter (docs/majela/audio-1-digitalizacion.md): "de las 8,
+ * hiciste 6, te quedan 2". Replaces the old "In Progress / Completed /
+ * On Hold" tiles — those were unreachable (nothing in this screen ever
+ * set digi_started_at/digi_done_at), which is what she circled in green.
+ */
+function DigitalizationProgress() {
+  const { data } = useQuery<{ remaining: number; sent: number; total: number }>({
+    queryKey: ["digitalization-progress"],
+    queryFn: () => fetch("/api/orders/digitalization-progress").then((r) => r.json()),
+    refetchInterval: 60_000,
+  });
+  if (!data) {
+    return <p className="text-sm text-slate-400">Cargando progreso del día…</p>;
+  }
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+      <span className="text-2xl font-bold tabular-nums text-slate-900">
+        {data.total}
+      </span>
+      <span className="text-slate-500">en total</span>
+      <span className="text-slate-300">·</span>
+      <span className="text-lg font-bold tabular-nums text-emerald-600">
+        {data.sent}
+      </span>
+      <span className="text-slate-500">enviadas</span>
+      <span className="text-slate-300">·</span>
+      <span className="text-lg font-bold tabular-nums text-amber-600">
+        {data.remaining}
+      </span>
+      <span className="text-slate-500">faltan</span>
+      <span className="ml-1 text-xs text-slate-400">(hoy)</span>
+    </div>
+  );
+}
+
 export default function DigitalizationPage() {
+  const qc = useQueryClient();
+
+  function refreshAfterSend() {
+    qc.invalidateQueries({ queryKey: ["stage-v2"] });
+    qc.invalidateQueries({ queryKey: ["stage-v2-stats"] });
+    qc.invalidateQueries({ queryKey: ["digitalization-progress"] });
+  }
+
   return (
     <StageScreenV2
       title="Digitalization"
-      subtitle="Confirmed orders ready to be digitalized and prepared for CNC production."
+      subtitle="Orders waiting on the Ficha de orden — send it to the designer to route them to CNC."
       stageCode="ready_digitalization"
-      subStatusPrefix="digi"
       includeLines
-      tabs={[
-        {
-          key: "ready",
-          label: "Ready to Digitalize",
-          icon: Pencil,
-          iconBg: "bg-sky-50",
-          iconColor: "text-sky-700",
-          pillBg: "bg-sky-50",
-          pillText: "text-sky-700",
-        },
-        {
-          key: "in_progress",
-          label: "In Progress",
-          icon: Gear,
-          iconBg: "bg-amber-50",
-          iconColor: "text-amber-600",
-          pillBg: "bg-amber-50",
-          pillText: "text-amber-700",
-        },
-        {
-          key: "completed",
-          label: "Completed",
-          icon: CheckCircle2,
-          iconBg: "bg-emerald-50",
-          iconColor: "text-emerald-600",
-          pillBg: "bg-emerald-50",
-          pillText: "text-emerald-700",
-        },
-        {
-          key: "on_hold",
-          label: "On Hold",
-          icon: PauseCircle,
-          iconBg: "bg-slate-100",
-          iconColor: "text-slate-600",
-          pillBg: "bg-slate-100",
-          pillText: "text-slate-600",
-        },
-      ]}
+      tabs={[]}
+      summary={<DigitalizationProgress />}
       columns={[
         {
           key: "design",
@@ -79,21 +88,15 @@ export default function DigitalizationPage() {
           },
         },
         {
-          key: "measurements",
-          label: "Measurements",
+          key: "designer",
+          label: "Designer",
           render: (r) => (
-            <div className="text-xs text-slate-600">
-              <div>{fmtNum(r.total_sqf)} SQF total</div>
-              <div className="text-slate-400">Left/Right margins in side panel</div>
-            </div>
+            <SendToDesignerControl
+              orderId={r.id}
+              currentDesignerId={r.designer_id}
+              onSuccess={refreshAfterSend}
+            />
           ),
-        },
-        {
-          key: "sqf",
-          label: "SQF",
-          align: "right",
-          sortField: "total_sqf",
-          render: (r) => fmtNum(r.total_sqf),
         },
         {
           key: "due",

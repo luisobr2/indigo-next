@@ -500,19 +500,21 @@ export const STAGE_WIZARDS: Record<string, StageWizardConfig> = {
     submitLabel: "Save & advance to Measured",
     withMeasureTable: true,
   },
-  ready_digitalization: {
-    wizard: "indigo.sqf.entry.wizard",
-    title: "Enter SQF",
-    description:
-      "Enter the SQF you got from your CorelDraw plugin for each piece. Order moves to CNC.",
-    submitLabel: "Save & advance to CNC",
-    withSqfTable: true,
-  },
+  // ready_digitalization has NO wizard entry anymore. Per Majela's
+  // 2026-08-15 request, "Enter SQF" moved into the CNC wizard below, and
+  // Digitalization's own action is "Send to designer" (a direct model
+  // action, not a wizard — see send-to-designer-button.tsx) which
+  // generates + attaches + emails the Ficha de orden and advances the
+  // order to CNC by itself. Leaving this key populated would let someone
+  // bypass that (advance the stage without ever producing the PDF) via
+  // the generic "Complete" button on stage-screen-v2 / order detail.
   cnc: {
     wizard: "indigo.cnc.done.wizard",
-    title: "Mark CNC done",
-    description: "Confirm cutting is done. The order moves to Painting.",
+    title: "Enter SQF & mark CNC done",
+    description:
+      "Enter the SQF you got from the CorelDraw plugin for each piece, then confirm cutting is done. The order moves to Painting.",
     submitLabel: "Save & advance to Painting",
+    withSqfTable: true,
     noteLabel: "Note (e.g. broken bit, redid piece 2)",
   },
   painting: {

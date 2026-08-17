@@ -81,6 +81,8 @@ export interface StageOrderV2 {
   paint_started_at?: string | false;
   paint_done_at?: string | false;
   cancelled_at?: string | false;
+  // Digitalization -> designer assignment (indigo.order.designer_id).
+  designer_id?: [number, string] | false;
   // Optional first-line summary when the route is called with ?include=lines.
   first_line?: {
     id: number;
@@ -137,6 +139,13 @@ export interface StageScreenV2Props {
   designPreview?: (row: StageOrderV2) => React.ReactNode;
   /** Append `?include=lines` to the orders query — hydrates row.first_line. */
   includeLines?: boolean;
+  /**
+   * Replaces the tab/KPI-tile grid with a single progress banner — for
+   * screens where per-substatus tiles don't apply (Digitalization: the
+   * old "In Progress / Completed / On Hold" tiles were unreachable, see
+   * Majela's 2026-08-15 request). Pass `tabs: []` together with this.
+   */
+  summary?: React.ReactNode;
 }
 
 /* ------------------------------------------------------------------ */
@@ -210,6 +219,7 @@ export function StageScreenV2({
   columns,
   designPreview,
   includeLines,
+  summary,
 }: StageScreenV2Props) {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<StageOrderV2 | null>(null);
@@ -604,7 +614,12 @@ export function StageScreenV2({
         </div>
       </header>
 
-      {/* ---------- Iconned KPI cards ---------- */}
+      {/* ---------- Iconned KPI cards (or a custom progress summary) ---------- */}
+      {tabs.length === 0 && summary ? (
+        <section className="rounded-2xl bg-white px-5 py-4 ring-1 ring-slate-100">
+          {summary}
+        </section>
+      ) : (
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {tabs.map((tab) => {
           const Icon = tab.icon;
@@ -644,6 +659,7 @@ export function StageScreenV2({
           );
         })}
       </section>
+      )}
 
       {/* ---------- Tabs + group + view toggle ---------- */}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-100">

@@ -36,6 +36,7 @@ import { EditOrderPanel } from "@/components/edit-order-panel";
 import { HoldModal } from "@/components/hold-modal";
 import { CancelModal } from "@/components/cancel-modal";
 import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal";
+import { SendToDesignerControl } from "@/components/send-to-designer-control";
 import { OrderDetailSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { AssignmentCard } from "@/components/assignment-card";
@@ -198,6 +199,7 @@ export default function OrderDetailPage({
     incidence?: boolean;
     priv_ref: string;
     customer_po: string;
+    designer_id: [number, string] | false;
     painter_id: [number, string] | false;
     installer_ids: number[] | Array<[number, string]>;
     installation_date?: string | false;
@@ -355,6 +357,21 @@ export default function OrderDetailPage({
               <Play size={14} />
               {wizardCfg.title}
             </Button>
+          )}
+          {/* ready_digitalization has no wizard anymore — sending the
+              Ficha IS the action that both produces the PDF and moves the
+              order to CNC (action_send_to_designer). */}
+          {canAssign && o.stage_code === "ready_digitalization" && (
+            <SendToDesignerControl
+              orderId={o.id}
+              currentDesignerId={o.designer_id}
+              variant="block"
+              className="w-56"
+              onSuccess={() => {
+                qc.invalidateQueries({ queryKey: ["order", id] });
+                qc.invalidateQueries({ queryKey: ["order-activity", id] });
+              }}
+            />
           )}
           {canAssign && (
             <Button
