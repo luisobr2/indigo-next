@@ -61,6 +61,7 @@ import { isInternalUser, type McpIdentity } from "./token.ts";
 // runtime import the test runner would have to resolve. The VALUE
 // still comes from getDeriveRole() below, like everywhere else here.
 import type * as OdooTypes from "../odoo/types.ts";
+import { shopDateString } from "../shop-time.ts";
 import { requireSessionSecret } from "../odoo/session-cookie.ts";
 import { issueConfirmToken, verifyConfirmToken } from "./confirm.ts";
 
@@ -1613,6 +1614,84 @@ async function resolvePartnerNames(
   return found;
 }
 
+interface StaffUserRow {
+  partner_id: [number, string] | false;
+  groups_id: number[];
+}
+
+/**
+ * Refuses to assign someone who doesn't actually hold the job.
+ *
+ * `indigo.order.painter_id` / `installer_ids` are plain res.partner
+ * relations with no domain and no "is a contractor" flag, so before this
+ * any partner id at all was accepted — including a customer's. That is not
+ * a cosmetic mistake: assigning a partner as painter is what decides who
+ * `_create_painter_payout` books money to when the order leaves Painting,
+ * and installers are paid per door installed. A typo'd id, or an agent
+ * picking the client's contact because it matched the name it was given,
+ * would quietly create a real payable to the wrong person.
+ *
+ * The check mirrors list_people, which is where an agent is told to look
+ * up candidates in the first place: a person is a painter/installer if
+ * they are an internal Odoo user carrying that Indigo role group. That
+ * matches how the shop is actually set up (see ACCESOS_USUARIOS.md —
+ * Mario/Pintor, Instalador, Amado/Diseñador+Instalador all have logins).
+ * Assigning someone outside that set stays possible from Odoo itself; it
+ * just isn't something this surface will do on a person's say-so.
+ */
+async function assertPartnersHoldRole(
+  execute: Awaited<ReturnType<typeof getRpc>>,
+  id: McpIdentity,
+  partnerIds: number[],
+  flag: RoleFlag,
+  jobLabel: string,
+  names: Map<number, string>,
+): Promise<void> {
+  if (partnerIds.length === 0) return;
+  const deriveRole = await getDeriveRole();
+
+  const users = await execute<StaffUserRow[]>(
+    id.uid,
+    id.apiKey,
+    "res.users",
+    "search_read",
+    [[["partner_id", "in", partnerIds]], ["partner_id", "groups_id"]],
+    {},
+  );
+
+  const groupIds = [...new Set(users.flatMap((u) => u.groups_id))];
+  const groupNameById = new Map<number, string>();
+  if (groupIds.length) {
+    const groupRows = await execute<PersonGroupRow[]>(
+      id.uid,
+      id.apiKey,
+      "res.groups",
+      "read",
+      [groupIds, ["name", "full_name"]],
+      {},
+    );
+    for (const g of groupRows) groupNameById.set(g.id, g.full_name ?? g.name);
+  }
+
+  const qualified = new Set<number>();
+  for (const u of users) {
+    const partnerId = Array.isArray(u.partner_id) ? u.partner_id[0] : null;
+    if (!partnerId) continue;
+    const groupNames = u.groups_id.map((gid) => groupNameById.get(gid)).filter((n): n is string => !!n);
+    if (!isInternalUser(groupNames)) continue; // a dealer/customer portal login is never staff
+    if (deriveRole(groupNames)[flag]) qualified.add(partnerId);
+  }
+
+  const rejected = partnerIds.filter((pid) => !qualified.has(pid));
+  if (rejected.length) {
+    const labels = rejected.map((pid) => `${names.get(pid) ?? "?"} (id ${pid})`).join(", ");
+    throw mcpError(
+      "ENTRADA_INVALIDA",
+      `No se puede asignar como ${jobLabel} a: ${labels}. Esa persona no figura en el equipo con ese rol — y de esta asignación depende a quién se le paga. Usa list_people para ver quién puede, o pide que le den el rol en Odoo primero.`,
+    );
+  }
+}
+
 async function planAssignOrder(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
   const orderId = requireOrderId(args, "assign_order");
   const hasPainterId = "painter_id" in args && args.painter_id !== undefined;
@@ -1659,6 +1738,15 @@ async function planAssignOrder(args: Record<string, unknown>, id: McpIdentity): 
     [...(newPainterId ? [newPainterId] : []), ...newInstallerIds],
     "assign_order",
   );
+
+  // Before anything is described or written: the people named must hold
+  // the job. See assertPartnersHoldRole -- this is a money decision.
+  if (newPainterId) {
+    await assertPartnersHoldRole(execute, id, [newPainterId], "isPainter", "pintor", names);
+  }
+  if (hasInstallerIds && newInstallerIds.length) {
+    await assertPartnersHoldRole(execute, id, newInstallerIds, "isInstaller", "instalador/a", names);
+  }
 
   const messageParts = [`Orden ${order.name} (${order.client_name}):`];
   if (hasPainterId) {
@@ -1733,22 +1821,40 @@ async function planScheduleInstall(args: Record<string, unknown>, id: McpIdentit
     messageParts.push(`Aviso: esta orden ya está en '${order.stage_code}' — programar una instalación en este punto es inusual.`);
   }
 
+  // Resolved HERE, in the plan, not inside execute(). It used to run after
+  // confirmation wrapped in .catch(() => []) — so a failed lookup silently
+  // dropped stage_id from the write, and the order got an installation date
+  // while staying in whatever stage it was already in, with the tool
+  // reporting success. "Programada" that never left the previous stage is
+  // exactly the kind of quiet half-move that sends someone looking for a
+  // door on the wrong board. Failing in the plan also means the preview is
+  // never shown for something that cannot be carried out.
+  const stages = await execute<Array<{ id: number }>>(
+    id.uid,
+    id.apiKey,
+    "indigo.stage",
+    "search_read",
+    [[["code", "=", "install_scheduled"]], ["id"]],
+    { limit: 1 },
+  );
+  const scheduledStageId = stages[0]?.id;
+  if (!scheduledStageId) {
+    throw mcpError(
+      "ERROR_ODOO",
+      "No se encontró la etapa 'Installation Scheduled' en Odoo, así que no se puede programar la instalación sin dejar la orden a medias. Avisa a soporte.",
+    );
+  }
+  messageParts.push("La orden pasará a 'Installation Scheduled'.");
+
   return {
     message: messageParts.join(" "),
     extra: { order: order.name, client: order.client_name },
     execute: async () => {
-      const vals: Record<string, unknown> = { installation_date: date };
+      const vals: Record<string, unknown> = {
+        installation_date: date,
+        stage_id: scheduledStageId,
+      };
       if (hasInstallerIds) vals.installer_ids = [[6, 0, newInstallerIds]];
-
-      const stages = await execute<Array<{ id: number }>>(
-        id.uid,
-        id.apiKey,
-        "indigo.stage",
-        "search_read",
-        [[["code", "=", "install_scheduled"]], ["id"]],
-        { limit: 1 },
-      ).catch(() => [] as Array<{ id: number }>);
-      if (stages[0]?.id) vals.stage_id = stages[0].id;
 
       await execute(id.uid, id.apiKey, "indigo.order", "write", [[orderId], vals], {});
       await execute(id.uid, id.apiKey, "indigo.order", "message_post", [[orderId]], {
@@ -1896,19 +2002,32 @@ async function planAddNote(args: Record<string, unknown>, id: McpIdentity): Prom
     extra: { order: order.name, client: order.client_name },
     execute: async () => {
       const existing = (order.notes || "") as string;
-      const dateStr = new Date().toLocaleDateString("en-US");
+      // Fecha del taller (Miami), no la del contenedor -- que corre en UTC.
+      // Una nota puesta a las 21:00 hora de Miami quedaba fechada al dia
+      // siguiente, que es justo lo que hace dudar de una nota.
+      const dateStr = shopDateString(new Date());
       const tag = hasIncidence && incidence ? " ⚠️ INCIDENT" : "";
       const line = `${dateStr}${tag}: ${note}`;
-      await execute(id.uid, id.apiKey, "indigo.order", "write", [[orderId], { notes: existing ? `${line}\n${existing}` : line }], {});
 
+      // One write, not two. The incidence flag used to be a SECOND write
+      // wrapped in .catch(() => undefined) -- so when the preview had just
+      // promised "Se marcara como INCIDENCIA ABIERTA", the flag could fail
+      // to land and the tool still reported success. An open incident that
+      // silently is not open is worse than no incident at all: nobody goes
+      // looking for it. Folding it into the same write makes the two halves
+      // succeed or fail together, and a failure now propagates.
+      const values: Record<string, unknown> = {
+        notes: existing ? `${line}\n${existing}` : line,
+      };
+      if (hasIncidence) values.incidence = incidence;
+      await execute(id.uid, id.apiKey, "indigo.order", "write", [[orderId], values], {});
+
+      // Chatter stays best-effort: it duplicates what the note field now
+      // already holds, so losing it costs presentation, not information.
       await execute(id.uid, id.apiKey, "indigo.order", "message_post", [[orderId]], {
         body: `${hasIncidence && incidence ? "⚠️ Incident: " : "Note: "}${note}${AI_ORIGIN_SUFFIX}`,
         message_type: "comment",
       }).catch(() => undefined);
-
-      if (hasIncidence) {
-        await execute(id.uid, id.apiKey, "indigo.order", "write", [[orderId], { incidence }], {}).catch(() => undefined);
-      }
     },
   };
 }

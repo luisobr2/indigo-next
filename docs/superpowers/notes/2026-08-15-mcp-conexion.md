@@ -96,6 +96,18 @@ por dealer o por cliente — en vez de tomar esa lista como completa.
 - **Re-verificar que sigue sano:** `node scripts/mcp-eval.mjs` con `MCP_URL`,
   `MCP_TOKEN`, `ODOO_URL` y `ODOO_DB` seteados. 13 escenarios; uno de ellos
   comprueba que Odoo sigue rechazando escrituras.
-- **Pendiente conocido:** no hay rate limit. Cada request cuesta dos llamadas a
-  Odoo antes de hacer trabajo útil, y Odoo corre con `workers=0`. Si el panel
-  se pone lento mientras alguien usa el asistente, es por acá.
+- **Rate limit (activo).** 30 req/min por IP con ráfaga de 10 (capacidad 40),
+  aplicado **antes** de tocar Odoo — que corre con `workers=0` y comparte ese
+  único worker con la tienda y el portal de dealers. Al pasarse: HTTP 429 con
+  `Retry-After`, y una línea `{"reason":"rate_limited"}` en los logs. Se ajusta
+  con `MCP_RATE_LIMIT_PER_MINUTE`, `MCP_RATE_LIMIT_BURST` y
+  `MCP_RATE_LIMIT_MAX_BUCKETS` (variables de Coolify).
+  - La IP sale de `x-real-ip` (la escribe Traefik) o, si falta, del **último**
+    salto de `x-forwarded-for`. El primer salto lo elige quien llama, así que
+    usarlo daba un balde nuevo por request.
+  - Es memoria del proceso: al reiniciar el contenedor los baldes se vacían, y
+    con más de una réplica cada una lleva el suyo. Suficiente para lo que
+    protege; si alguna vez hace falta exacto, hay que mover el estado a Redis.
+- **Si el panel se pone lento mientras alguien usa el asistente:** mirar
+  primero los logs por `rate_limited` y por líneas `"tool"` seguidas. Cada
+  request cuesta dos llamadas a Odoo antes de hacer trabajo útil.
