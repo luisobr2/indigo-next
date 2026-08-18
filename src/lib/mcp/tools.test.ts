@@ -280,7 +280,7 @@ after(() => {
   else process.env.SESSION_SECRET = savedSecret;
 });
 
-const FAKE_ID: McpIdentity = { uid: 42, login: "majela@indigodecors.com", groups: [], apiKey: "fake-key" };
+const FAKE_ID: McpIdentity = { uid: 42, login: "majela@indigodecors.com", groups: [], apiKey: "fake-key", isAdmin: false };
 const NOW = 1_700_000_000_000;
 
 function fakePlan(executed: { count: number; builds: number }) {
@@ -416,6 +416,87 @@ test("runWriteTool: buildPlan is re-evaluated fresh on the confirm call, not reu
 // money bug the wizard-removal task exists to prevent — hence its own test,
 // separate from the generic runWriteTool coverage above.
 // ---------------------------------------------------------------------
+
+// ---------------------------------------------------------------------
+// advance_order — the pre-write authorization gate.
+//
+// Every write outcome needs a role list, and each list must mirror the
+// group list in the corresponding Odoo wizard. The reason the gate exists
+// at all: advance_order writes per-line sqf/width/height to
+// indigo.order.line BEFORE calling the wizard whose role check would
+// refuse the caller — and ir.model.access.csv grants write on that model
+// to group_indigo_user, which every internal role implies. So the writes
+// landed and only then did the call "fail". Since total_sqf x rate is the
+// painter's pay, a refused call could still have moved money.
+//
+// The lists below are transcribed from
+// c:/Trabajo/odoo-indigo/addons/indigo_decors/wizards/indigo_stage_wizards.py
+// and .../wizards/indigo_measurement_entry_wizard.py and
+// .../models/indigo_order.py::_indigo_assert_can_send_to_designer.
+// If the addon's lists change, this test is what should fail.
+// ---------------------------------------------------------------------
+
+test("every advance outcome declares who may run it", () => {
+  for (const [outcome, config] of Object.entries(ADVANCE_OUTCOMES)) {
+    assert.ok(
+      Array.isArray(config.allowedRoles) && config.allowedRoles.length > 0,
+      `outcome '${outcome}' has no allowedRoles — it would be writable by any internal role`,
+    );
+  }
+});
+
+test("allowedRoles mirrors each Odoo wizard's own group list", () => {
+  const expected: Record<string, string[]> = {
+    // _indigo_require_groups(manager, office, installer_internal)
+    measurements_taken: ["isInstaller", "isOffice", "isManager"],
+    // _indigo_assert_can_send_to_designer: office/manager only — explicitly
+    // NOT the designer, who is the recipient, not the sender.
+    digitalization_done: ["isOffice", "isManager"],
+    // _indigo_require_groups(cnc, office, manager)
+    cnc_done: ["isCnc", "isOffice", "isManager"],
+    // _indigo_require_groups(painter_op, office, manager)
+    painting_done: ["isPainter", "isOffice", "isManager"],
+    // manager/office outright; an internal installer only for their own
+    // assigned install — hence allowsAssignedInstaller rather than a role.
+    installed: ["isOffice", "isManager"],
+  };
+  for (const [outcome, roles] of Object.entries(expected)) {
+    assert.deepEqual(
+      [...(ADVANCE_OUTCOMES[outcome]?.allowedRoles ?? [])].sort(),
+      [...roles].sort(),
+      `allowedRoles drifted from the Odoo wizard for '${outcome}'`,
+    );
+  }
+  assert.deepEqual(
+    Object.keys(ADVANCE_OUTCOMES).sort(),
+    Object.keys(expected).sort(),
+    "a new advance outcome was added without pinning its role list here",
+  );
+});
+
+test("only 'installed' opens the assigned-installer carve-out", () => {
+  for (const [outcome, config] of Object.entries(ADVANCE_OUTCOMES)) {
+    assert.equal(
+      config.allowsAssignedInstaller === true,
+      outcome === "installed",
+      `'${outcome}' must not let an installer through on assignment alone`,
+    );
+  }
+});
+
+test("no outcome that writes line data is open to a role the wizard would refuse", () => {
+  // The two outcomes that write to indigo.order.line before the wizard
+  // runs. These are the ones where a too-wide role list is not just a
+  // permissions bug but a data-integrity one.
+  for (const outcome of ["cnc_done", "measurements_taken"]) {
+    const config = ADVANCE_OUTCOMES[outcome];
+    assert.ok(config, `${outcome} missing`);
+    assert.ok(
+      !config.allowedRoles.includes("isPainter") && !config.allowedRoles.includes("isDesigner"),
+      `${outcome} must not be reachable by painter or designer — they could overwrite pay-relevant line data`,
+    );
+  }
+});
 
 test("ADVANCE_OUTCOMES: SQF entry lives on cnc_done now, not digitalization_done", () => {
   assert.equal(

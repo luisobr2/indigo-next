@@ -25,6 +25,16 @@ export interface McpIdentity {
   groups: string[];
   /** Odoo API key, forwarded on every subsequent execute_kw call. */
   apiKey: string;
+  /** Mirrors Odoo's `res.users._is_admin()` — membership in
+   *  `base.group_system`. Every stage wizard in the addon short-circuits
+   *  its role check on `user._is_admin()`, so the MCP's own pre-write
+   *  authorization (assertMayAdvance in ./tools.ts) has to honour the same
+   *  bypass or it would refuse work Odoo itself would allow. Resolved by
+   *  GROUP ID, not by name: `full_name` is "<Category> / <Group>" and both
+   *  halves are translatable (this deployment loads es_ES and en_US), so
+   *  string-matching "Administration / Settings" would silently stop
+   *  matching the day someone flips the admin's language. */
+  isAdmin: boolean;
 }
 
 /**
@@ -62,6 +72,49 @@ interface ResUsersRow {
 interface ResGroupsRow {
   name: string;
   full_name?: string;
+}
+
+/**
+ * The numeric id of `base.group_system`, resolved once per process and
+ * cached: xmlid -> id never changes for a given database, and this would
+ * otherwise be an extra RPC on the hot path of every single MCP request.
+ *
+ * Read through `ir.model.data`, which Odoo grants read on to every
+ * authenticated user, so this works with the caller's own credentials and
+ * needs no elevated access. A failure (or a database where the record
+ * somehow doesn't exist) yields `null`, which callers must read as "not an
+ * admin" — erring toward the stricter answer, never toward granting a
+ * bypass we couldn't verify.
+ */
+let adminGroupIdPromise: Promise<number | null> | null = null;
+
+async function resolveAdminGroupId(uid: number, apiKey: string): Promise<number | null> {
+  if (!adminGroupIdPromise) {
+    adminGroupIdPromise = (async () => {
+      const { rpcExecuteKw } = await getRpc();
+      const rows = await rpcExecuteKw<Array<{ res_id: number }>>(
+        uid,
+        apiKey,
+        "ir.model.data",
+        "search_read",
+        [
+          [
+            ["module", "=", "base"],
+            ["name", "=", "group_system"],
+          ],
+          ["res_id"],
+        ],
+        { limit: 1 },
+      );
+      return rows[0]?.res_id ?? null;
+    })().catch(() => {
+      // Don't cache a failure: a transient RPC error here would otherwise
+      // pin every later request in this process to "not an admin".
+      adminGroupIdPromise = null;
+      return null;
+    });
+  }
+  return adminGroupIdPromise;
 }
 
 /**
@@ -134,10 +187,13 @@ export async function verifyMcpToken(header: string | null): Promise<McpIdentity
       groups = groupRows.map((g) => g.full_name ?? g.name);
     }
 
+    const adminGroupId = await resolveAdminGroupId(uid, pair.apiKey);
+
     return {
       uid,
       login: pair.login,
       groups,
+      isAdmin: adminGroupId !== null && groupIds.includes(adminGroupId),
       apiKey: pair.apiKey,
     };
   } catch (e) {

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { checkRate, clientKeyFromHeaders, bucketCount } from "./rate-limit.ts";
+import { checkRate, clientKeyFromHeaders, bucketCount, MAX_TRACKED_KEYS } from "./rate-limit.ts";
 
 const MINUTE_MS = 60_000;
 // Matches the module's default MAX_REQUESTS_PER_MINUTE (30) + BURST_ALLOWANCE
@@ -116,28 +116,112 @@ test("the bucket map does not grow without bound under a flood of spoofed IPs", 
   );
 });
 
+// The staleness sweep is not a bound on its own: during a sustained flood
+// every entry is younger than STALE_MS, so the sweep finds nothing to
+// evict. Only the hard cap stops the map there.
+test("the bucket map stays under the hard cap during a flood where nothing is stale yet", () => {
+  const now = 0; // frozen clock: no entry ever becomes stale
+  for (let i = 0; i < MAX_TRACKED_KEYS * 2; i++) {
+    checkRate(uniqueKey(`burst-${i}`), now);
+  }
+  assert.ok(
+    bucketCount() <= MAX_TRACKED_KEYS,
+    `expected the map to stay at or under ${MAX_TRACKED_KEYS}, got ${bucketCount()}`,
+  );
+});
+
+test("an oversized header value cannot become an oversized map key", () => {
+  const before = bucketCount();
+  const eightKb = "x".repeat(8 * 1024);
+  for (let i = 0; i < 200; i++) {
+    // A distinct 8KB value per request: the shape that grew the map by 8KB
+    // per request when the raw header was used as the key.
+    checkRate(clientKeyFromHeaders(new Headers({ "x-forwarded-for": `${eightKb}${i}` })), 0);
+  }
+  // All 200 collapse onto the single shared fallback bucket.
+  assert.ok(
+    bucketCount() - before <= 1,
+    `expected at most 1 new bucket, got ${bucketCount() - before}`,
+  );
+});
+
 // ---------------------------------------------------------------------
 // clientKeyFromHeaders — IP resolution behind Coolify's Traefik.
+//
+// The client can prefill x-forwarded-for; it cannot write x-real-ip, and
+// it cannot author the hop Traefik appends. These tests pin that down —
+// an earlier version keyed on the FIRST x-forwarded-for hop, which handed
+// any caller a fresh unlimited bucket per request.
 // ---------------------------------------------------------------------
 
-test("clientKeyFromHeaders reads the first hop of x-forwarded-for", () => {
-  const headers = new Headers({ "x-forwarded-for": "203.0.113.5, 10.0.0.1, 10.0.0.2" });
-  assert.equal(clientKeyFromHeaders(headers), "203.0.113.5");
-});
-
-test("clientKeyFromHeaders trims whitespace around the first hop", () => {
-  const headers = new Headers({ "x-forwarded-for": "  203.0.113.5  , 10.0.0.1" });
-  assert.equal(clientKeyFromHeaders(headers), "203.0.113.5");
-});
-
-test("clientKeyFromHeaders falls back to x-real-ip when x-forwarded-for is absent", () => {
-  const headers = new Headers({ "x-real-ip": "198.51.100.9" });
+test("clientKeyFromHeaders prefers x-real-ip, which the client cannot author", () => {
+  const headers = new Headers({
+    "x-forwarded-for": "203.0.113.5, 10.0.0.1",
+    "x-real-ip": "198.51.100.9",
+  });
   assert.equal(clientKeyFromHeaders(headers), "198.51.100.9");
 });
 
-test("clientKeyFromHeaders prefers x-forwarded-for over x-real-ip", () => {
-  const headers = new Headers({ "x-forwarded-for": "203.0.113.5", "x-real-ip": "198.51.100.9" });
+test("clientKeyFromHeaders reads the LAST x-forwarded-for hop, not the client-supplied first", () => {
+  // "203.0.113.5" is whatever the caller typed; "10.0.0.2" is what the
+  // proxy appended after seeing the real peer.
+  const headers = new Headers({ "x-forwarded-for": "203.0.113.5, 10.0.0.1, 10.0.0.2" });
+  assert.equal(clientKeyFromHeaders(headers), "10.0.0.2");
+});
+
+test("spoofing the first x-forwarded-for hop does NOT yield a fresh bucket", () => {
+  const realPeer = "192.0.2.77";
+  const keys = new Set<string>();
+  for (let i = 0; i < 50; i++) {
+    keys.add(
+      clientKeyFromHeaders(new Headers({ "x-forwarded-for": `203.0.113.${i}, ${realPeer}` })),
+    );
+  }
+  assert.deepEqual([...keys], [realPeer], "50 spoofed first hops must share one bucket");
+});
+
+test("clientKeyFromHeaders trims whitespace around the hop", () => {
+  const headers = new Headers({ "x-forwarded-for": "10.0.0.1,  203.0.113.5  " });
   assert.equal(clientKeyFromHeaders(headers), "203.0.113.5");
+});
+
+test("clientKeyFromHeaders reads x-forwarded-for when x-real-ip is absent", () => {
+  const headers = new Headers({ "x-forwarded-for": "198.51.100.9" });
+  assert.equal(clientKeyFromHeaders(headers), "198.51.100.9");
+});
+
+test("clientKeyFromHeaders accepts IPv6, bracketed and with a port", () => {
+  assert.equal(
+    clientKeyFromHeaders(new Headers({ "x-real-ip": "2001:DB8::1" })),
+    "2001:db8::1",
+    "IPv6 is lowercased so casing variants share one bucket",
+  );
+  assert.equal(
+    clientKeyFromHeaders(new Headers({ "x-forwarded-for": "[2001:db8::1]:443" })),
+    "2001:db8::1",
+  );
+});
+
+test("clientKeyFromHeaders rejects values that are not IP literals", () => {
+  const shared = clientKeyFromHeaders(new Headers());
+  for (const bogus of [
+    "not-an-ip",
+    "999.999.999.999", // right shape, impossible octets
+    "x".repeat(9000), // the 8KB-key attack
+    "203.0.113.5; DROP TABLE",
+    "",
+  ]) {
+    assert.equal(
+      clientKeyFromHeaders(new Headers({ "x-forwarded-for": bogus })),
+      shared,
+      `expected ${JSON.stringify(bogus.slice(0, 24))} to fall back to the shared bucket`,
+    );
+  }
+});
+
+test("a garbage x-real-ip falls through to x-forwarded-for rather than poisoning the key", () => {
+  const headers = new Headers({ "x-real-ip": "garbage", "x-forwarded-for": "198.51.100.9" });
+  assert.equal(clientKeyFromHeaders(headers), "198.51.100.9");
 });
 
 test("clientKeyFromHeaders falls back to a single shared key when neither header is present", () => {

@@ -57,6 +57,10 @@
  *    Odoo directo" section warns about, encountered firsthand.
  */
 import { isInternalUser, type McpIdentity } from "./token.ts";
+// Type-only, so it is erased at compile time and never becomes a
+// runtime import the test runner would have to resolve. The VALUE
+// still comes from getDeriveRole() below, like everywhere else here.
+import type * as OdooTypes from "../odoo/types.ts";
 import { requireSessionSecret } from "../odoo/session-cookie.ts";
 import { issueConfirmToken, verifyConfirmToken } from "./confirm.ts";
 
@@ -1141,6 +1145,11 @@ const AI_ORIGIN_NOTE = "Acción ejecutada a través del asistente de IA (MCP).";
  *  message rather than as a second chatter line. */
 const AI_ORIGIN_SUFFIX = " (vía asistente de IA)";
 
+/** The flag names on deriveRole()'s result — kept tied to that function's
+ *  return type so adding or renaming a role there breaks this at compile
+ *  time instead of silently un-gating a transition. */
+type RoleFlag = keyof ReturnType<typeof OdooTypes.deriveRole>;
+
 interface AdvanceOutcome {
   /** Odoo TransientModel wizard driven via create() + action_save_and_advance().
    *  Exactly one of `wizardModel` / `orderMethod` is set per outcome. */
@@ -1162,6 +1171,17 @@ interface AdvanceOutcome {
    *  execute() — the assistant must never guess who the Ficha goes to. */
   requiresDesigner?: boolean;
   supportsPhoto?: boolean;
+  /** Roles Odoo will accept for this transition, mirroring the wizard's own
+   *  `_indigo_require_groups(...)` call (or, for digitalization_done,
+   *  `indigo.order._indigo_assert_can_send_to_designer`). See
+   *  assertMayAdvance below for why this has to be checked HERE and not
+   *  merely left to Odoo. Admins bypass it, exactly as `user._is_admin()`
+   *  does inside every one of those wizards. */
+  allowedRoles: RoleFlag[];
+  /** installed only: an internal installer may close an install, but ONLY
+   *  one assigned to them (their partner in the order's installer_ids) —
+   *  same carve-out as indigo.installed.wizard.action_save_and_advance. */
+  allowsAssignedInstaller?: boolean;
   /** When set, order.write's stage-change hook
    *  (c:/Trabajo/odoo-indigo/addons/indigo_decors/models/indigo_order.py,
    *  read-only reference — see this file's top doc comment) generates a
@@ -1206,6 +1226,7 @@ export const ADVANCE_OUTCOMES: Record<string, AdvanceOutcome> = {
     actionLabel: "registrar las medidas y pasar la orden a 'Measured'",
     roleHint: "Pueden hacerlo instaladores, oficina o gerencia.",
     requiresLineDimensions: true,
+    allowedRoles: ["isInstaller", "isOffice", "isManager"],
   },
   digitalization_done: {
     orderMethod: "action_send_to_designer",
@@ -1214,6 +1235,7 @@ export const ADVANCE_OUTCOMES: Record<string, AdvanceOutcome> = {
     actionLabel: "enviar la Ficha de orden por correo al diseñador/a asignado y pasar la orden a CNC",
     roleHint: "Solo puede hacerlo oficina o gerencia (no el diseñador/a) — es quien confirma que la Ficha está lista para salir.",
     requiresDesigner: true,
+    allowedRoles: ["isOffice", "isManager"],
   },
   cnc_done: {
     wizardModel: "indigo.cnc.done.wizard",
@@ -1222,6 +1244,7 @@ export const ADVANCE_OUTCOMES: Record<string, AdvanceOutcome> = {
     actionLabel: "registrar el SQF real de cada pieza, marcar el corte CNC como terminado y enviar la orden a Pintura",
     roleHint: "Pueden hacerlo CNC, oficina o gerencia.",
     requiresLineSqf: true,
+    allowedRoles: ["isCnc", "isOffice", "isManager"],
   },
   painting_done: {
     wizardModel: "indigo.painter.done.wizard",
@@ -1231,6 +1254,7 @@ export const ADVANCE_OUTCOMES: Record<string, AdvanceOutcome> = {
     roleHint: "Pueden hacerlo pintura, oficina o gerencia.",
     supportsPhoto: true,
     triggersPayoutFor: "painter",
+    allowedRoles: ["isPainter", "isOffice", "isManager"],
   },
   installed: {
     wizardModel: "indigo.installed.wizard",
@@ -1240,6 +1264,8 @@ export const ADVANCE_OUTCOMES: Record<string, AdvanceOutcome> = {
     roleHint: "Puede hacerlo el instalador asignado a esta orden, oficina o gerencia.",
     supportsPhoto: true,
     triggersPayoutFor: "installer",
+    allowedRoles: ["isOffice", "isManager"],
+    allowsAssignedInstaller: true,
   },
 };
 
@@ -1313,6 +1339,80 @@ export function requireLineSqf(provided: unknown, lineIds: number[], outcome: st
   );
 }
 
+/** Human labels for the role flags, for the denial message. */
+const ROLE_FLAG_LABELS: Record<RoleFlag, string> = {
+  isManager: "gerencia",
+  isOffice: "oficina",
+  isDesigner: "diseño",
+  isPainter: "pintura",
+  isCnc: "CNC",
+  isInstaller: "instalación",
+};
+
+/**
+ * Refuses the transition unless the caller holds a role Odoo would accept,
+ * BEFORE anything is written.
+ *
+ * Why this can't be left to Odoo alone. The wizards do check roles — but
+ * they check inside `action_save_and_advance`, which is the LAST call this
+ * tool makes. The per-line `sqf` / `width` / `height` writes that
+ * `cnc_done` and `measurements_taken` need happen first, in their own RPCs,
+ * against `indigo.order.line` — and `ir.model.access.csv` grants write on
+ * that model to `group_indigo_user`, the base group every internal role
+ * implies. So without this gate the sequence for, say, a painter calling
+ * `cnc_done` was: overwrite every piece's SQF (committed), then get an
+ * AccessError from the wizard, then truthfully report failure — while
+ * `total_sqf` had already changed underneath. That matters because
+ * `total_sqf x rate` IS the painter's pay (`_create_painter_payout` fires
+ * when the order leaves Painting), so a "failed" call could still move
+ * money.
+ *
+ * This mirrors each wizard's own `_indigo_require_groups(...)` list rather
+ * than replacing it — the addon keeps its check, this just makes sure we
+ * never write before it has had its say. Kept in ADVANCE_OUTCOMES next to
+ * each transition so the two lists are diffable side by side.
+ */
+async function assertMayAdvance(
+  outcome: string,
+  config: AdvanceOutcome,
+  id: McpIdentity,
+  order: AdvanceOrderRow,
+  execute: Awaited<ReturnType<typeof getRpc>>,
+): Promise<void> {
+  // Same bypass every wizard opens with (`user._is_admin()`).
+  if (id.isAdmin) return;
+
+  const deriveRole = await getDeriveRole();
+  const role = deriveRole(id.groups);
+  if (config.allowedRoles.some((flag) => role[flag])) return;
+
+  if (config.allowsAssignedInstaller && role.isInstaller) {
+    // An internal installer may close their OWN install. installer_ids
+    // holds partners, so resolve the caller's partner to compare.
+    const userRows = await execute<Array<{ partner_id: [number, string] | false }>>(
+      id.uid,
+      id.apiKey,
+      "res.users",
+      "read",
+      [[id.uid], ["partner_id"]],
+      {},
+    );
+    const partnerId = userRows[0]?.partner_id ? userRows[0].partner_id[0] : null;
+    if (partnerId !== null && order.installer_ids.includes(partnerId)) return;
+    throw mcpError(
+      "PERMISO_DENEGADO",
+      `La orden ${order.name} no está asignada a ti como instalador, así que no puedes marcarla como instalada. Si te toca a ti, pide en oficina que te asignen la instalación primero.`,
+    );
+  }
+
+  const allowed = config.allowedRoles.map((flag) => ROLE_FLAG_LABELS[flag]).join(", ");
+  const suffix = config.allowsAssignedInstaller ? `, ${ROLE_FLAG_LABELS.isInstaller} (solo la orden asignada a esa persona)` : "";
+  throw mcpError(
+    "PERMISO_DENEGADO",
+    `Tu cuenta (${id.login}) no tiene permiso para '${outcome}' en la orden ${order.name}. Esta acción es de: ${allowed}${suffix}. No se modificó nada. Pídeselo a alguien con ese rol.`,
+  );
+}
+
 async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
   const orderId = requireOrderId(args, "advance_order");
   const outcome = typeof args.outcome === "string" ? args.outcome : "";
@@ -1348,6 +1448,11 @@ async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity):
   );
   if (!rows.length) throw mcpError("NO_ENCONTRADO", `No existe la orden ${orderId}.`);
   const order = rows[0];
+
+  // BEFORE any write, and before we even describe the action: a caller
+  // without the role must never reach the per-line writes below. See
+  // assertMayAdvance's doc comment for what that used to cost.
+  await assertMayAdvance(outcome, config, id, order, execute);
 
   if (order.stage_code !== config.fromStageCode) {
     const currentStage = m2oLabel(order.stage_id) ?? "(sin etapa)";
