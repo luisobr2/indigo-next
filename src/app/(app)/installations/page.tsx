@@ -24,6 +24,8 @@ import {
   Building2,
   UserRound,
   HelpCircle,
+  Pause,
+  Play,
 } from "lucide-react";
 import { toast } from "sonner";
 import { fmtMoney, fmtNum, fmtDate, cn } from "@/lib/utils";
@@ -32,6 +34,7 @@ import { fetchJson } from "@/lib/fetch-json";
 import { holdCounterLabel } from "@/lib/installations/hold-groups";
 import { ErrorState } from "@/components/state-cards";
 import { AddInstallerModal } from "@/components/add-installer-modal";
+import { HoldModal } from "@/components/hold-modal";
 import {
   ScheduleInstallationModal,
   type ScheduleTarget,
@@ -339,6 +342,15 @@ export default function InstallationsPage() {
   const [addInstallerOpen, setAddInstallerOpen] = useState(false);
   const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null);
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+
+  // Hold / release target — a door blocked by the dealer or the client can't
+  // be scheduled at all, so "Schedule" isn't the action she needs on those
+  // rows (Majela's 2026-08-15 request, item 3, audio 3: she's stuck opening
+  // each order's detail page to mark it). `releasing: true` swaps the modal
+  // to the release flow for rows already sitting in one of the on-hold panels.
+  const [holdTarget, setHoldTarget] = useState<
+    { id: number; name: string; releasing: boolean } | null
+  >(null);
 
   // Bulk selection of orders (to mark several as Installed / send to a stage).
   const qc = useQueryClient();
@@ -787,6 +799,15 @@ export default function InstallationsPage() {
         onClose={() => setScheduleTarget(null)}
       />
 
+      <HoldModal
+        open={holdTarget !== null}
+        onClose={() => setHoldTarget(null)}
+        onSuccess={refreshDash}
+        orderId={holdTarget?.id ?? 0}
+        orderName={holdTarget?.name ?? ""}
+        releasing={holdTarget?.releasing ?? false}
+      />
+
       {/* Bulk action bar — appears when orders are selected. Mark several as
           Installed ("terminado") at once, or send them to another stage. */}
       {selected.size > 0 && (
@@ -895,7 +916,7 @@ export default function InstallationsPage() {
             </span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-sm">
+            <table className="w-full min-w-[900px] text-sm">
               <thead className="bg-rose-100/60 text-left text-[10px] font-bold uppercase tracking-wide text-rose-800">
                 <tr>
                   <th className="px-3 py-2.5 w-8">
@@ -911,7 +932,7 @@ export default function InstallationsPage() {
                   <th className="px-4 py-2.5">Scheduled</th>
                   <th className="px-4 py-2.5 text-right">Qty</th>
                   <th className="px-4 py-2.5">Installer</th>
-                  <th className="px-4 py-2.5 w-28"></th>
+                  <th className="px-4 py-2.5 w-44"></th>
                 </tr>
               </thead>
               <tbody>
@@ -962,22 +983,37 @@ export default function InstallationsPage() {
                       )}
                     </td>
                     <td className="px-4 py-2.5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setScheduleTarget({
-                            id: o.id,
-                            label: o.dealer_ref || o.name,
-                            clientName: o.client_name,
-                            installerIds: o.installer_ids,
-                            scheduled: true,
-                            date: o.scheduled_date,
-                          })
-                        }
-                        className="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-rose-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-rose-700"
-                      >
-                        <Calendar size={11} /> Reschedule
-                      </button>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setScheduleTarget({
+                              id: o.id,
+                              label: o.dealer_ref || o.name,
+                              clientName: o.client_name,
+                              installerIds: o.installer_ids,
+                              scheduled: true,
+                              date: o.scheduled_date,
+                            })
+                          }
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-rose-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-rose-700"
+                        >
+                          <Calendar size={11} /> Reschedule
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setHoldTarget({
+                              id: o.id,
+                              name: o.dealer_ref || o.name,
+                              releasing: false,
+                            })
+                          }
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-slate-700 transition hover:border-amber-400 hover:bg-amber-50 hover:text-amber-800"
+                        >
+                          <Pause size={11} /> Hold
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1033,7 +1069,7 @@ export default function InstallationsPage() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px] text-sm">
+            <table className="w-full min-w-[880px] text-sm">
               <thead className="bg-amber-100/60 text-left text-[10px] font-bold uppercase tracking-wide text-amber-800">
                 <tr>
                   <th className="px-3 py-2.5 w-8">
@@ -1057,7 +1093,7 @@ export default function InstallationsPage() {
                       </button>
                     </th>
                   ))}
-                  <th className="px-4 py-2.5 w-28"></th>
+                  <th className="px-4 py-2.5 w-44"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1082,20 +1118,35 @@ export default function InstallationsPage() {
                       </td>
                     ))}
                     <td className="px-4 py-2.5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setScheduleTarget({
-                            id: o.id,
-                            label: o.dealer_ref || o.name,
-                            clientName: o.client_name,
-                            installerIds: o.installer_ids,
-                          })
-                        }
-                        className="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-amber-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-amber-700"
-                      >
-                        <Calendar size={11} /> Schedule
-                      </button>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setScheduleTarget({
+                              id: o.id,
+                              label: o.dealer_ref || o.name,
+                              clientName: o.client_name,
+                              installerIds: o.installer_ids,
+                            })
+                          }
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-amber-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-amber-700"
+                        >
+                          <Calendar size={11} /> Schedule
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setHoldTarget({
+                              id: o.id,
+                              name: o.dealer_ref || o.name,
+                              releasing: false,
+                            })
+                          }
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-slate-700 transition hover:border-amber-400 hover:bg-amber-50 hover:text-amber-800"
+                        >
+                          <Pause size={11} /> Hold
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1115,6 +1166,7 @@ export default function InstallationsPage() {
         subtitle="Blocked by the dealer — waiting on them to fix or provide something."
         theme={HOLD_SECTION_THEME.dealer}
         rows={holdDealer}
+        onRelease={(o) => setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: true })}
       />
       <HoldSection
         icon={UserRound}
@@ -1122,6 +1174,7 @@ export default function InstallationsPage() {
         subtitle="Blocked by the client — not available or hasn't confirmed."
         theme={HOLD_SECTION_THEME.client}
         rows={holdClient}
+        onRelease={(o) => setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: true })}
       />
       <HoldSection
         icon={HelpCircle}
@@ -1129,6 +1182,7 @@ export default function InstallationsPage() {
         subtitle="No cause set yet — open each order and pick Dealer or Client."
         theme={HOLD_SECTION_THEME.other}
         rows={holdOther}
+        onRelease={(o) => setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: true })}
       />
 
       {/* Body */}
@@ -1696,12 +1750,14 @@ function HoldSection({
   subtitle,
   theme,
   rows,
+  onRelease,
 }: {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   title: string;
   subtitle: string;
   theme: (typeof HOLD_SECTION_THEME)[keyof typeof HOLD_SECTION_THEME];
   rows: DashboardData["onHold"]["dealer"]["orders"];
+  onRelease: (order: DashboardData["onHold"]["dealer"]["orders"][number]) => void;
 }) {
   if (!rows.length) return null;
   return (
@@ -1717,7 +1773,7 @@ function HoldSection({
         <span className={cn("text-xs", theme.headerText)}>{subtitle}</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className="w-full min-w-[960px] text-sm">
           <thead className={cn("text-left text-[10px] font-bold uppercase tracking-wide", theme.theadBg, theme.theadText)}>
             <tr>
               <th className="px-4 py-2.5">Order Number</th>
@@ -1727,6 +1783,7 @@ function HoldSection({
               <th className="px-4 py-2.5">Door Type</th>
               <th className="px-4 py-2.5 text-right">Qty</th>
               <th className="px-4 py-2.5">Installer</th>
+              <th className="px-4 py-2.5 w-28"></th>
             </tr>
           </thead>
           <tbody>
@@ -1749,6 +1806,15 @@ function HoldSection({
                 </td>
                 <td className="px-4 py-2.5 text-right font-mono text-xs">{o.door_count}</td>
                 <td className="px-4 py-2.5 text-xs text-slate-600">{o.installer}</td>
+                <td className="px-4 py-2.5">
+                  <button
+                    type="button"
+                    onClick={() => onRelease(o)}
+                    className="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700"
+                  >
+                    <Play size={11} /> Release
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

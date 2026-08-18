@@ -49,8 +49,13 @@ export async function POST(
     const cause = (body.cause ?? "").toString().trim();
 
     if (!release && !HOLD_CAUSES.has(cause)) {
+      // Spanish on purpose: this mirrors indigo.order's own Spanish
+      // _check_hold_requires_cause ValidationError (models/indigo_order.py)
+      // and the hold_order MCP tool's guard, so whichever path a hold
+      // request takes, Majela sees the same readable sentence -- never a
+      // raw Odoo traceback.
       return NextResponse.json(
-        { error: "Select a cause (Dealer / Client / Other) before moving the order to hold." },
+        { error: "Selecciona una causa (Dealer / Cliente / Otro) antes de poner la orden en espera." },
         { status: 400 },
       );
     }
