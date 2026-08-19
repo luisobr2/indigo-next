@@ -70,11 +70,35 @@ function ymd(d: Date) {
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+// Cuantas instalaciones entran en una celda del mes sin romper la grilla.
+// El "+N mas" se calcula de aca mismo: cuando eran dos numeros sueltos,
+// cambiar uno dejaba al otro mintiendo.
+const VISIBLE_PER_DAY = 4;
+
+/** "martes, 19 de agosto de 2026" a partir de un "YYYY-MM-DD".
+ *  Se construye con new Date(y, m-1, d) y NO con new Date(str): esa forma
+ *  parsea la cadena como UTC y, al oeste de Greenwich, la muestra un dia
+ *  antes -- que es justo el error que hace desconfiar de un calendario. */
+function longDate(ymdStr: string) {
+  const [y, m, d] = ymdStr.split("-").map(Number);
+  return new Date(y!, m! - 1, d!).toLocaleDateString("es-ES", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 export default function CalendarPage() {
   const router = useRouter();
   // `cursor` is any day inside the displayed month.
   const [cursor, setCursor] = useState(() => new Date());
   const [dayTarget, setDayTarget] = useState<string | null>(null);
+  // Dia cuya lista completa de instalaciones se esta mostrando. Distinto
+  // de `dayTarget`, que abre el modal de PROGRAMAR una nueva: la celda
+  // solo entra 4 instalaciones y el resto quedaba detras de un "+N more"
+  // que no hacia nada.
+  const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -133,6 +157,10 @@ export default function CalendarPage() {
     }
     return map;
   }, [data]);
+
+  // Se deriva del MISMO indice que pinta la grilla, para que el dialogo no
+  // pueda mostrar una lista distinta de la que la celda esta contando.
+  const expandedDayEvents = expandedDay ? (eventsByDay.get(expandedDay) ?? []) : [];
 
   const todayStr = ymd(new Date());
   const monthLabel = cursor.toLocaleDateString("en-US", {
@@ -259,7 +287,7 @@ export default function CalendarPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      {dayEvents.slice(0, 4).map((e) => (
+                      {dayEvents.slice(0, VISIBLE_PER_DAY).map((e) => (
                         <div
                           key={e.id}
                           role="link"
@@ -284,9 +312,24 @@ export default function CalendarPage() {
                           {e.door_count > 1 ? ` · ${e.door_count}d` : ""}
                         </div>
                       ))}
-                      {dayEvents.length > 4 && (
-                        <div className="px-1.5 text-[10px] font-medium text-slate-400">
-                          +{dayEvents.length - 4} more
+                      {dayEvents.length > VISIBLE_PER_DAY && (
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            setExpandedDay(dStr);
+                          }}
+                          onKeyDown={(ev) => {
+                            if (ev.key === "Enter" || ev.key === " ") {
+                              ev.preventDefault();
+                              ev.stopPropagation();
+                              setExpandedDay(dStr);
+                            }
+                          }}
+                          className="cursor-pointer rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 underline-offset-2 hover:bg-slate-100 hover:text-indigo-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                        >
+                          +{dayEvents.length - VISIBLE_PER_DAY} mas — ver todas
                         </div>
                       )}
                     </div>
@@ -318,6 +361,81 @@ export default function CalendarPage() {
           ))}
         </div>
       )}
+
+      {/* Todas las instalaciones de un dia. La celda del mes solo entra
+          VISIBLE_PER_DAY, y el resto quedaba invisible: Majela planifica la
+          ruta del dia desde aca, asi que ademas del nombre necesita ver la
+          direccion de cada una. */}
+      <Dialog open={!!expandedDay} onOpenChange={(o) => !o && setExpandedDay(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarDays size={16} className="text-indigo-700" />
+              {expandedDay ? longDate(expandedDay) : ""}
+            </DialogTitle>
+            <DialogDescription>
+              {expandedDayEvents.length === 1
+                ? "1 instalación programada."
+                : `${expandedDayEvents.length} instalaciones programadas.`}{" "}
+              Toca una para abrir la orden.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[60vh] space-y-1.5 overflow-y-auto pr-1">
+            {expandedDayEvents.map((e) => (
+              <button
+                key={e.id}
+                type="button"
+                onClick={() => {
+                  setExpandedDay(null);
+                  router.push(`/orders/${e.id}`);
+                }}
+                className="flex w-full items-start gap-2.5 rounded-lg border border-slate-200 p-2.5 text-left transition hover:border-indigo-300 hover:bg-slate-50"
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-inset",
+                    dealerColor(e.dealer_id),
+                  )}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-sm font-semibold text-slate-800">
+                      {e.client_name}
+                    </span>
+                    <span className="shrink-0 text-[11px] font-medium text-slate-400">
+                      {e.door_count} {e.door_count === 1 ? "puerta" : "puertas"}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-slate-500">
+                    {e.dealer_name}
+                    {e.dealer_ref ? ` · ${e.dealer_ref}` : ""}
+                  </span>
+                  {e.client_address && (
+                    <span className="mt-1 flex items-start gap-1 text-xs text-slate-500">
+                      <MapPin size={12} className="mt-0.5 shrink-0 text-slate-400" />
+                      <span className="min-w-0 flex-1">{e.client_address}</span>
+                    </span>
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              const d = expandedDay;
+              setExpandedDay(null);
+              setDayTarget(d);
+            }}
+          >
+            <Plus size={14} className="mr-1.5" />
+            Programar otra en este día
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       <ScheduleOnDayModal
         date={dayTarget}
