@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   AlertTriangle,
+  ArrowRight,
   Building2,
   Calendar,
   CheckSquare,
@@ -405,6 +406,10 @@ export default function InstallationsPage() {
   // distinta: Majela en Board, quien agenda en Pendientes, y volver siempre a
   // Board obliga a dos clics cada vez que se entra.
   const [view, setView] = useState<InstallView>("board");
+  // Cual de las dos tarjetas de espera esta mostrando su detalle completo.
+  // Una sola a la vez: abrir las dos devuelve la pagina larga que se acaba
+  // de desarmar.
+  const [expandedHold, setExpandedHold] = useState<"dealer" | "client" | null>(null);
   const [zoneFilter, setZoneFilter] = useState<string>("all");
   const [dirFilter, setDirFilter] = useState<string>("all");
 
@@ -1090,6 +1095,45 @@ export default function InstallationsPage() {
         />
       </section>
 
+      {/* Las tres tarjetas lado a lado. Son las tres preguntas que se hacen
+          juntas al planificar el dia: que espera al dealer, que espera al
+          cliente, y de que lado queda lo que se puede hacer. Apiladas a lo
+          ancho obligaban a bajar dos pantallas para compararlas -- y la
+          comparacion ES la decision.
+
+          Aca van resumidas (las primeras filas y lo justo para reconocer una
+          orden). "Ver todas" abre el detalle completo debajo, en vez de
+          llevar a otra pantalla: la decision se toma con las tres a la vista,
+          asi que sacarla de aca seria deshacer el motivo del cambio. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <HoldSummaryCard
+          icon={UserRound}
+          title="PENDING – CLIENT"
+          subtitle="Esperando al cliente"
+          theme={HOLD_SECTION_THEME.client}
+          rows={holdClient}
+          doorCount={data?.onHold.client.doorCount ?? 0}
+          expanded={expandedHold === "client"}
+          onToggle={() => setExpandedHold(expandedHold === "client" ? null : "client")}
+        />
+        <HoldSummaryCard
+          icon={Building2}
+          title="ON HOLD – DEALER"
+          subtitle="Trabada por el dealer"
+          theme={HOLD_SECTION_THEME.dealer}
+          rows={holdDealer}
+          doorCount={data?.onHold.dealer.doorCount ?? 0}
+          expanded={expandedHold === "dealer"}
+          onToggle={() => setExpandedHold(expandedHold === "dealer" ? null : "dealer")}
+        />
+        <ZonesPanel
+          zones={data?.zones ?? []}
+          unlocated={data?.zonesUnlocated}
+          compact
+          onViewAll={() => chooseView("zones")}
+        />
+      </div>
+
       </>)}
 
       {(view === "board" || view === "pending") && (<>
@@ -1411,26 +1455,10 @@ export default function InstallationsPage() {
       </>)}
 
       {view === "board" && (<>
-      {/* On hold, by cause — Majela's 2026-08-15 request (item 3): separate
-          from Overdue / Pending Scheduling above ("no que sea overdue y
-          pending schedule"), so a door blocked by the dealer never gets
-          mixed in with one that's simply late or unscheduled. */}
-      <HoldSection
-        icon={Building2}
-        title="ON HOLD – DEALER"
-        subtitle="Blocked by the dealer — waiting on them to fix or provide something."
-        theme={HOLD_SECTION_THEME.dealer}
-        rows={holdDealer}
-        onRelease={(o) => setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: true })}
-      />
-      <HoldSection
-        icon={UserRound}
-        title="PENDING – CLIENT"
-        subtitle="Blocked by the client — not available or hasn't confirmed."
-        theme={HOLD_SECTION_THEME.client}
-        rows={holdClient}
-        onRelease={(o) => setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: true })}
-      />
+      {/* Sin clasificar: no estaba en el mockup, pero mientras existan es lo
+          primero que hay que resolver -- son ordenes que no aparecen en
+          ninguno de los dos contadores de arriba. Va a lo ancho porque es una
+          lista para vaciar, no para consultar. */}
       <HoldSection
         icon={HelpCircle}
         title="ON HOLD – UNCLASSIFIED"
@@ -1440,9 +1468,30 @@ export default function InstallationsPage() {
         onRelease={(o) => setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: true })}
       />
 
+      {expandedHold === "client" && (
+        <HoldSection
+          icon={UserRound}
+          title="PENDING – CLIENT"
+          subtitle="Blocked by the client — not available or hasn't confirmed."
+          theme={HOLD_SECTION_THEME.client}
+          rows={holdClient}
+          onRelease={(o) => setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: true })}
+        />
+      )}
+      {expandedHold === "dealer" && (
+        <HoldSection
+          icon={Building2}
+          title="ON HOLD – DEALER"
+          subtitle="Blocked by the dealer — waiting on them to fix or provide something."
+          theme={HOLD_SECTION_THEME.dealer}
+          rows={holdDealer}
+          onRelease={(o) => setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: true })}
+        />
+      )}
+
       </>)}
 
-      {(view === "board" || view === "zones") && (
+      {view === "zones" && (
         <ZonesPanel zones={data?.zones ?? []} unlocated={data?.zonesUnlocated} />
       )}
 
@@ -1863,12 +1912,83 @@ const DIRECTION_LABEL: Record<string, string> = {
 function ZonesPanel({
   zones,
   unlocated,
+  compact = false,
+  onViewAll,
 }: {
   zones: DashboardData["zones"];
   unlocated?: DashboardData["zonesUnlocated"];
+  /** En la fila de tres columnas no entra la tabla completa: se muestran el
+   *  rango y las puertas, que es lo que se compara de un vistazo, y el resto
+   *  (distancia exacta, lados, ordenes) queda en la pestana Zonas. */
+  compact?: boolean;
+  onViewAll?: () => void;
 }) {
   if (!zones.length) return null;
   const totalDoors = zones.reduce((a, z) => a + z.doors, 0) + (unlocated?.doors ?? 0);
+
+  if (compact) {
+    return (
+      <section className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-start justify-between gap-2 border-b border-slate-200 px-4 py-3">
+          <div>
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+              <MapPin size={14} className="text-indigo-700" />
+              ZONAS DE INSTALACIÓN
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">Distancia desde el taller</p>
+          </div>
+          <Badge variant="secondary" className="shrink-0 bg-slate-100 text-[10px] font-bold text-slate-600">
+            {totalDoors} {totalDoors === 1 ? "puerta" : "puertas"}
+          </Badge>
+        </div>
+        <div className="flex-1">
+          <table className="w-full text-sm">
+            <tbody>
+              {zones.map((z) => (
+                <tr key={z.id} className="border-t border-slate-100">
+                  <td className="px-4 py-2">
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: z.color }}
+                      />
+                      <span className="truncate text-xs font-medium text-slate-700">{z.name}</span>
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono text-xs font-semibold text-slate-800">
+                    {z.doors}
+                  </td>
+                </tr>
+              ))}
+              {!!unlocated?.orders && (
+                <tr className="border-t border-slate-100 bg-slate-50/60">
+                  <td className="px-4 py-2">
+                    <span className="flex items-center gap-2">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-slate-300" />
+                      <span className="truncate text-xs font-medium text-slate-500">Sin ubicar</span>
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono text-xs font-semibold text-slate-600">
+                    {unlocated.doors}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {onViewAll && (
+          <button
+            type="button"
+            onClick={onViewAll}
+            className="flex items-center justify-center gap-1.5 border-t border-slate-200 px-4 py-2.5 text-xs font-semibold text-indigo-700 transition hover:opacity-75"
+          >
+            Ver detalle de zonas
+            <ArrowRight size={13} />
+          </button>
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
@@ -2146,6 +2266,125 @@ const HOLD_SECTION_THEME: Record<
  * the section title and every badge carry a text label too, so this still
  * reads correctly for someone who can't easily tell blue from orange apart.
  */
+/** Cuantas filas entran en una tarjeta de un tercio de ancho sin que haya
+ *  que hacer scroll dentro de ella. Si hay mas, se dicen cuantas quedan. */
+const HOLD_CARD_ROWS = 5;
+
+/**
+ * Version resumida de un panel de espera, para la fila de tres columnas.
+ *
+ * Muestra lo justo para reconocer una orden y decidir: quien es, donde, y
+ * por que esta trabada. Lo demas (tipo de puerta, cantidad, instalador,
+ * boton de liberar) vive en el detalle completo, que se abre con "Ver
+ * todas" -- meterlo aca haria que ninguna de las tres columnas entrara.
+ */
+function HoldSummaryCard({
+  icon: Icon,
+  title,
+  subtitle,
+  theme,
+  rows,
+  doorCount,
+  expanded,
+  onToggle,
+}: {
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  title: string;
+  subtitle: string;
+  theme: (typeof HOLD_SECTION_THEME)[keyof typeof HOLD_SECTION_THEME];
+  rows: DashboardData["onHold"]["dealer"]["orders"];
+  doorCount: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const shown = rows.slice(0, HOLD_CARD_ROWS);
+  return (
+    <section className={cn("flex flex-col overflow-hidden rounded-2xl border shadow-sm", theme.section)}>
+      <div className={cn("flex items-start justify-between gap-2 border-b px-4 py-3", theme.headerBorder)}>
+        <div>
+          <h3 className={cn("flex items-center gap-1.5 text-sm font-semibold", theme.headerText)}>
+            <Icon size={14} />
+            {title}
+          </h3>
+          <p className={cn("mt-0.5 text-xs opacity-80", theme.headerText)}>{subtitle}</p>
+        </div>
+        <Badge
+          variant="secondary"
+          className={cn("shrink-0 text-[10px] font-bold", theme.badgeBg, theme.badgeText)}
+        >
+          {doorCount} {doorCount === 1 ? "puerta" : "puertas"}
+        </Badge>
+      </div>
+
+      {rows.length === 0 ? (
+        // Un vacio explicito, no una tarjeta en blanco: "no hay ninguna" es
+        // una respuesta util cuando la pregunta es "a quien tengo que llamar".
+        <div className="flex flex-1 items-center justify-center px-4 py-8 text-center text-xs text-slate-400">
+          Ninguna orden trabada por esta causa.
+        </div>
+      ) : (
+        <div className="flex-1">
+          <table className="w-full text-sm">
+            <tbody>
+              {shown.map((o) => (
+                <tr key={o.id} className={cn("border-t align-top", theme.rowBorder, theme.rowHover)}>
+                  <td className="px-4 py-2">
+                    <Link
+                      href={`/orders/${o.id}`}
+                      className="font-mono text-[11px] font-semibold text-indigo-700 hover:underline"
+                      title={o.name}
+                    >
+                      {o.dealer_ref || o.name}
+                    </Link>
+                    <span className="mt-0.5 block truncate text-xs font-medium text-slate-700">
+                      {o.client_name}
+                    </span>
+                    <span className="block truncate text-[11px] text-slate-500">
+                      {o.client_address || "—"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    {o.hold_reason ? (
+                      <span
+                        className={cn(
+                          "inline-block max-w-[10rem] truncate rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+                          theme.badgeBg,
+                          theme.badgeText,
+                        )}
+                        title={o.hold_reason}
+                      >
+                        {o.hold_reason}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">sin motivo</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={rows.length === 0}
+        className={cn(
+          "flex items-center justify-center gap-1.5 border-t px-4 py-2.5 text-xs font-semibold transition",
+          theme.headerBorder,
+          rows.length === 0
+            ? "cursor-default text-slate-300"
+            : cn(theme.headerText, "hover:opacity-75"),
+        )}
+      >
+        {expanded ? "Ocultar el detalle" : `Ver todas (${rows.length})`}
+        <ArrowRight size={13} className={cn("transition", expanded && "rotate-90")} />
+      </button>
+    </section>
+  );
+}
+
 function HoldSection({
   icon: Icon,
   title,
