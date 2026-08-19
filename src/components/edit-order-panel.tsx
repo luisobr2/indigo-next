@@ -39,6 +39,7 @@ interface OrderRow {
   client_phone: string;
   client_email: string;
   client_address: string;
+  client_zip?: string;
   dealer_ref: string;
   priv_ref: string;
   customer_po: string;
@@ -464,6 +465,30 @@ export function EditOrderPanel({
               />
             </Field>
           </div>
+          {/* El ZIP decide la zona y el corredor de toda la planificacion de
+              rutas. Se saca solo de la direccion, pero cuando la direccion no
+              lo trae hay que poder ponerlo a mano -- y hasta ahora el campo
+              existia en Odoo y no en esta pantalla, que es donde se trabaja. */}
+          <Field label="ZIP">
+            <Input
+              value={orderForm.client_zip || ""}
+              inputMode="numeric"
+              maxLength={5}
+              placeholder="33138"
+              onChange={(e) =>
+                setOrderForm({
+                  ...orderForm,
+                  client_zip: e.target.value.replace(/[^0-9]/g, "").slice(0, 5),
+                })
+              }
+            />
+            {!orderForm.client_zip && (
+              <p className="mt-1 text-[11px] text-amber-700">
+                Sin código postal esta orden no cae en ninguna zona ni corredor,
+                y no aparece al planificar rutas.
+              </p>
+            )}
+          </Field>
         </div>
       </section>
 

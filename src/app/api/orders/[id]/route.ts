@@ -222,6 +222,11 @@ const EDITABLE_ORDER_FIELDS = [
   "client_phone",
   "client_email",
   "client_address",
+  // Editable a mano porque la direccion no siempre lo trae. Odoo lo deriva
+  // solo al guardar la direccion, pero cuando el texto no tiene codigo postal
+  // no hay de donde sacarlo -- y de ese campo dependen la zona, el corredor y
+  // la distancia de toda la planificacion de rutas.
+  "client_zip",
   "dealer_ref",
   "priv_ref",
   "customer_po",

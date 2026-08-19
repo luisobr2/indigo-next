@@ -330,6 +330,7 @@ export default function OrderDetailPage({
                 client_phone: o.client_phone,
                 client_email: o.client_email,
                 client_address: o.client_address,
+                client_zip: (o.client_zip as string) || "",
                 dealer_ref: o.dealer_ref,
                 priv_ref: o.priv_ref,
                 customer_po: o.customer_po,
@@ -666,6 +667,22 @@ export default function OrderDetailPage({
                 <Row
                   label="Address"
                   value={<AddressLink address={o.client_address} />}
+                />
+                {/* El ZIP no es un dato de contacto mas: de el salen la zona,
+                    el corredor y la distancia con las que se arman las rutas.
+                    Cuando falta hay que verlo aca, no descubrirlo como una
+                    fila "sin corredor" en otra pantalla. */}
+                <Row
+                  label="ZIP"
+                  value={
+                    o.client_zip ? (
+                      <span className="font-mono">{o.client_zip as string}</span>
+                    ) : (
+                      <span className="text-amber-700">
+                        Falta — no cae en ninguna zona ni corredor
+                      </span>
+                    )
+                  }
                 />
                 <Row
                   label="Phone"
