@@ -4,28 +4,29 @@ import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
-  Users,
-  FolderOpen,
-  CheckSquare,
-  PieChart as PieIcon,
-  Search,
-  Download,
-  Printer,
-  Columns3,
-  Plus,
+  AlertTriangle,
+  Building2,
   Calendar,
+  CheckSquare,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Info,
   CircleDollarSign,
-  AlertTriangle,
-  X,
-  Building2,
-  UserRound,
+  Columns3,
+  Download,
+  FolderOpen,
   HelpCircle,
+  Info,
+  MapPin,
   Pause,
+  PieChart as PieIcon,
   Play,
+  Plus,
+  Printer,
+  Search,
+  UserRound,
+  Users,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { fmtMoney, fmtNum, fmtDate, cn } from "@/lib/utils";
@@ -63,6 +64,17 @@ import {
   PieChart as RPieChart,
   Pie,
 } from "recharts";
+
+/** Geo de planificacion que Odoo calcula desde el ZIP (pedido #4 de Majela).
+ *  `distance_mi` es una estimacion por carretera; `geo_approx` avisa cuando
+ *  el ZIP exacto no estaba y se resolvio por el prefijo del condado. */
+interface RowGeo {
+  distance_mi: number | null;
+  direction: string | null;
+  range_id: number | null;
+  range_name: string | null;
+  geo_approx: boolean;
+}
 
 interface DashboardData {
   rangeStart: string;
@@ -112,6 +124,7 @@ interface DashboardData {
     stage_code: string;
     installer: string;
     installer_ids: number[];
+    geo?: RowGeo;
   }>;
   overdue: Array<{
     id: number;
@@ -125,6 +138,7 @@ interface DashboardData {
     days_overdue: number;
     installer: string;
     installer_ids: number[];
+    geo?: RowGeo;
   }>;
   // Majela's 2026-08-15 request (item 3): tell a door blocked by the
   // DEALER apart from one blocked by the CLIENT, with a count per cause —
@@ -147,9 +161,22 @@ interface DashboardData {
         hold_cause: "dealer" | "client" | "other";
         hold_reason: string;
         installer: string;
+        geo?: RowGeo;
       }>;
     }
   >;
+  zones: Array<{
+    id: number;
+    name: string;
+    short_name: string;
+    min_miles: number;
+    max_miles: number;
+    color: string;
+    doors: number;
+    orders: number;
+    directions: string[];
+  }>;
+  zonesUnlocated: { doors: number; orders: number };
   days: Array<{
     date: string;
     label: string;
@@ -254,6 +281,55 @@ const PEND_COLUMNS: PendCol[] = [
     sortVal: (o) => (o.client_address || "").toLowerCase(),
   },
   {
+    // Las dos columnas del pedido #4. Van juntas y justo despues de la
+    // direccion porque se leen como una sola idea: "donde queda esto".
+    key: "distance",
+    label: "Distancia",
+    thClass: "text-right",
+    cell: (o) => {
+      const d = o.geo?.distance_mi;
+      if (d == null || !o.geo?.range_id) return <span className="text-xs text-slate-300">—</span>;
+      return (
+        <span
+          className="whitespace-nowrap text-right font-mono text-xs text-slate-600"
+          title={o.geo.geo_approx
+            ? "Aproximada: el código postal exacto no está en la tabla, se ubicó por el prefijo del condado."
+            : undefined}
+        >
+          {fmtNum(d)} mi{o.geo.geo_approx ? "*" : ""}
+        </span>
+      );
+    },
+    print: (o) => (o.geo?.distance_mi != null ? `${fmtNum(o.geo.distance_mi)} mi` : ""),
+    // Las que no se pudieron ubicar caen al final al ordenar por distancia,
+    // en vez de encabezar la lista como si estuvieran al lado del taller.
+    sortVal: (o) => (o.geo?.distance_mi != null ? o.geo.distance_mi : Number.MAX_SAFE_INTEGER),
+  },
+  {
+    key: "zone",
+    label: "Zona",
+    cell: (o) => {
+      if (!o.geo?.range_name) {
+        return <span className="text-xs text-slate-400">Sin ubicar</span>;
+      }
+      return (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-700">
+          {o.geo.range_name}
+          {o.geo.direction && (
+            <span className="font-semibold text-slate-500">
+              ({DIRECTION_LABEL[o.geo.direction] ?? o.geo.direction})
+            </span>
+          )}
+        </span>
+      );
+    },
+    print: (o) =>
+      o.geo?.range_name
+        ? `${o.geo.range_name}${o.geo.direction ? ` (${DIRECTION_LABEL[o.geo.direction] ?? o.geo.direction})` : ""}`
+        : "Sin ubicar",
+    sortVal: (o) => o.geo?.distance_mi ?? Number.MAX_SAFE_INTEGER,
+  },
+  {
     key: "door",
     label: "Door Type",
     cell: (o) => <span className="text-xs text-slate-700">{DOOR_TYPE_LABEL[o.door_type] ?? o.door_type ?? "—"}</span>,
@@ -281,7 +357,15 @@ const PEND_COLUMNS: PendCol[] = [
     sortVal: (o) => (o.installer || "").toLowerCase(),
   },
 ];
-const PEND_COL_DEFAULT = ["order", "client", "phone", "address", "door", "qty", "installer"];
+const PEND_COL_DEFAULT = [
+  "order", "client", "phone", "address", "distance", "zone", "door", "qty", "installer",
+];
+// Columnas incorporadas despues de que existiera la preferencia guardada.
+// Sin esto, cualquiera que ya hubiera tocado el menu de columnas jamas veria
+// las nuevas: su lista guardada no las contiene y el filtro de validacion las
+// descarta en silencio. Se agregan a lo guardado en vez de reponer el default
+// entero, para no deshacerle las columnas que decidio ocultar.
+const PEND_COLS_ADDED_LATER = ["distance", "zone"];
 const PEND_COLS_KEY = "indigo:install-pending-cols";
 
 const COLOR_DOT: Record<string, string> = {
@@ -301,6 +385,9 @@ export default function InstallationsPage() {
   });
   const [q, setQ] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | number>("all");
+  // Filtros de ruta sobre la tabla de pendientes por agendar.
+  const [zoneFilter, setZoneFilter] = useState<string>("all");
+  const [dirFilter, setDirFilter] = useState<string>("all");
 
   // Pending Scheduling — configurable columns (saved per user) + sort.
   const [pendColKeys, setPendColKeys] = useState<string[]>(PEND_COL_DEFAULT);
@@ -316,7 +403,17 @@ export default function InstallationsPage() {
         if (Array.isArray(arr) && arr.length) {
           // Loading persisted column prefs on mount is a legitimate one-shot.
           // eslint-disable-next-line react-hooks/set-state-in-effect
-          setPendColKeys(arr.filter((k: string) => PEND_COLUMNS.some((c) => c.key === k)));
+          const saved_keys = arr.filter((k: string) => PEND_COLUMNS.some((c) => c.key === k));
+          const missing = PEND_COLS_ADDED_LATER.filter((k) => !saved_keys.includes(k));
+          setPendColKeys(
+            missing.length
+              // Se insertan donde van (despues de la direccion), no al final:
+              // "distancia" pegada a "dirección" se lee como una sola idea.
+              ? PEND_COLUMNS.map((c) => c.key).filter(
+                  (k) => saved_keys.includes(k) || missing.includes(k),
+                )
+              : saved_keys,
+          );
         }
       }
     } catch {
@@ -455,7 +552,21 @@ export default function InstallationsPage() {
   // regardless of which week is selected. This is what the dashboard
   // "Installations Pending" KPI counts that the weekly view used to hide.
   const unscheduled = useMemo(() => {
-    const rows = data?.unscheduled ?? [];
+    let rows = data?.unscheduled ?? [];
+    // Filtro por zona: el uso real es "muestrame solo lo que queda cerca" o
+    // "solo el lado norte", para armar el dia de un instalador de una sola
+    // pasada. "unlocated" existe como opcion propia porque es una lista que
+    // hay que arreglar (falta el codigo postal), no un lugar.
+    if (zoneFilter !== "all") {
+      rows = rows.filter((o) =>
+        zoneFilter === "unlocated"
+          ? !o.geo?.range_id
+          : o.geo?.range_id === Number(zoneFilter),
+      );
+    }
+    if (dirFilter !== "all") {
+      rows = rows.filter((o) => o.geo?.direction === dirFilter);
+    }
     if (!q.trim()) return rows;
     const needle = q.toLowerCase();
     return rows.filter(
@@ -465,7 +576,7 @@ export default function InstallationsPage() {
         o.dealer_ref.toLowerCase().includes(needle) ||
         o.client_address.toLowerCase().includes(needle),
     );
-  }, [data, q]);
+  }, [data, q, zoneFilter, dirFilter]);
 
   // Pending rows sorted by the active column/direction.
   const sortedPending = useMemo(() => {
@@ -1027,7 +1138,7 @@ export default function InstallationsPage() {
           counted in the dashboard "Installations Pending" KPI but have no
           date, so they don't appear in any week. Surface them here so they
           can be opened and scheduled. */}
-      {unscheduled.length > 0 && (
+      {(data?.unscheduled.length ?? 0) > 0 && (
         <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/50 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 px-5 py-3">
             <h3 className="flex items-center gap-1.5 font-semibold text-amber-900">
@@ -1044,6 +1155,35 @@ export default function InstallationsPage() {
               <span className="hidden text-xs text-amber-700 sm:inline">
                 Ready to install — no date yet.
               </span>
+              {/* Filtros de ruta (pedido #4). Van aca y no arriba porque
+                  acotan esta tabla, no el tablero entero. */}
+              <select
+                aria-label="Filtrar por zona"
+                value={zoneFilter}
+                onChange={(e) => setZoneFilter(e.target.value)}
+                className="h-8 rounded-lg border border-amber-300 bg-white px-2 text-xs font-medium text-amber-800 focus-visible:outline-none"
+              >
+                <option value="all">Todas las zonas</option>
+                {(data?.zones ?? []).map((z) => (
+                  <option key={z.id} value={String(z.id)}>
+                    {z.name}
+                  </option>
+                ))}
+                {!!data?.zonesUnlocated?.orders && (
+                  <option value="unlocated">Sin ubicar</option>
+                )}
+              </select>
+              <select
+                aria-label="Filtrar por lado"
+                value={dirFilter}
+                onChange={(e) => setDirFilter(e.target.value)}
+                className="h-8 rounded-lg border border-amber-300 bg-white px-2 text-xs font-medium text-amber-800 focus-visible:outline-none"
+              >
+                <option value="all">Todos los lados</option>
+                {Object.entries(DIRECTION_LABEL).map(([k, label]) => (
+                  <option key={k} value={k}>{label}</option>
+                ))}
+              </select>
               <DropdownMenu>
                 <DropdownMenuTrigger className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 text-xs font-medium text-amber-800 transition hover:bg-amber-50 focus-visible:outline-none">
                   <Columns3 size={13} /> Columns
@@ -1150,6 +1290,30 @@ export default function InstallationsPage() {
                     </td>
                   </tr>
                 ))}
+                {/* Sin esto, filtrar hasta dejar cero filas mostraba una
+                    tabla vacia sin explicacion -- y como la seccion entera
+                    depende de tener filas, antes desaparecian tambien los
+                    filtros y no habia forma de deshacerlos. */}
+                {sortedPending.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={visiblePendCols.length + 2}
+                      className="px-4 py-8 text-center text-sm text-amber-800"
+                    >
+                      Ninguna orden pendiente cae en ese filtro.{" "}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setZoneFilter("all");
+                          setDirFilter("all");
+                        }}
+                        className="font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-950"
+                      >
+                        Ver todas
+                      </button>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1184,6 +1348,8 @@ export default function InstallationsPage() {
         rows={holdOther}
         onRelease={(o) => setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: true })}
       />
+
+      <ZonesPanel zones={data?.zones ?? []} unlocated={data?.zonesUnlocated} />
 
       {/* Body */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
@@ -1559,6 +1725,125 @@ export default function InstallationsPage() {
 
 function FragmentRows({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
+}
+
+/** Etiqueta legible de cada rumbo. Se muestran las iniciales en la tabla
+ *  (donde el espacio manda) y el nombre completo en el panel. */
+const DIRECTION_LABEL: Record<string, string> = {
+  N: "Norte", NE: "Noreste", E: "Este", SE: "Sureste",
+  S: "Sur", SO: "Suroeste", O: "Oeste", NO: "Noroeste",
+};
+
+/**
+ * Zonas de instalacion — el pedido #4 de Majela.
+ *
+ * Cuenta lo que queda POR HACER (por agendar + vencidas + en espera), no el
+ * historico: la pregunta que responde es "que me falta y de que lado me
+ * queda", no "cuanto instale este anio". Los rangos y sus colores salen de
+ * Odoo (Config -> Rangos de instalacion), asi que ella los mueve sin que
+ * haya que tocar y redesplegar esta pantalla.
+ */
+function ZonesPanel({
+  zones,
+  unlocated,
+}: {
+  zones: DashboardData["zones"];
+  unlocated?: DashboardData["zonesUnlocated"];
+}) {
+  if (!zones.length) return null;
+  const totalDoors = zones.reduce((a, z) => a + z.doors, 0) + (unlocated?.doors ?? 0);
+
+  return (
+    <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3">
+        <h3 className="flex items-center gap-1.5 font-semibold text-slate-800">
+          <MapPin size={15} className="text-indigo-700" />
+          Zonas de instalación
+        </h3>
+        <span className="text-xs text-slate-500">
+          {totalDoors} puerta{totalDoors === 1 ? "" : "s"} pendiente
+          {totalDoors === 1 ? "" : "s"} · distancia estimada por carretera desde el taller
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
+          <thead className="bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-4 py-2.5">Zona / rango</th>
+              <th className="px-4 py-2.5">Distancia</th>
+              <th className="px-4 py-2.5">Lados</th>
+              <th className="px-4 py-2.5 text-right">Órdenes</th>
+              <th className="px-4 py-2.5 text-right">Puertas</th>
+            </tr>
+          </thead>
+          <tbody>
+            {zones.map((z) => (
+              <tr key={z.id} className="border-t border-slate-100">
+                <td className="px-4 py-2.5">
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: z.color }}
+                    />
+                    <span>
+                      <span className="font-semibold text-slate-800">{z.name}</span>
+                      {z.short_name && (
+                        <span className="block text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                          {z.short_name}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                </td>
+                <td className="px-4 py-2.5 font-mono text-xs text-slate-600">
+                  {z.max_miles
+                    ? `${fmtNum(z.min_miles)} – ${fmtNum(z.max_miles)} mi`
+                    : `${fmtNum(z.min_miles)}+ mi`}
+                </td>
+                <td className="px-4 py-2.5 text-xs text-slate-600">
+                  {z.directions.length
+                    ? z.directions.map((d) => DIRECTION_LABEL[d] ?? d).join(" · ")
+                    : "—"}
+                </td>
+                <td className="px-4 py-2.5 text-right font-mono text-xs text-slate-500">
+                  {z.orders}
+                </td>
+                <td className="px-4 py-2.5 text-right font-mono text-sm font-semibold text-slate-800">
+                  {z.doors}
+                </td>
+              </tr>
+            ))}
+            {/* Nunca se esconden las que no se pudieron ubicar: si desaparecen,
+                el total deja de cuadrar con el resto del tablero y nadie sabe
+                por que. Casi siempre es una direccion sin codigo postal. */}
+            {!!unlocated?.orders && (
+              <tr className="border-t border-slate-100 bg-slate-50/60">
+                <td className="px-4 py-2.5">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-slate-300" />
+                    <span>
+                      <span className="font-semibold text-slate-600">Sin ubicar</span>
+                      <span className="block text-[10px] text-slate-400">
+                        Falta el código postal en la dirección
+                      </span>
+                    </span>
+                  </span>
+                </td>
+                <td className="px-4 py-2.5 text-xs text-slate-400">—</td>
+                <td className="px-4 py-2.5 text-xs text-slate-400">—</td>
+                <td className="px-4 py-2.5 text-right font-mono text-xs text-slate-500">
+                  {unlocated.orders}
+                </td>
+                <td className="px-4 py-2.5 text-right font-mono text-sm font-semibold text-slate-600">
+                  {unlocated.doors}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 function TabChip({

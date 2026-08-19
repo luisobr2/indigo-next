@@ -83,6 +83,10 @@ export async function GET(req: NextRequest) {
       client_name: string;
       client_phone?: string | false;
       client_address: string;
+      install_distance_mi?: number;
+      install_direction?: string | false;
+      install_range_id?: [number, string] | false;
+      install_geo_approx?: boolean;
       installer_ids: number[];
       door_count: number;
       installation_date: string | false;
@@ -115,6 +119,14 @@ export async function GET(req: NextRequest) {
           "installation_date",
           "stage_code",
           "total_sqf",
+          // Planificacion por distancia (pedido #4 de Majela): agrupar por
+          // rango y por lado para no mandar al instalador al norte y al sur
+          // el mismo dia. Se calculan en Odoo desde el ZIP -- ver
+          // addons/indigo_decors/models/indigo_zip_geo.py.
+          "install_distance_mi",
+          "install_direction",
+          "install_range_id",
+          "install_geo_approx",
         ],
       ],
       kwargs: { limit: ORDER_LIMIT, order: "installation_date" },
@@ -168,6 +180,14 @@ export async function GET(req: NextRequest) {
           "installation_date",
           "stage_code",
           "total_sqf",
+          // Planificacion por distancia (pedido #4 de Majela): agrupar por
+          // rango y por lado para no mandar al instalador al norte y al sur
+          // el mismo dia. Se calculan en Odoo desde el ZIP -- ver
+          // addons/indigo_decors/models/indigo_zip_geo.py.
+          "install_distance_mi",
+          "install_direction",
+          "install_range_id",
+          "install_geo_approx",
         ],
       ],
       kwargs: { limit: 500, order: "create_date desc" },
@@ -205,6 +225,14 @@ export async function GET(req: NextRequest) {
           "installation_date",
           "stage_code",
           "total_sqf",
+          // Planificacion por distancia (pedido #4 de Majela): agrupar por
+          // rango y por lado para no mandar al instalador al norte y al sur
+          // el mismo dia. Se calculan en Odoo desde el ZIP -- ver
+          // addons/indigo_decors/models/indigo_zip_geo.py.
+          "install_distance_mi",
+          "install_direction",
+          "install_range_id",
+          "install_geo_approx",
         ],
       ],
       kwargs: { limit: 500, order: "installation_date" },
@@ -383,6 +411,26 @@ export async function GET(req: NextRequest) {
     );
     if (unassigned.orders.length) installerBuckets.push(unassigned);
 
+    // La geo que la pantalla necesita para agrupar por ruta. En un helper
+    // porque la misma forma la consumen las filas por agendar, las vencidas
+    // y las en espera, y tres copias se desincronizan.
+    const geoOf = (o: {
+      install_distance_mi?: number;
+      install_direction?: string | false;
+      install_range_id?: [number, string] | false;
+      install_geo_approx?: boolean;
+    }) => ({
+      // Anidado bajo `geo` a proposito: son cinco campos que viajan juntos y
+      // aplanarlos invita a que alguno se pierda al copiar una forma de fila.
+      geo: {
+        distance_mi: typeof o.install_distance_mi === "number" ? o.install_distance_mi : null,
+        direction: (o.install_direction || null) as string | null,
+        range_id: Array.isArray(o.install_range_id) ? o.install_range_id[0] : null,
+        range_name: Array.isArray(o.install_range_id) ? o.install_range_id[1] : null,
+        geo_approx: !!o.install_geo_approx,
+      },
+    });
+
     // 4b. Flat list of pending-but-undated orders for the "needs scheduling"
     //     panel. Each carries the assigned installer name(s) or "Unassigned".
     const unscheduledRows = unscheduled.map((o) => {
@@ -403,6 +451,7 @@ export async function GET(req: NextRequest) {
         stage_code: o.stage_code,
         installer: names.length ? names.join(", ") : "Unassigned",
         installer_ids: o.installer_ids || [],
+        ...geoOf(o),
       };
     });
 
@@ -432,6 +481,7 @@ export async function GET(req: NextRequest) {
         days_overdue: daysOverdue,
         installer: names.length ? names.join(", ") : "Unassigned",
         installer_ids: o.installer_ids || [],
+        ...geoOf(o),
       };
     });
 
@@ -459,6 +509,7 @@ export async function GET(req: NextRequest) {
         hold_cause: (o.hold_cause || "other") as HoldCause,
         hold_reason: o.hold_reason || "",
         installer: names.length ? names.join(", ") : "Unassigned",
+        ...geoOf(o),
       };
     };
     const onHoldGroups = groupOrdersByHoldCause(onHold);
@@ -575,6 +626,66 @@ export async function GET(req: NextRequest) {
       kwargs: {},
     });
 
+    // 4e. Resumen por rango de distancia — el panel "Zonas de instalacion".
+    //
+    // Se cuenta sobre lo que queda POR HACER (por agendar + vencidas + en
+    // espera), no sobre todo el historico: la pregunta que responde es "que
+    // tengo pendiente y de que lado me queda", no "cuanto instale este ano".
+    //
+    // Los rangos se leen de Odoo en vez de fijarlos aca para que Majela pueda
+    // moverlos desde Config sin que haya que tocar y redesplegar el panel.
+    const zoneRanges = await call<Array<{
+      id: number;
+      name: string;
+      short_name: string | false;
+      min_miles: number;
+      max_miles: number;
+      color: string | false;
+    }>>({
+      session: s.session,
+      model: "indigo.install.range",
+      method: "search_read",
+      args: [[], ["id", "name", "short_name", "min_miles", "max_miles", "color"]],
+      kwargs: { order: "sequence" },
+    });
+
+    const pendingForZones = [...unscheduled, ...overdue, ...onHold];
+    const zoneStats = new Map<number | null, { doors: number; orders: number; dirs: Set<string> }>();
+    for (const o of pendingForZones) {
+      const key = Array.isArray(o.install_range_id) ? o.install_range_id[0] : null;
+      const bucket = zoneStats.get(key) ?? { doors: 0, orders: 0, dirs: new Set<string>() };
+      bucket.doors += o.door_count || 1;
+      bucket.orders += 1;
+      if (o.install_direction) bucket.dirs.add(o.install_direction as string);
+      zoneStats.set(key, bucket);
+    }
+
+    const DIR_ORDER = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
+    const zones = zoneRanges.map((r) => {
+      const st = zoneStats.get(r.id);
+      return {
+        id: r.id,
+        name: r.name,
+        short_name: r.short_name || "",
+        min_miles: r.min_miles,
+        max_miles: r.max_miles,
+        color: r.color || "#64748b",
+        doors: st?.doors ?? 0,
+        orders: st?.orders ?? 0,
+        directions: [...(st?.dirs ?? [])].sort(
+          (a, b) => DIR_ORDER.indexOf(a) - DIR_ORDER.indexOf(b),
+        ),
+      };
+    });
+    // Las que no se pudieron ubicar van como una fila mas, nunca escondidas:
+    // si desaparecen, el total de la pantalla deja de cuadrar con el tablero
+    // y nadie sabe por que.
+    const unlocated = zoneStats.get(null);
+    const zonesUnlocated = {
+      doors: unlocated?.doors ?? 0,
+      orders: unlocated?.orders ?? 0,
+    };
+
     return NextResponse.json({
       rangeStart: startStr,
       rangeEnd: endStr,
@@ -593,6 +704,8 @@ export async function GET(req: NextRequest) {
       unscheduled: unscheduledRows,
       overdue: overdueRows,
       onHold: onHoldPayload,
+      zones,
+      zonesUnlocated,
       days,
     });
   } catch (e) {
