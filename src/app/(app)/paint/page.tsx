@@ -7,7 +7,6 @@ import {
   Download,
   Printer,
   FileText,
-  Filter,
   Search,
   Settings,
   Info,
@@ -410,9 +409,6 @@ export default function PaintPage() {
             }}
           >
             <Printer size={14} /> Print / PDF
-          </Button>
-          <Button size="lg">
-            <Filter size={14} /> Filters
           </Button>
         </div>
       </header>
