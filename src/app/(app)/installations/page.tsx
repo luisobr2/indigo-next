@@ -26,6 +26,7 @@ import {
   Search,
   UserRound,
   Users,
+  Wrench,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -368,6 +369,20 @@ const PEND_COL_DEFAULT = [
 const PEND_COLS_ADDED_LATER = ["distance", "zone"];
 const PEND_COLS_KEY = "indigo:install-pending-cols";
 
+// Vistas de la pantalla. La division sale del mockup que mando Majela el
+// 2026-08-19: en una sola pagina larga hay que bajar mucho para llegar a lo
+// que se necesita, y el tablero de arriba se pierde de vista justo cuando se
+// esta decidiendo con el.
+const INSTALL_VIEW_KEY = "indigo:install-view";
+const INSTALL_VIEWS = [
+  { key: "board", label: "Tablero" },
+  { key: "pending", label: "Por agendar" },
+  { key: "zones", label: "Zonas" },
+  { key: "calendar", label: "Calendario" },
+  { key: "installers", label: "Instaladores" },
+] as const;
+type InstallView = (typeof INSTALL_VIEWS)[number]["key"];
+
 const COLOR_DOT: Record<string, string> = {
   white: "#fff",
   bronze: "#a16207",
@@ -386,6 +401,10 @@ export default function InstallationsPage() {
   const [q, setQ] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | number>("all");
   // Filtros de ruta sobre la tabla de pendientes por agendar.
+  // Pestana activa. Se recuerda en localStorage porque cada rol vive en una
+  // distinta: Majela en Board, quien agenda en Pendientes, y volver siempre a
+  // Board obliga a dos clics cada vez que se entra.
+  const [view, setView] = useState<InstallView>("board");
   const [zoneFilter, setZoneFilter] = useState<string>("all");
   const [dirFilter, setDirFilter] = useState<string>("all");
 
@@ -395,6 +414,18 @@ export default function InstallationsPage() {
     key: "order",
     dir: "asc",
   });
+  useEffect(() => {
+    try {
+      const savedView = localStorage.getItem(INSTALL_VIEW_KEY);
+      if (savedView && INSTALL_VIEWS.some((v) => v.key === savedView)) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setView(savedView as InstallView);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     try {
       const saved = localStorage.getItem(PEND_COLS_KEY);
@@ -431,6 +462,14 @@ export default function InstallationsPage() {
       }
       return ordered;
     });
+  }
+  function chooseView(v: InstallView) {
+    setView(v);
+    try {
+      localStorage.setItem(INSTALL_VIEW_KEY, v);
+    } catch {
+      /* modo privado: la pestana simplemente no se recuerda */
+    }
   }
   function sortPend(key: string) {
     setPendSort((p) => (p.key === key ? { key, dir: p.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
@@ -864,6 +903,49 @@ export default function InstallationsPage() {
         </div>
       </div>
 
+      {/* Pestanas. Cada una responde una pregunta distinta, y llevan el
+          contador de lo que hay dentro para no tener que entrar a mirar. */}
+      <nav className="flex flex-wrap items-center gap-1 border-b border-slate-200">
+        {INSTALL_VIEWS.map((v) => {
+          const count =
+            v.key === "pending"
+              ? (data?.unscheduled.length ?? 0) + (data?.overdue.length ?? 0)
+              : v.key === "zones"
+                ? (data?.zones ?? []).reduce((a, z) => a + z.doors, 0) +
+                  (data?.zonesUnlocated?.doors ?? 0)
+                : v.key === "installers"
+                  ? (data?.installers.length ?? 0)
+                  : null;
+          return (
+            <button
+              key={v.key}
+              type="button"
+              onClick={() => chooseView(v.key)}
+              aria-current={view === v.key ? "page" : undefined}
+              className={cn(
+                "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition",
+                view === v.key
+                  ? "border-indigo-700 text-indigo-800"
+                  : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700",
+              )}
+            >
+              {v.label}
+              {count != null && count > 0 && (
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                    view === v.key ? "bg-indigo-100 text-indigo-800" : "bg-slate-100 text-slate-500",
+                  )}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      {view === "board" && (<>
       {/* On-hold counters, by cause — Majela's 2026-08-15 request: "arriba"
           ("va a estar eso recorrido en la parte superior"), independent of
           the week range below (holds aren't tied to a scheduled date). The
@@ -964,10 +1046,10 @@ export default function InstallationsPage() {
       {/* KPI tiles */}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <KpiTile
-          label="Total Installers"
-          value={fmtNum(summary?.totalInstallers ?? 0)}
-          hint="Active"
-          icon={Users}
+          label="Doors to Install"
+          value={fmtNum(summary?.doorsToInstall ?? 0)}
+          hint="In queue"
+          icon={FolderOpen}
           iconBg="bg-indigo-50"
           iconColor="text-indigo-700"
         />
@@ -980,14 +1062,6 @@ export default function InstallationsPage() {
           iconColor="text-sky-600"
         />
         <KpiTile
-          label="Doors to Install"
-          value={fmtNum(summary?.doorsToInstall ?? 0)}
-          hint="In range"
-          icon={FolderOpen}
-          iconBg="bg-amber-50"
-          iconColor="text-amber-600"
-        />
-        <KpiTile
           label="Installed"
           value={fmtNum(summary?.installedThisWeek ?? 0)}
           hint="In range"
@@ -995,16 +1069,30 @@ export default function InstallationsPage() {
           iconBg="bg-emerald-50"
           iconColor="text-emerald-600"
         />
+        {/* Los dos motivos de traba, como tarjeta y no como insignia dentro
+            del panel: son los numeros con los que ella decide a quien
+            llamar, y estaban a media pantalla de distancia. */}
         <KpiTile
-          label="Pending Installation"
-          value={fmtNum(summary?.pendingThisWeek ?? 0)}
-          hint="Remaining"
-          icon={PieIcon}
-          iconBg="bg-violet-50"
-          iconColor="text-violet-600"
+          label="Pending – Client"
+          value={fmtNum(data?.onHold.client.doorCount ?? 0)}
+          hint="Needs follow-up"
+          icon={UserRound}
+          iconBg="bg-amber-50"
+          iconColor="text-amber-600"
+        />
+        <KpiTile
+          label="On Hold – Dealer"
+          value={fmtNum(data?.onHold.dealer.doorCount ?? 0)}
+          hint="Dealer action"
+          icon={Wrench}
+          iconBg="bg-rose-50"
+          iconColor="text-rose-600"
         />
       </section>
 
+      </>)}
+
+      {(view === "board" || view === "pending") && (<>
       {/* Overdue — scheduled in the past but still not installed. Highest
           priority: these slip through both the weekly view (past week) and
           the Pending Scheduling panel (they have a date). */}
@@ -1320,6 +1408,9 @@ export default function InstallationsPage() {
         </section>
       )}
 
+      </>)}
+
+      {view === "board" && (<>
       {/* On hold, by cause — Majela's 2026-08-15 request (item 3): separate
           from Overdue / Pending Scheduling above ("no que sea overdue y
           pending schedule"), so a door blocked by the dealer never gets
@@ -1349,12 +1440,26 @@ export default function InstallationsPage() {
         onRelease={(o) => setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: true })}
       />
 
-      <ZonesPanel zones={data?.zones ?? []} unlocated={data?.zonesUnlocated} />
+      </>)}
+
+      {(view === "board" || view === "zones") && (
+        <ZonesPanel zones={data?.zones ?? []} unlocated={data?.zonesUnlocated} />
+      )}
 
       {/* Body */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-4 lg:grid-cols-12",
+          view !== "installers" && view !== "calendar" && "hidden",
+        )}
+      >
         {/* LEFT — installer assignments */}
-        <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100 lg:col-span-8">
+        <div
+          className={cn(
+            "overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100",
+            view === "installers" ? "lg:col-span-8" : "hidden",
+          )}
+        >
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3">
             <h3 className="flex items-center gap-1.5 font-semibold text-slate-800">
               Installers and Assignments
@@ -1545,8 +1650,14 @@ export default function InstallationsPage() {
         </div>
 
         {/* RIGHT — widgets */}
-        <div className="space-y-4 lg:col-span-4">
+        <div
+          className={cn(
+            "space-y-4",
+            view === "installers" ? "lg:col-span-4" : "lg:col-span-12",
+          )}
+        >
           {/* Installer Overview Donut */}
+          {view === "installers" && (<>
           <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
             <h3 className="mb-3 font-semibold text-slate-800">
               Installer Overview
@@ -1596,7 +1707,9 @@ export default function InstallationsPage() {
               </ul>
             </div>
           </div>
+          </>)}
 
+          {view === "calendar" && (<>
           {/* Weekly Installation Summary */}
           <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
             <h3 className="mb-2 font-semibold text-slate-800">
@@ -1681,6 +1794,9 @@ export default function InstallationsPage() {
             )}
           </div>
 
+          </>)}
+
+          {view === "installers" && (<>
           {/* Payment Summary */}
           <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
             <h3 className="mb-3 font-semibold text-slate-800">
@@ -1717,6 +1833,7 @@ export default function InstallationsPage() {
               Payments are calculated based on completed installations.
             </p>
           </div>
+          </>)}
         </div>
       </div>
     </div>
