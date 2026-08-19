@@ -504,6 +504,7 @@ export default function OrderDetailPage({
             client_phone: o.client_phone,
             client_email: o.client_email,
             client_address: o.client_address,
+            client_zip: (o.client_zip as string) || "",
             dealer_ref: o.dealer_ref,
             priv_ref: o.priv_ref,
             customer_po: o.customer_po,
