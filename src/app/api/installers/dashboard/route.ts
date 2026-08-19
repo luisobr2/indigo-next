@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
       client_phone?: string | false;
       client_address: string;
       install_distance_mi?: number;
-      install_direction?: string | false;
+      install_corridor?: string | false;
       install_range_id?: [number, string] | false;
       install_geo_approx?: boolean;
       installer_ids: number[];
@@ -124,7 +124,7 @@ export async function GET(req: NextRequest) {
           // el mismo dia. Se calculan en Odoo desde el ZIP -- ver
           // addons/indigo_decors/models/indigo_zip_geo.py.
           "install_distance_mi",
-          "install_direction",
+          "install_corridor",
           "install_range_id",
           "install_geo_approx",
         ],
@@ -185,7 +185,7 @@ export async function GET(req: NextRequest) {
           // el mismo dia. Se calculan en Odoo desde el ZIP -- ver
           // addons/indigo_decors/models/indigo_zip_geo.py.
           "install_distance_mi",
-          "install_direction",
+          "install_corridor",
           "install_range_id",
           "install_geo_approx",
         ],
@@ -230,7 +230,7 @@ export async function GET(req: NextRequest) {
           // el mismo dia. Se calculan en Odoo desde el ZIP -- ver
           // addons/indigo_decors/models/indigo_zip_geo.py.
           "install_distance_mi",
-          "install_direction",
+          "install_corridor",
           "install_range_id",
           "install_geo_approx",
         ],
@@ -416,7 +416,7 @@ export async function GET(req: NextRequest) {
     // y las en espera, y tres copias se desincronizan.
     const geoOf = (o: {
       install_distance_mi?: number;
-      install_direction?: string | false;
+      install_corridor?: string | false;
       install_range_id?: [number, string] | false;
       install_geo_approx?: boolean;
     }) => ({
@@ -424,7 +424,7 @@ export async function GET(req: NextRequest) {
       // aplanarlos invita a que alguno se pierda al copiar una forma de fila.
       geo: {
         distance_mi: typeof o.install_distance_mi === "number" ? o.install_distance_mi : null,
-        direction: (o.install_direction || null) as string | null,
+        corridor: (o.install_corridor || null) as string | null,
         range_id: Array.isArray(o.install_range_id) ? o.install_range_id[0] : null,
         range_name: Array.isArray(o.install_range_id) ? o.install_range_id[1] : null,
         geo_approx: !!o.install_geo_approx,
@@ -649,18 +649,34 @@ export async function GET(req: NextRequest) {
       kwargs: { order: "sequence" },
     });
 
+    // Se desglosa por rango Y POR LADO, no solo por rango. Majela lo pidio
+    // asi el 2026-08-19 y la razon es la unidad de trabajo: "35 millas para
+    // el norte no es compatible con 35 millas para el SUR". Un rango entero
+    // no es un dia armable; un rango + un lado si.
     const pendingForZones = [...unscheduled, ...overdue, ...onHold];
-    const zoneStats = new Map<number | null, { doors: number; orders: number; dirs: Set<string> }>();
+    type DirStat = { doors: number; orders: number };
+    const zoneStats = new Map<
+      number | null,
+      { doors: number; orders: number; byDir: Map<string, DirStat> }
+    >();
     for (const o of pendingForZones) {
       const key = Array.isArray(o.install_range_id) ? o.install_range_id[0] : null;
-      const bucket = zoneStats.get(key) ?? { doors: 0, orders: 0, dirs: new Set<string>() };
-      bucket.doors += o.door_count || 1;
+      const bucket = zoneStats.get(key) ?? { doors: 0, orders: 0, byDir: new Map<string, DirStat>() };
+      const doors = o.door_count || 1;
+      bucket.doors += doors;
       bucket.orders += 1;
-      if (o.install_direction) bucket.dirs.add(o.install_direction as string);
+      const dir = (o.install_corridor || "") as string;
+      if (dir) {
+        const d = bucket.byDir.get(dir) ?? { doors: 0, orders: 0 };
+        d.doors += doors;
+        d.orders += 1;
+        bucket.byDir.set(dir, d);
+      }
       zoneStats.set(key, bucket);
     }
 
-    const DIR_ORDER = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
+    // Orden del desempate: el mismo que uso Majela al definirlos.
+    const DIR_ORDER = ["S", "C", "W", "N", "SW"];
     const zones = zoneRanges.map((r) => {
       const st = zoneStats.get(r.id);
       return {
@@ -672,9 +688,17 @@ export async function GET(req: NextRequest) {
         color: r.color || "#64748b",
         doors: st?.doors ?? 0,
         orders: st?.orders ?? 0,
-        directions: [...(st?.dirs ?? [])].sort(
-          (a, b) => DIR_ORDER.indexOf(a) - DIR_ORDER.indexOf(b),
-        ),
+        // Ordenado por volumen, no por brujula: lo que se busca en esta
+        // lista es donde esta la carga para armar el dia mas rentable.
+        // El orden de la brujula solo desempata, para que no baile entre
+        // recargas cuando dos lados tienen lo mismo.
+        directions: [...(st?.byDir ?? new Map<string, DirStat>()).entries()]
+          .map(([code, d]) => ({ code, doors: d.doors, orders: d.orders }))
+          .sort(
+            (a, b) =>
+              b.doors - a.doors ||
+              DIR_ORDER.indexOf(a.code) - DIR_ORDER.indexOf(b.code),
+          ),
       };
     });
     // Las que no se pudieron ubicar van como una fila mas, nunca escondidas:

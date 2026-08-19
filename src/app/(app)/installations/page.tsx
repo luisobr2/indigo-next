@@ -72,7 +72,7 @@ import {
  *  el ZIP exacto no estaba y se resolvio por el prefijo del condado. */
 interface RowGeo {
   distance_mi: number | null;
-  direction: string | null;
+  corridor: string | null;
   range_id: number | null;
   range_name: string | null;
   geo_approx: boolean;
@@ -176,7 +176,10 @@ interface DashboardData {
     color: string;
     doors: number;
     orders: number;
-    directions: string[];
+    /** Desglose por lado dentro del rango. Cada entrada es una tanda armable:
+     *  "35 millas al norte" y "35 millas al sur" son el mismo rango pero
+     *  dias distintos. */
+    directions: Array<{ code: string; doors: number; orders: number }>;
   }>;
   zonesUnlocated: { doors: number; orders: number };
   days: Array<{
@@ -317,9 +320,9 @@ const PEND_COLUMNS: PendCol[] = [
       return (
         <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-700">
           {o.geo.range_name}
-          {o.geo.direction && (
+          {o.geo.corridor && (
             <span className="font-semibold text-slate-500">
-              ({DIRECTION_LABEL[o.geo.direction] ?? o.geo.direction})
+              ({CORRIDOR_LABEL[o.geo.corridor] ?? o.geo.corridor})
             </span>
           )}
         </span>
@@ -327,7 +330,7 @@ const PEND_COLUMNS: PendCol[] = [
     },
     print: (o) =>
       o.geo?.range_name
-        ? `${o.geo.range_name}${o.geo.direction ? ` (${DIRECTION_LABEL[o.geo.direction] ?? o.geo.direction})` : ""}`
+        ? `${o.geo.range_name}${o.geo.corridor ? ` (${CORRIDOR_LABEL[o.geo.corridor] ?? o.geo.corridor})` : ""}`
         : "Sin ubicar",
     sortVal: (o) => o.geo?.distance_mi ?? Number.MAX_SAFE_INTEGER,
   },
@@ -609,7 +612,7 @@ export default function InstallationsPage() {
       );
     }
     if (dirFilter !== "all") {
-      rows = rows.filter((o) => o.geo?.direction === dirFilter);
+      rows = rows.filter((o) => o.geo?.corridor === dirFilter);
     }
     if (!q.trim()) return rows;
     const needle = q.toLowerCase();
@@ -1306,13 +1309,13 @@ export default function InstallationsPage() {
                 )}
               </select>
               <select
-                aria-label="Filtrar por lado"
+                aria-label="Filtrar por corredor"
                 value={dirFilter}
                 onChange={(e) => setDirFilter(e.target.value)}
                 className="h-8 rounded-lg border border-amber-300 bg-white px-2 text-xs font-medium text-amber-800 focus-visible:outline-none"
               >
-                <option value="all">Todos los lados</option>
-                {Object.entries(DIRECTION_LABEL).map(([k, label]) => (
+                <option value="all">Todos los corredores</option>
+                {Object.entries(CORRIDOR_LABEL).map(([k, label]) => (
                   <option key={k} value={k}>{label}</option>
                 ))}
               </select>
@@ -1893,11 +1896,26 @@ function FragmentRows({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** Etiqueta legible de cada rumbo. Se muestran las iniciales en la tabla
- *  (donde el espacio manda) y el nombre completo en el panel. */
-const DIRECTION_LABEL: Record<string, string> = {
-  N: "Norte", NE: "Noreste", E: "Este", SE: "Sureste",
-  S: "Sur", SO: "Suroeste", O: "Oeste", NO: "Noroeste",
+/** Los cinco corredores de manejo que definio Majela el 2026-08-19. No son
+ *  rumbos de brujula: describen por que autopista se sale. Fort Myers y Doral
+ *  caen los dos "al oeste" y son viajes completamente distintos -- uno cruza
+ *  los Everglades por Alligator Alley y el otro esta a 17 millas. */
+const CORRIDOR_LABEL: Record<string, string> = {
+  S: "SOUTH",
+  C: "CENTRAL",
+  W: "WEST",
+  N: "NORTH",
+  SW: "SOUTHWEST",
+};
+
+/** Como se llega, en una linea. Es lo que hace util la etiqueta para quien
+ *  arma la ruta y todavia no se sabe los codigos de memoria. */
+const CORRIDOR_HINT: Record<string, string> = {
+  S: "South Miami-Dade y los Cayos",
+  C: "Miami y el área inmediata al taller",
+  W: "Doral, Sweetwater, Tamiami, Weston",
+  N: "I-95 / Turnpike hacia Broward y Palm Beach",
+  SW: "Costa oeste: Naples, Fort Myers",
 };
 
 /**
@@ -1999,7 +2017,8 @@ function ZonesPanel({
         </h3>
         <span className="text-xs text-slate-500">
           {totalDoors} puerta{totalDoors === 1 ? "" : "s"} pendiente
-          {totalDoors === 1 ? "" : "s"} · distancia estimada por carretera desde el taller
+          {totalDoors === 1 ? "" : "s"} · cada corredor es una tanda aparte: 35 millas
+          al norte y 35 al sur no son el mismo viaje
         </span>
       </div>
       <div className="overflow-x-auto">
@@ -2008,47 +2027,73 @@ function ZonesPanel({
             <tr>
               <th className="px-4 py-2.5">Zona / rango</th>
               <th className="px-4 py-2.5">Distancia</th>
-              <th className="px-4 py-2.5">Lados</th>
+              <th className="px-4 py-2.5">Corredor</th>
               <th className="px-4 py-2.5 text-right">Órdenes</th>
               <th className="px-4 py-2.5 text-right">Puertas</th>
             </tr>
           </thead>
           <tbody>
             {zones.map((z) => (
-              <tr key={z.id} className="border-t border-slate-100">
-                <td className="px-4 py-2.5">
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: z.color }}
-                    />
-                    <span>
-                      <span className="font-semibold text-slate-800">{z.name}</span>
-                      {z.short_name && (
-                        <span className="block text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                          {z.short_name}
-                        </span>
-                      )}
+              <FragmentRows key={z.id}>
+                {/* Cabecera del rango: el total. Debajo, una fila por lado --
+                    que es la tanda que de verdad se puede armar en un dia. */}
+                <tr className="border-t border-slate-200 bg-slate-50/70">
+                  <td className="px-4 py-2.5">
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: z.color }}
+                      />
+                      <span>
+                        <span className="font-semibold text-slate-800">{z.name}</span>
+                        {z.short_name && (
+                          <span className="block text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                            {z.short_name}
+                          </span>
+                        )}
+                      </span>
                     </span>
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 font-mono text-xs text-slate-600">
-                  {z.max_miles
-                    ? `${fmtNum(z.min_miles)} – ${fmtNum(z.max_miles)} mi`
-                    : `${fmtNum(z.min_miles)}+ mi`}
-                </td>
-                <td className="px-4 py-2.5 text-xs text-slate-600">
-                  {z.directions.length
-                    ? z.directions.map((d) => DIRECTION_LABEL[d] ?? d).join(" · ")
-                    : "—"}
-                </td>
-                <td className="px-4 py-2.5 text-right font-mono text-xs text-slate-500">
-                  {z.orders}
-                </td>
-                <td className="px-4 py-2.5 text-right font-mono text-sm font-semibold text-slate-800">
-                  {z.doors}
-                </td>
-              </tr>
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-slate-600">
+                    {z.max_miles
+                      ? `${fmtNum(z.min_miles)} – ${fmtNum(z.max_miles)} mi`
+                      : `${fmtNum(z.min_miles)}+ mi`}
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-slate-400">
+                    {z.directions.length > 1
+                      ? `${z.directions.length} corredores`
+                      : z.directions.length === 1
+                        ? "1 corredor"
+                        : "—"}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-xs text-slate-500">
+                    {z.orders}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-sm font-semibold text-slate-800">
+                    {z.doors}
+                  </td>
+                </tr>
+                {z.directions.map((d) => (
+                  <tr key={`${z.id}-${d.code}`} className="border-t border-slate-100">
+                    <td className="py-2 pl-11 pr-4 text-xs text-slate-400">↳</td>
+                    <td className="px-4 py-2" />
+                    <td className="px-4 py-2 text-sm font-medium text-slate-700">
+                      <span className="flex flex-col">
+                        <span>{CORRIDOR_LABEL[d.code] ?? d.code}</span>
+                        <span className="text-[10px] font-normal text-slate-400">
+                          {CORRIDOR_HINT[d.code] ?? ""}
+                        </span>
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-xs text-slate-500">
+                      {d.orders}
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-sm font-semibold text-slate-700">
+                      {d.doors}
+                    </td>
+                  </tr>
+                ))}
+              </FragmentRows>
             ))}
             {/* Nunca se esconden las que no se pudieron ubicar: si desaparecen,
                 el total deja de cuadrar con el resto del tablero y nadie sabe
