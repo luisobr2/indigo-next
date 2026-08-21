@@ -112,13 +112,19 @@ export async function GET(
     //    target stage code.
     interface TrackingVal {
       id: number;
-      field_desc: string;
       new_value_char: string | false;
       mail_message_id: [number, string] | false;
     }
-    // Match BOTH the English ("Stage") and Spanish ("Etapa") labels so a
-    // tenant running Odoo in es_ES doesn't lose the timeline. We OR the
-    // two clauses; everything else gets filtered out post-fetch.
+    // Filter on the TECHNICAL field name via field_id, not on a label.
+    //
+    // This used to match `field_desc` against "stage"/"etapa". Odoo 17's
+    // mail.tracking.value has no `field_desc` at all — the model exposes
+    // `field_id` (-> ir.model.fields) and `field_info` — so every one of
+    // these searches raised, ~98 times a day, and the .catch() below
+    // swallowed it. The order's change history has therefore been showing
+    // zero stage transitions; production holds 1,563 of them. Matching the
+    // technical name is also language-proof, which the label match was
+    // trying and failing to be.
     const trackings = await call<TrackingVal[]>({
       session: s.session,
       model: "mail.tracking.value",
@@ -127,14 +133,18 @@ export async function GET(
         [
           ["mail_message_id.model", "=", "indigo.order"],
           ["mail_message_id.res_id", "=", orderId],
-          "|",
-          ["field_desc", "ilike", "stage"],
-          ["field_desc", "ilike", "etapa"],
+          ["field_id.name", "=", "stage_id"],
         ],
-        ["id", "field_desc", "new_value_char", "mail_message_id"],
+        ["id", "new_value_char", "mail_message_id"],
       ],
       kwargs: { order: "id asc" },
-    }).catch(() => [] as TrackingVal[]);
+    }).catch((e) => {
+      // Still non-fatal — the timeline falls back to the explicit date
+      // fields below. But it is no longer SILENT: swallowing this is what
+      // hid a broken query for months.
+      console.error("[timeline] stage tracking read failed:", e);
+      return [] as TrackingVal[];
+    });
 
     // Need the message dates — read them in one go.
     const msgIds = Array.from(

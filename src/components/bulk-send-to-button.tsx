@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { STAGE_WIZARDS } from "./stage-wizard-modal";
 import { toast } from "sonner";
+import { writeWithNetworkRecovery } from "@/lib/resilient-write";
 import {
   Dialog,
   DialogContent,
@@ -168,20 +169,39 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
   async function send() {
     if (!target || !count) return;
     setBusy(true);
+    const stage = target;
+    // Same dead-connection recovery as the single-order Send To (see
+    // src/lib/resilient-write.ts): a flaky link used to turn straight into
+    // "N failed" here, with no retry and no way to tell a network drop
+    // apart from Odoo refusing the write.
     const results = await Promise.allSettled(
       orderIds.map((id) =>
-        fetch(`/api/orders/${id}/stage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            stage_id: target.id,
-            note,
-            source: `Bulk move (${count})`,
-          }),
-        }).then(async (r) => {
-          const j = await r.json();
-          if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
-          return j;
+        writeWithNetworkRecovery({
+          write: async () => {
+            const r = await fetch(`/api/orders/${id}/stage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                stage_id: stage.id,
+                note,
+                source: `Bulk move (${count})`,
+              }),
+            });
+            const text = await r.text();
+            let j: { ok?: boolean; error?: string } = {};
+            try {
+              j = text ? JSON.parse(text) : {};
+            } catch {
+              /* not JSON — fall through to the status-code message */
+            }
+            if (!r.ok || !j.ok) throw new Error(j.error || `Request failed (${r.status})`);
+          },
+          landed: async () => {
+            const r = await fetch(`/api/orders/${id}`, { cache: "no-store" });
+            if (!r.ok) return false;
+            const j = await r.json();
+            return j?.order?.stage_code === stage.code;
+          },
         }),
       ),
     );
@@ -195,9 +215,14 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
       return;
     }
     if (failed === count) {
-      toast.error(`All ${count} moves failed. Stage write rejected by Odoo.`, {
-        duration: 7000,
-      });
+      // Report the actual reason. Asserting "rejected by Odoo" was a guess,
+      // and a wrong one whenever the cause was the connection.
+      const first = results.find((r) => r.status === "rejected");
+      const reason =
+        first && first.status === "rejected" && first.reason instanceof Error
+          ? first.reason.message
+          : "Unknown error";
+      toast.error(`All ${count} moves failed. ${reason}`, { duration: 7000 });
       return;
     }
     const ok = count - failed;

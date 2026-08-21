@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { writeWithNetworkRecovery } from "@/lib/resilient-write";
 
 interface Stage {
   id: number;
@@ -92,19 +93,42 @@ export function SendToDropdown({
 
   async function send() {
     if (!target) return;
+    // Captured up front: the success path clears `target` before the toast
+    // resolves, and the retry below must post the SAME stage either way.
+    const stage = target;
     setBusy(true);
-    const promise = fetch(`/api/orders/${orderId}/stage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        stage_id: target.id,
-        note,
-        source: "Send To",
-      }),
-    })
-      .then(async (r) => {
-        const j = await r.json();
-        if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
+
+    const postStage = async () => {
+      const r = await fetch(`/api/orders/${orderId}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage_id: stage.id, note, source: "Send To" }),
+      });
+      // Parse defensively. A non-JSON body (an HTML error page, a bare
+      // "Method Not Allowed") used to escape as a raw SyntaxError; the
+      // status code is far more useful to whoever reads the toast.
+      const text = await r.text();
+      let j: { ok?: boolean; error?: string } = {};
+      try {
+        j = text ? JSON.parse(text) : {};
+      } catch {
+        /* not JSON — fall through to the status-code message */
+      }
+      if (!r.ok || !j.ok) throw new Error(j.error || `Request failed (${r.status})`);
+    };
+
+    // Asked only when the POST died on the wire, to tell "never arrived"
+    // apart from "arrived, response lost" — retrying the latter would
+    // append the note twice and post a second chatter line.
+    const landed = async () => {
+      const r = await fetch(`/api/orders/${orderId}`, { cache: "no-store" });
+      if (!r.ok) return false;
+      const j = await r.json();
+      return j?.order?.stage_code === stage.code;
+    };
+
+    const promise = writeWithNetworkRecovery({ write: postStage, landed })
+      .then(() => {
         qc.invalidateQueries({ queryKey: ["order", String(orderId)] });
         qc.invalidateQueries({ queryKey: ["order-timeline", orderId] });
         qc.invalidateQueries({ queryKey: ["order-activity", orderId] });
@@ -113,13 +137,12 @@ export function SendToDropdown({
         setOpen(false);
         setTarget(null);
         onSuccess?.();
-        return j;
       })
       .finally(() => setBusy(false));
 
     toast.promise(promise, {
-      loading: `Sending ${orderName} to ${target.name}…`,
-      success: `${orderName} → ${target.name}`,
+      loading: `Sending ${orderName} to ${stage.name}…`,
+      success: `${orderName} → ${stage.name}`,
       error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }

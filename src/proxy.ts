@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { installerRedirect } from "./lib/installer-guard.ts";
+import { authFailureFor } from "./lib/auth-gate.ts";
 import { decodeFreshUnverified } from "./lib/session-cookie-edge.ts";
 
 const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "indigo_session";
@@ -59,8 +60,18 @@ export function proxy(req: NextRequest) {
   // it waves the request through to a shell that can never actually load
   // data.
   if (!cookie || !decodeFreshUnverified(cookie.value, now)) {
+    // An API caller needs a machine-readable answer, not the login PAGE.
+    // Redirecting a POST here is actively harmful: a 307 preserves the
+    // method, the browser re-POSTs to /login, that answers 405 in plain
+    // text, and the caller's `await r.json()` blows up on it — which is
+    // exactly the incomprehensible error Majela hit on 2026-08-21. See
+    // ./lib/auth-gate.ts.
+    const failure = authFailureFor(pathname);
+    if (failure.kind === "json") {
+      return NextResponse.json(failure.body, { status: failure.status });
+    }
     const url = req.nextUrl.clone();
-    url.pathname = "/login";
+    url.pathname = failure.to;
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
