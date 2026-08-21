@@ -64,6 +64,10 @@ import type * as OdooTypes from "../odoo/types.ts";
 import { shopDateString } from "../shop-time.ts";
 import { requireSessionSecret } from "../odoo/session-cookie.ts";
 import { issueConfirmToken, verifyConfirmToken } from "./confirm.ts";
+// Also re-exported below — a bare `export ... from` does not bind these
+// locally, and this module raises them on nearly every path.
+import { McpToolError, mcpError, toMcpToolError } from "./errors.ts";
+import { QUERY_MODELS, planQuery, formatQueryRow, formatGroupRow } from "./query.ts";
 
 // Lazy import so this module can be loaded (and its pure exports tested)
 // in a plain `node --test` environment that doesn't resolve the `@/`
@@ -218,50 +222,10 @@ const TODAY_BOARD_LIMIT_SCHEMA_PROPERTY = {
 // here.
 // ---------------------------------------------------------------------
 
-export class McpToolError extends Error {
-  readonly code: string;
-  constructor(code: string, message: string) {
-    super(`[${code}] ${message}`);
-    this.name = "McpToolError";
-    this.code = code;
-  }
-}
-
-/** Builds a stable-coded, Spanish, actionable tool error. */
-export function mcpError(code: string, message: string): McpToolError {
-  return new McpToolError(code, message);
-}
-
-/**
- * Maps whatever a tool implementation throws onto the error contract.
- * `OdooRpcError.errorName` carries Odoo's own exception dotted name (see
- * src/lib/odoo/rpc.ts) — duck-typed on `.name`/`.errorName`/`.httpStatus`
- * rather than `instanceof` so this module doesn't need a top-level import
- * of rpc.ts (it only ever reaches Odoo through the lazy getRpc()).
- */
-export function toMcpToolError(e: unknown): McpToolError {
-  if (e instanceof McpToolError) return e;
-
-  if (e instanceof Error && e.name === "OdooRpcError") {
-    const err = e as Error & { errorName?: string; httpStatus?: number };
-    if (err.errorName === "TIMEOUT" || err.errorName === "NETWORK") {
-      return mcpError("TRANSITORIO", "Odoo no respondió a tiempo. Intenta de nuevo en unos segundos.");
-    }
-    if (typeof err.httpStatus === "number" && err.httpStatus >= 500) {
-      return mcpError("TRANSITORIO", "Odoo devolvió un error de servidor. Intenta de nuevo en unos segundos.");
-    }
-    if (err.errorName === "odoo.exceptions.AccessError") {
-      return mcpError("PERMISO_DENEGADO", "No tienes permiso en Odoo para ver estos datos.");
-    }
-    if (err.errorName === "odoo.exceptions.MissingError") {
-      return mcpError("NO_ENCONTRADO", "El registro solicitado ya no existe en Odoo.");
-    }
-    return mcpError("ERROR_ODOO", `Odoo devolvió un error: ${err.message}`);
-  }
-
-  const message = e instanceof Error ? e.message : "Error inesperado.";
-  return mcpError("ERROR_ODOO", message);
-}
+// Defined in ./errors.ts so query.ts can raise contract-shaped errors
+// without importing tools.ts back (cycle). Re-exported here because this
+// has always been their public home.
+export { McpToolError, mcpError, toMcpToolError };
 
 // ---------------------------------------------------------------------
 // Write-tool infrastructure — shared by all five reversible write tools
@@ -551,6 +515,70 @@ export const TOOL_DEFS: ToolDef[] = [
         limit: LIMIT_SCHEMA_PROPERTY,
         offset: OFFSET_SCHEMA_PROPERTY,
       },
+      additionalProperties: false,
+    },
+  },
+
+  {
+    name: "query_data",
+    title: "Ad-hoc data query",
+    description:
+      "Read-only structured query over the Indigo data, for questions the purpose-built tools don't answer — counts, group-bys, date ranges and sums. TRY THE OTHER TOOLS FIRST: today_board, find_orders and get_order are shaped around the shop's daily questions and are easier to get right; reach for this one for analysis ('cuántas órdenes por dealer pasaron por pintura en julio', '¿cuánto se le debe a cada instalador?', 'órdenes instaladas sin facturar'). Runs through Odoo as YOU, so you only ever see what your own Odoo permissions allow, and it can never write. Two modes: without `group_by` it returns matching records (`items`, plus `total`/`truncated` for paging with `offset`); with `group_by` it returns one bucket per distinct value, each carrying `count` and any `aggregate` you asked for. Many2one fields (dealer_id, stage_id, contractor_id…) come back as {id, name} and are filtered BY ID — resolve names to ids with list_stages / list_dealers / list_people first, never guess an id. " +
+      `Models: ${Object.entries(QUERY_MODELS).map(([m, s]) => `'${m}' — ${s.label}`).join("; ")}. ` +
+      "Call with only `model` first if you're unsure which fields exist: the default field set comes back, and any invalid field name is rejected with the full list of valid ones.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        model: {
+          type: "string",
+          enum: Object.keys(QUERY_MODELS),
+          description: "Which dataset to query. See the tool description for what each one holds.",
+        },
+        filters: {
+          type: "array",
+          description:
+            "Conditions, ANDed together. Each is {field, op, value}. Operators: '=', '!=', '>', '>=', '<', '<=' (numbers and dates only), 'in'/'not in' (value must be an array), 'ilike'/'not ilike' (case-insensitive partial match on text or on a many2one's name), 'set'/'not set' (field has / doesn't have a value — no `value` needed). Dates are 'YYYY-MM-DD' strings.",
+          items: {
+            type: "object",
+            properties: {
+              field: { type: "string", description: "Field name on the chosen model." },
+              op: { type: "string", description: "One of the operators listed above. Defaults to '='." },
+              value: { description: "The value to compare against. Omit only for 'set' / 'not set'." },
+            },
+            required: ["field"],
+          },
+        },
+        fields: {
+          type: "array",
+          items: { type: "string" },
+          description: "Which fields to return. Omit for the model's default set. `id` is always included. Ignored when `group_by` is set.",
+        },
+        group_by: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Group the results instead of listing them. One entry per level, e.g. ['dealer_id'] or ['dealer_id','stage_id']. A date field can carry a granularity: 'create_date:month' (also day, week, quarter, year). Every bucket comes back with a `count`.",
+        },
+        aggregate: {
+          type: "array",
+          description: "Numbers to compute per bucket. Each is {field, fn} with fn one of sum, avg, min, max. Requires `group_by`; counting needs no aggregate (every bucket already has `count`).",
+          items: {
+            type: "object",
+            properties: {
+              field: { type: "string", description: "A numeric field on the chosen model." },
+              fn: { type: "string", enum: ["sum", "avg", "min", "max"], description: "Which aggregate to compute." },
+            },
+            required: ["field", "fn"],
+          },
+        },
+        order: {
+          type: "string",
+          description: "Sort for record mode: 'field' or 'field asc|desc' (e.g. 'create_date desc'). Ignored when `group_by` is set — grouped results are ordered by the grouping.",
+        },
+        limit: LIMIT_SCHEMA_PROPERTY,
+        offset: OFFSET_SCHEMA_PROPERTY,
+      },
+      required: ["model"],
       additionalProperties: false,
     },
   },
@@ -1127,6 +1155,67 @@ async function listPeople(args: Record<string, unknown>, id: McpIdentity) {
 
   const items = people.slice(offset, offset + limit);
   return { items, total: people.length, truncated: offset + items.length < people.length };
+}
+
+/**
+ * query_data. All the validation — and therefore all the safety — lives in
+ * planQuery (./query.ts); by the time we get here the model, every field,
+ * every operator and every aggregate have been checked against the
+ * whitelist, so nothing the caller wrote reaches Odoo unexamined. What's
+ * left is two RPC shapes.
+ *
+ * search_read and read_group both run as the caller's own Odoo user, so
+ * record rules filter the result set before we ever see it.
+ */
+async function queryData(args: Record<string, unknown>, id: McpIdentity) {
+  const plan = planQuery(args);
+  const execute = await getRpc();
+
+  if (plan.mode === "groups") {
+    // lazy:false expands EVERY groupby level; the default (lazy:true) would
+    // silently expand only the first and quietly answer a different
+    // question than the one asked.
+    const [rows, matched] = await Promise.all([
+      execute<Record<string, unknown>[]>(
+        id.uid,
+        id.apiKey,
+        plan.model,
+        "read_group",
+        [plan.domain, plan.fields, plan.groupBy],
+        { limit: plan.limit, offset: plan.offset, lazy: false },
+      ),
+      execute<number>(id.uid, id.apiKey, plan.model, "search_count", [plan.domain], {}),
+    ]);
+    const groups = rows.map((r) => formatGroupRow(plan, r));
+    return {
+      model: plan.model,
+      grouped_by: plan.groupBy,
+      groups,
+      // How many records fed the buckets — a group count alone can't tell
+      // you whether the filter matched 3 orders or 3,000.
+      matched_records: matched,
+      truncated: groups.length >= plan.limit,
+    };
+  }
+
+  const [rows, total] = await Promise.all([
+    execute<Record<string, unknown>[]>(
+      id.uid,
+      id.apiKey,
+      plan.model,
+      "search_read",
+      [plan.domain, plan.fields],
+      { order: plan.order, limit: plan.limit, offset: plan.offset },
+    ),
+    execute<number>(id.uid, id.apiKey, plan.model, "search_count", [plan.domain], {}),
+  ]);
+  const items = rows.map((r) => formatQueryRow(plan.model, r));
+  return {
+    model: plan.model,
+    items,
+    total,
+    truncated: plan.offset + items.length < total,
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -2078,6 +2167,8 @@ async function dispatchTool(
       return listDesigns(args, id);
     case "list_people":
       return listPeople(args, id);
+    case "query_data":
+      return queryData(args, id);
     case "advance_order":
       return advanceOrder(args, id, now);
     case "assign_order":
