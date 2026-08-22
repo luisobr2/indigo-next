@@ -9,10 +9,31 @@ interface RateRow {
   id: number;
   name: string;
   contractor_type: "painter" | "installer" | "other";
+  /** partner this rule belongs to; false = the fallback rule for the type. */
+  partner_id: [number, string] | false;
   rate: number;
   rate_unit: "sqf" | "piece";
+  /** Floor for one worked day. 0 = no floor. With rate 0, this IS the day rate. */
+  daily_minimum: number;
+  /** Added ON TOP of the floor — travel money, not part of the guarantee. */
+  bonus_amount: number;
+  bonus_unit: "order" | "door";
   active: boolean;
 }
+
+/** Read once for the GET and again after a save — keep the two in step. */
+const RATE_FIELDS = [
+  "id",
+  "name",
+  "contractor_type",
+  "partner_id",
+  "rate",
+  "rate_unit",
+  "daily_minimum",
+  "bonus_amount",
+  "bonus_unit",
+  "active",
+];
 
 /** Parse a raw param string to a positive number, else fall back. */
 function numOr(v: string | undefined, fallback: number): number {
@@ -43,11 +64,8 @@ export async function GET() {
         session: s.session,
         model: "indigo.contractor.rate",
         method: "search_read",
-        args: [
-          [],
-          ["id", "name", "contractor_type", "rate", "rate_unit", "active"],
-        ],
-        kwargs: { order: "contractor_type, id", limit: 200 },
+        args: [[], RATE_FIELDS],
+        kwargs: { order: "contractor_type, partner_id, id", limit: 200 },
       }),
     ]);
 
@@ -70,7 +88,15 @@ export async function GET() {
 
 interface PutBody {
   capacities?: { cnc?: number; painting?: number; install?: number };
-  rates?: Array<Partial<RateRow> & { id?: number; _delete?: boolean }>;
+  rates?: Array<
+    Omit<Partial<RateRow>, "partner_id"> & {
+      id?: number;
+      _delete?: boolean;
+      /** Inbound it is a bare partner id (null clears it); Odoo reads it
+       *  back out as the [id, name] pair, hence the Omit above. */
+      partner_id?: number | null;
+    }
+  >;
 }
 
 /**
@@ -105,11 +131,19 @@ export async function PUT(req: NextRequest) {
     if (body.rates) {
       for (const r of body.rates) {
         if (r._delete) continue;
-        if (typeof r.rate === "number" && (!Number.isFinite(r.rate) || r.rate < 0)) {
-          return NextResponse.json(
-            { error: "Contractor rate can't be negative." },
-            { status: 400 },
-          );
+        // Every money field gets the same guard. A negative minimum or bonus
+        // would quietly subtract from what a contractor is owed.
+        for (const [label, value] of [
+          ["rate", r.rate],
+          ["daily minimum", r.daily_minimum],
+          ["bonus", r.bonus_amount],
+        ] as Array<[string, unknown]>) {
+          if (typeof value === "number" && (!Number.isFinite(value) || value < 0)) {
+            return NextResponse.json(
+              { error: `Contractor ${label} can't be negative.` },
+              { status: 400 },
+            );
+          }
         }
         if (!r.id && !(r.name && r.name.trim())) {
           return NextResponse.json(
@@ -153,8 +187,14 @@ export async function PUT(req: NextRequest) {
         const vals = {
           name: r.name,
           contractor_type: r.contractor_type,
+          // false clears it — that turns the row into the fallback rule
+          // for its contractor type, which is a legitimate thing to want.
+          partner_id: r.partner_id ?? false,
           rate: r.rate,
           rate_unit: r.rate_unit,
+          daily_minimum: r.daily_minimum ?? 0,
+          bonus_amount: r.bonus_amount ?? 0,
+          bonus_unit: r.bonus_unit ?? "order",
           active: r.active ?? true,
         };
         if (r.id) {
@@ -191,11 +231,8 @@ export async function PUT(req: NextRequest) {
         session: s.session,
         model: "indigo.contractor.rate",
         method: "search_read",
-        args: [
-          [],
-          ["id", "name", "contractor_type", "rate", "rate_unit", "active"],
-        ],
-        kwargs: { order: "contractor_type, id", limit: 200 },
+        args: [[], RATE_FIELDS],
+        kwargs: { order: "contractor_type, partner_id, id", limit: 200 },
       }),
     ]);
 

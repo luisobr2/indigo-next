@@ -38,9 +38,18 @@ interface RateRow {
   id: number;
   name: string;
   contractor_type: "painter" | "installer" | "other";
+  partner_id: [number, string] | false;
   rate: number;
   rate_unit: "sqf" | "piece";
+  daily_minimum: number;
+  bonus_amount: number;
+  bonus_unit: "order" | "door";
   active: boolean;
+}
+
+interface ContractorOption {
+  id: number;
+  name: string;
 }
 
 interface Capacities {
@@ -55,8 +64,13 @@ interface DraftRate {
   _delete?: boolean;
   name: string;
   contractor_type: "painter" | "installer" | "other";
+  /** null = the fallback rule, used by anyone without one of their own. */
+  partner_id: number | null;
   rate: number;
   rate_unit: "sqf" | "piece";
+  daily_minimum: number;
+  bonus_amount: number;
+  bonus_unit: "order" | "door";
   active: boolean;
 }
 
@@ -76,6 +90,20 @@ export default function SettingsPage() {
     },
   });
 
+  // Who a rule can belong to. Non-blocking: if this fails the rest of the
+  // page still works, the contractor picker just has nothing to offer.
+  const { data: people } = useQuery<{
+    painters: ContractorOption[];
+    installers: ContractorOption[];
+  }>({
+    queryKey: ["contractors"],
+    queryFn: async () => {
+      const r = await fetch("/api/contractors");
+      if (!r.ok) throw new Error("Failed to load contractors");
+      return r.json();
+    },
+  });
+
   const [caps, setCaps] = useState<Capacities>({ cnc: 8, painting: 200, install: 5 });
   const [rates, setRates] = useState<DraftRate[]>([]);
   const [saving, setSaving] = useState(false);
@@ -84,7 +112,13 @@ export default function SettingsPage() {
   useEffect(() => {
     if (data) {
       setCaps(data.capacities);
-      setRates(data.rates.map((r) => ({ ...r })));
+      // Odoo hands many2ones back as [id, name]; the draft carries the bare id.
+      setRates(
+        data.rates.map((r) => ({
+          ...r,
+          partner_id: Array.isArray(r.partner_id) ? r.partner_id[0] : null,
+        })),
+      );
       setDirty(false);
     }
   }, [data]);
@@ -105,8 +139,14 @@ export default function SettingsPage() {
         _tempId: Math.max(0, ...prev.map((r) => r._tempId ?? 0)) + 1,
         name: type === "painter" ? "New painter" : type === "installer" ? "New installer" : "New rate",
         contractor_type: type,
+        partner_id: null,
         rate: type === "painter" ? 8 : type === "installer" ? 35 : 0,
         rate_unit: type === "painter" ? "sqf" : "piece",
+        // A new installer rule starts with the shop's usual day floor rather
+        // than 0 — forgetting to set it is how someone gets underpaid.
+        daily_minimum: type === "installer" ? 150 : 0,
+        bonus_amount: 0,
+        bonus_unit: "order",
         active: true,
       },
     ]);
@@ -132,8 +172,12 @@ export default function SettingsPage() {
         _delete: r._delete,
         name: r.name,
         contractor_type: r.contractor_type,
+        partner_id: r.partner_id,
         rate: Number(r.rate) || 0,
         rate_unit: r.rate_unit,
+        daily_minimum: Number(r.daily_minimum) || 0,
+        bonus_amount: Number(r.bonus_amount) || 0,
+        bonus_unit: r.bonus_unit,
         active: r.active,
       })),
     };
@@ -267,6 +311,8 @@ export default function SettingsPage() {
           onUpdate={updateRate}
           onDelete={deleteRate}
           onAdd={() => addRate("installer")}
+          people={people?.installers ?? []}
+          showDayRule
         />
         {(others.length > 0) && (
           <RateGroup
@@ -485,6 +531,8 @@ function RateGroup({
   onUpdate,
   onDelete,
   onAdd,
+  people = [],
+  showDayRule = false,
 }: {
   title: string;
   icon: typeof Settings;
@@ -493,6 +541,11 @@ function RateGroup({
   onUpdate: (idx: number, patch: Partial<DraftRate>) => void;
   onDelete: (idx: number) => void;
   onAdd: () => void;
+  /** Contractors a rule can be pinned to. Empty = only a fallback rule. */
+  people?: ContractorOption[];
+  /** Installers are paid by the DAY, so their rules carry a floor and a
+   *  travel bonus. Painters are still paid straight per SQF. */
+  showDayRule?: boolean;
 }) {
   return (
     <div className="mt-6 first:mt-0">
@@ -545,6 +598,80 @@ function RateGroup({
                   <SelectItem value="piece">piece</SelectItem>
                 </SelectContent>
               </Select>
+              {showDayRule && (
+                <>
+                  <span className="text-slate-300">|</span>
+                  <span
+                    className="text-xs text-slate-500"
+                    title="Never pay less than this for a day with work. With the per-piece rate at 0, this IS the day rate."
+                  >
+                    min/day $
+                  </span>
+                  <Input
+                    type="number"
+                    value={r.daily_minimum}
+                    step={5}
+                    onChange={(e) =>
+                      onUpdate(i, { daily_minimum: Number(e.target.value) })
+                    }
+                    className="w-20 tabular-nums"
+                  />
+                  <span
+                    className="text-xs text-slate-500"
+                    title="Added on top of the minimum — travel money (gas, tolls)."
+                  >
+                    + bonus $
+                  </span>
+                  <Input
+                    type="number"
+                    value={r.bonus_amount}
+                    step={1}
+                    onChange={(e) =>
+                      onUpdate(i, { bonus_amount: Number(e.target.value) })
+                    }
+                    className="w-16 tabular-nums"
+                  />
+                  <Select
+                    value={r.bonus_unit}
+                    onValueChange={(v) =>
+                      onUpdate(i, { bonus_unit: v as "order" | "door" })
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-auto text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="order">per install</SelectItem>
+                      <SelectItem value="door">per door</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
+              {people.length > 0 && (
+                <>
+                  <span className="text-slate-300">|</span>
+                  <Select
+                    value={r.partner_id == null ? "__default__" : String(r.partner_id)}
+                    onValueChange={(v) =>
+                      onUpdate(i, {
+                        partner_id: v === "__default__" ? null : Number(v),
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-auto text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__default__">Everyone else</SelectItem>
+                      {people.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
               <label className="ml-2 flex items-center gap-1.5 text-xs text-slate-500">
                 <Checkbox
                   checked={r.active}
