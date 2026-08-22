@@ -24,11 +24,16 @@ import { ColumnsMenu } from "@/components/columns-menu";
 import { useColumnPrefs, sortRows } from "@/hooks/use-table-prefs";
 import { printTable } from "@/lib/print-table";
 import { fmtMoney, fmtNum } from "@/lib/utils";
+import { fetchJson } from "@/lib/fetch-json";
 import { colorLabel, doorTypeLabel } from "@/lib/labels";
 import { toCsv, downloadCsv } from "@/lib/csv";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 
-const PAINT_RATE = 8;
+/** Fallback ONLY for the first render, before /api/pay-rules answers. The
+ *  real number comes from the configured painter rule — this sheet is a
+ *  document the painter is paid from, so a stale literal here would be a
+ *  wrong figure in someone's hand. */
+const PAINT_RATE_PLACEHOLDER = 0;
 
 interface PaintRow {
   id: number;
@@ -67,7 +72,9 @@ interface PaintCol {
   print: (r: PaintRow) => string;
   sortVal?: (r: PaintRow) => string | number;
 }
-const PAINT_COLUMNS: PaintCol[] = [
+// Fabrica en vez de constante: las columnas de precio dependen de la
+// tarifa configurada, que se conoce recien despues del fetch.
+const buildPaintColumns = (PAINT_RATE: number): PaintCol[] => [
   {
     key: "company",
     label: "Company",
@@ -182,11 +189,24 @@ const PAINT_COLUMNS: PaintCol[] = [
     print: () => "",
   },
 ];
-const PAINT_COL_DEFAULT = PAINT_COLUMNS.map((c) => c.key);
+// Las claves no dependen de la tarifa; cualquier valor sirve para leerlas.
+const PAINT_COL_DEFAULT = buildPaintColumns(0).map((c) => c.key);
 const PAINT_COLS_KEY = "indigo:paint-cols";
 
 export default function PaintPage() {
   const qc = useQueryClient();
+  // La tarifa del pintor sale de la configuracion, nunca de una constante:
+  // si Majela la cambia en Settings, la hoja impresa tiene que cambiar con
+  // ella. Solo se devuelven las reglas que a esta persona le corresponde
+  // ver (ver /api/pay-rules).
+  const payRulesQ = useQuery<{ rules: Array<{ contractorType: string; partnerId: number | null; ratePerDoor: number }> }>({
+    queryKey: ["pay-rules"],
+    queryFn: () => fetchJson("/api/pay-rules"),
+  });
+  const PAINT_RATE =
+    payRulesQ.data?.rules.find((r) => r.contractorType === "painter" && r.partnerId === null)
+      ?.ratePerDoor ?? PAINT_RATE_PLACEHOLDER;
+  const PAINT_COLUMNS = useMemo(() => buildPaintColumns(PAINT_RATE), [PAINT_RATE]);
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [marking, setMarking] = useState(false);

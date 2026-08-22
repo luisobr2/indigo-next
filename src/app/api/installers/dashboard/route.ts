@@ -3,10 +3,9 @@ import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 import { deriveRole } from "@/lib/odoo/types";
 import { groupOrdersByHoldCause, type HoldCause } from "@/lib/installations/hold-groups";
+import { dayAmount, resolveRule, type PayRule } from "@/lib/pay-rules";
 
 export const runtime = "nodejs";
-
-const INSTALLER_RATE_PER_DOOR = 35;
 
 // Stages the dashboard counts as "Installations Pending". Kept in sync with
 // the Odoo dashboard model (PENDING_INSTALL_CODES) so the KPI on the
@@ -333,6 +332,7 @@ export async function GET(req: NextRequest) {
       installed: number;
       pending: number;
       paymentDue: number;
+      paymentForecast: number;
       orders: Array<{
         id: number;
         name: string;
@@ -356,6 +356,7 @@ export async function GET(req: NextRequest) {
       installed: 0,
       pending: 0,
       paymentDue: 0,
+      paymentForecast: 0,
       orders: [],
     };
 
@@ -392,6 +393,7 @@ export async function GET(req: NextRequest) {
             installed: 0,
             pending: 0,
             paymentDue: 0,
+            paymentForecast: 0,
             orders: [],
           };
           buckets.set(iid, bucket);
@@ -400,9 +402,6 @@ export async function GET(req: NextRequest) {
         if (status === "installed") bucket.installed += row.qty;
         else bucket.pending += row.qty;
         bucket.orders.push(row);
-        if (status === "installed") {
-          bucket.paymentDue += row.qty * INSTALLER_RATE_PER_DOOR;
-        }
       }
     }
 
@@ -410,6 +409,91 @@ export async function GET(req: NextRequest) {
       a.name.localeCompare(b.name),
     );
     if (unassigned.orders.length) installerBuckets.push(unassigned);
+
+    // ---- Plata -----------------------------------------------------
+    // Nada de multiplicar puertas por una tarifa: el instalador cobra por
+    // JORNADA, con su propio piso y su bono de viaje, asi que no existe
+    // un "por puerta" del que se pueda deducir el total.
+    //
+    // Lo YA TRABAJADO no se estima: Odoo calculo cada jornada y la
+    // escribio en indigo.payout. Se leen esos montos, que es la unica
+    // cifra que alguien va a cobrar.
+    //
+    // Lo PENDIENTE todavia no existe como liquidacion, asi que ahi si se
+    // proyecta -- con la misma formula, desde las reglas configuradas
+    // (src/lib/pay-rules.ts). Sirve para planificar: dos dias flojos
+    // pagan dos pisos, juntarlos en uno paga uno solo.
+    interface RateRow {
+      partner_id: [number, string] | false;
+      rate: number;
+      daily_minimum: number;
+      bonus_amount: number;
+      bonus_unit: "order" | "door";
+    }
+    interface PayoutRow {
+      contractor_id: [number, string] | false;
+      amount: number;
+    }
+    const [rateRows, weekPayouts] = await Promise.all([
+      call<RateRow[]>({
+        session: s.session,
+        model: "indigo.contractor.rate",
+        method: "search_read",
+        args: [
+          [["contractor_type", "=", "installer"], ["active", "=", true]],
+          ["partner_id", "rate", "daily_minimum", "bonus_amount", "bonus_unit"],
+        ],
+        kwargs: { limit: 100 },
+      }),
+      call<PayoutRow[]>({
+        session: s.session,
+        model: "indigo.payout",
+        method: "search_read",
+        args: [
+          [
+            ["contractor_type", "=", "installer"],
+            ["state", "!=", "cancel"],
+            ["work_date", ">=", startStr],
+            ["work_date", "<=", endStr],
+          ],
+          ["contractor_id", "amount"],
+        ],
+        kwargs: { limit: 500 },
+      }),
+    ]);
+
+    const payRules: PayRule[] = rateRows.map((r) => ({
+      partnerId: Array.isArray(r.partner_id) ? r.partner_id[0] : null,
+      ratePerDoor: r.rate,
+      dailyMinimum: r.daily_minimum,
+      bonusAmount: r.bonus_amount,
+      bonusUnit: r.bonus_unit,
+    }));
+
+    const earnedBy = new Map<number, number>();
+    for (const p of weekPayouts) {
+      if (!Array.isArray(p.contractor_id)) continue;
+      earnedBy.set(p.contractor_id[0], (earnedBy.get(p.contractor_id[0]) ?? 0) + p.amount);
+    }
+
+    for (const b of installerBuckets) {
+      b.paymentDue = earnedBy.get(b.id) ?? 0;
+      if (!b.id) continue; // el cajon de "sin asignar" no tiene a quien pagarle
+      const rule = resolveRule(payRules, b.id);
+      // Agrupado por dia: el piso es por jornada, no por orden.
+      const pendingByDay = new Map<string, { doors: number; installs: number }>();
+      for (const row of b.orders) {
+        if (row.status === "installed" || !row.scheduled_date) continue;
+        const d = pendingByDay.get(row.scheduled_date) ?? { doors: 0, installs: 0 };
+        d.doors += row.qty;
+        d.installs += 1;
+        pendingByDay.set(row.scheduled_date, d);
+      }
+      b.paymentForecast = [...pendingByDay.values()].reduce(
+        (sum, day) => sum + (dayAmount(rule, day) ?? 0),
+        0,
+      );
+    }
 
     // La geo que la pantalla necesita para agrupar por ruta. En un helper
     // porque la misma forma la consumen las filas por agendar, las vencidas
@@ -567,7 +651,9 @@ export async function GET(req: NextRequest) {
       .filter((o) => ["installed", "invoiced", "closed"].includes(o.stage_code))
       .reduce((s, o) => s + (o.door_count || 1), 0);
     const pendingThisWeek = totalDoors - installedThisWeek;
-    const paymentDue = installedThisWeek * INSTALLER_RATE_PER_DOOR;
+    // Lo que ya se gano esta semana, sumado de las liquidaciones reales.
+    const paymentDue = installerBuckets.reduce((s2, b) => s2 + b.paymentDue, 0);
+    const paymentForecast = installerBuckets.reduce((s2, b) => s2 + b.paymentForecast, 0);
 
     // Total installers = res.users members of the Installer / Instalador
     // group (mirrors the /api/contractors logic so the count is stable
@@ -715,7 +801,9 @@ export async function GET(req: NextRequest) {
       rangeEnd: endStr,
       truncated,
       totalInRange,
-      ratePerDoor: INSTALLER_RATE_PER_DOOR,
+      // Las reglas configuradas, para que la pantalla muestre COMO se paga
+      // en vez de una tarifa unica que ya no describe a nadie.
+      payRules,
       summary: {
         totalInstallers: totalInstallersCount,
         doorsToInstall: totalDoors,
@@ -723,6 +811,7 @@ export async function GET(req: NextRequest) {
         pendingThisWeek,
         scheduled: scheduledCount,
         paymentDue,
+        paymentForecast,
       },
       installers: installerBuckets,
       unscheduled: unscheduledRows,

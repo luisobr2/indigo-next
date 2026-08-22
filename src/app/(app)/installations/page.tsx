@@ -83,7 +83,13 @@ interface DashboardData {
   rangeEnd: string;
   truncated?: boolean;
   totalInRange?: number;
-  ratePerDoor: number;
+  payRules: Array<{
+    partnerId: number | null;
+    ratePerDoor: number;
+    dailyMinimum: number;
+    bonusAmount: number;
+    bonusUnit: "order" | "door";
+  }>;
   summary: {
     totalInstallers: number;
     doorsToInstall: number;
@@ -91,6 +97,7 @@ interface DashboardData {
     pendingThisWeek: number;
     scheduled: number;
     paymentDue: number;
+    paymentForecast: number;
   };
   installers: Array<{
     id: number;
@@ -1864,17 +1871,20 @@ export default function InstallationsPage() {
                   {summary?.installedThisWeek ?? 0} Doors
                 </dd>
               </div>
+              {/* Sin "Payment per Door": cada instalador tiene su propia
+                  regla (piso diario, bono de viaje) y uno de ellos no cobra
+                  por puerta en absoluto, asi que una tarifa unica mentiria. */}
               <div className="flex items-center justify-between text-slate-600">
                 <dt className="flex items-center gap-1.5">
                   <CircleDollarSign size={12} className="text-slate-400" />
-                  Payment per Door
+                  Still scheduled
                 </dt>
                 <dd className="font-semibold text-slate-900">
-                  ${data?.ratePerDoor.toFixed(2) ?? "0.00"}
+                  {fmtMoney(summary?.paymentForecast ?? 0)}
                 </dd>
               </div>
               <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-emerald-800">
-                <dt className="font-bold">Total Payment Due</dt>
+                <dt className="font-bold">Earned this week</dt>
                 <dd className="font-bold">
                   {fmtMoney(summary?.paymentDue ?? 0)}
                 </dd>
@@ -1882,7 +1892,10 @@ export default function InstallationsPage() {
             </dl>
             <p className="mt-3 flex items-center gap-1 text-[10px] text-slate-400">
               <Info size={9} />
-              Payments are calculated based on completed installations.
+              Earned comes from the settled day rates.{" "}
+              <Link href="/installers" className="underline hover:text-slate-600">
+                See it day by day
+              </Link>
             </p>
           </div>
           </>)}

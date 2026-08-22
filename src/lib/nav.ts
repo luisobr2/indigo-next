@@ -19,6 +19,7 @@ import {
   UserCog,
   DollarSign,
   type LucideIcon,
+  Wrench,
 } from "lucide-react";
 import type { SessionPayload } from "./odoo/types";
 import { deriveRole } from "./odoo/types";
@@ -45,6 +46,9 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/cnc-production", label: "CNC Production", icon: Hammer, show: (r) => allManagerOrOffice(r) || r.isCnc },
   { href: "/paint", label: "Paint", icon: Brush, show: (r) => allManagerOrOffice(r) || r.isPainter },
   { href: "/installations", label: "Installations", icon: Truck, show: allManagerOrOffice },
+  // Pay is gated the same as Installations: it puts every installer's
+  // compensation side by side, which specialists must not see.
+  { href: "/installers", label: "Installers", icon: Wrench, show: allManagerOrOffice },
   { href: "/calendar", label: "Calendar", icon: CalendarDays, show: allManagerOrOffice },
   { href: "/route-planner", label: "Route Planner", icon: Map, show: allManagerOrOffice },
   { href: "/billing", label: "Billing", icon: Receipt, show: allManagerOrOffice },
