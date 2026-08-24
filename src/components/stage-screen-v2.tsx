@@ -40,6 +40,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toCsv, downloadCsv } from "@/lib/csv";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 import { ColumnsMenu } from "@/components/columns-menu";
+import { TableRowsSkeleton } from "@/components/skeleton";
 import { useColumnPrefs } from "@/hooks/use-table-prefs";
 
 /* ------------------------------------------------------------------ */
@@ -1079,15 +1080,10 @@ function ListBody({
           </tr>
         </thead>
         <tbody>
+          {/* Un solo punto: esta tabla la comparten CNC, Design Approval,
+              Digitalization y Measurements. */}
           {loading && (
-            <tr>
-              <td
-                colSpan={5 + columns.length + (designPreview ? 1 : 0)}
-                className="p-12 text-center text-sm text-slate-400"
-              >
-                Loading…
-              </td>
-            </tr>
+            <TableRowsSkeleton rows={6} cols={5 + columns.length + (designPreview ? 1 : 0)} />
           )}
           {!loading && records.length === 0 && (
             <tr>

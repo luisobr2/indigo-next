@@ -34,6 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn, fmtNum } from "@/lib/utils";
 import { NewOrderFromDesignModal } from "@/components/new-order-from-design-modal";
+import { CardGridSkeleton } from "@/components/skeleton";
 
 interface FamilyVariant {
   id: number;
@@ -600,11 +601,7 @@ export default function CatalogPage() {
             </div>
           </div>
 
-          {isLoading && (
-            <div className="rounded-2xl bg-white p-10 text-center text-sm text-slate-400 shadow-sm ring-1 ring-slate-100">
-              Loading catalog…
-            </div>
-          )}
+          {isLoading && <CardGridSkeleton cards={6} />}
           {!isLoading && filtered.length === 0 && (
             <div className="rounded-2xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-100">
               <Heart size={28} className="mx-auto mb-2 text-slate-300" />

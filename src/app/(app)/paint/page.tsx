@@ -21,6 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { BulkSendToButton } from "@/components/bulk-send-to-button";
 import { QuickStageActionButton } from "@/components/quick-stage-action-button";
 import { ColumnsMenu } from "@/components/columns-menu";
+import { TableRowsSkeleton } from "@/components/skeleton";
 import { useColumnPrefs, sortRows } from "@/hooks/use-table-prefs";
 import { printTable } from "@/lib/print-table";
 import { fmtMoney, fmtNum } from "@/lib/utils";
@@ -529,13 +530,7 @@ export default function PaintPage() {
               </tr>
             </thead>
             <tbody>
-              {isLoading && (
-                <tr>
-                  <td colSpan={3 + visiblePaintCols.length} className="p-12 text-center text-slate-400">
-                    Loading...
-                  </td>
-                </tr>
-              )}
+              {isLoading && <TableRowsSkeleton rows={6} cols={3 + visiblePaintCols.length} />}
               {!isLoading && rows.length === 0 && (
                 <tr>
                   <td colSpan={3 + visiblePaintCols.length} className="p-12 text-center text-slate-400">

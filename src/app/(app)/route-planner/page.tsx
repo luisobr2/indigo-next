@@ -33,6 +33,7 @@ import {
 import { fmtDate, cn } from "@/lib/utils";
 import { fetchJson } from "@/lib/fetch-json";
 import { Button } from "@/components/ui/button";
+import { BoardSkeleton } from "@/components/skeleton";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 
 interface RouteOrder {
@@ -295,11 +296,7 @@ export default function RoutePlannerPage() {
             the ↑ ↓ buttons to reorder. The order here is what gets sent to
             WhatsApp and printed.
           </p>
-          {isLoading && (
-            <div className="py-12 text-center text-sm text-slate-400">
-              Loading...
-            </div>
-          )}
+          {isLoading && <BoardSkeleton kpis={3} rows={5} cols={5} rail={false} />}
           {isError && (
             <div className="py-12 text-center text-sm text-rose-600">
               Couldn&apos;t load scheduled stops. Refresh to try again.

@@ -164,3 +164,93 @@ export function BoardSkeleton({
     </div>
   );
 }
+
+/**
+ * Skeleton ROWS, for dropping inside a <tbody> that already exists.
+ *
+ * TableSkeleton renders its own <div> chrome, which cannot go inside a
+ * table. Most screens here already have the table markup and only need the
+ * body filled while the fetch is in flight, so this returns <tr>s and
+ * nothing else.
+ *
+ * `cols` should match the real column count: a skeleton with the wrong
+ * number of cells shifts the header widths and the table jumps anyway,
+ * which is the whole thing this exists to avoid.
+ */
+export function TableRowsSkeleton({
+  rows = 6,
+  cols = 5,
+  label = "Loading…",
+}: {
+  rows?: number;
+  cols?: number;
+  label?: string;
+}) {
+  return (
+    <>
+      <tr aria-busy="true" aria-live="polite">
+        <td className="p-0">
+          <span className="sr-only">{label}</span>
+        </td>
+      </tr>
+      {Array.from({ length: rows }).map((_, r) => (
+        <tr key={r} className="border-t border-slate-50">
+          {Array.from({ length: cols }).map((_, c) => (
+            <td key={c} className="px-3 py-2.5">
+              <Skeleton className={c === 0 ? "h-4 w-32" : "h-4 w-full"} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Card-grid loading shape, for screens that lay content out as tiles rather
+ * than rows (the catalog, the route planner's stops).
+ */
+export function CardGridSkeleton({ cards = 6 }: { cards?: number }) {
+  return (
+    <div
+      aria-busy="true"
+      aria-live="polite"
+      className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+    >
+      <span className="sr-only">Loading…</span>
+      {Array.from({ length: cards }).map((_, i) => (
+        <div key={i} className="space-y-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+          <Skeleton className="h-32 w-full rounded-xl" />
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-3 w-1/2" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Board columns, for the Kanban while its stages load. */
+export function KanbanSkeleton({ columns = 5, cards = 3 }: { columns?: number; cards?: number }) {
+  return (
+    <>
+      <span className="sr-only" aria-busy="true" aria-live="polite">
+        Loading board…
+      </span>
+      {Array.from({ length: columns }).map((_, c) => (
+        <div key={c} className="flex w-72 shrink-0 flex-col gap-2 rounded-2xl bg-slate-50/70 p-2">
+          <div className="flex items-center justify-between px-1 py-1">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-4 w-6 rounded-full" />
+          </div>
+          {Array.from({ length: cards }).map((_, i) => (
+            <div key={i} className="space-y-2 rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-100">
+              <Skeleton className="h-3 w-2/3" />
+              <Skeleton className="h-3 w-1/2" />
+              <Skeleton className="h-2.5 w-1/3" />
+            </div>
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}

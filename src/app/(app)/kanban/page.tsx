@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/state-cards";
 import { STAGE_WIZARDS } from "@/components/stage-wizard-modal";
+import { KanbanSkeleton } from "@/components/skeleton";
 
 interface Stage {
   id: number;
@@ -252,11 +253,7 @@ export default function KanbanPage() {
           onDragEnd={handleDragEnd}
         >
           <div className="flex h-full gap-3 pr-3">
-            {isLoading && !data && (
-              <div className="flex items-center justify-center px-6 text-sm text-slate-400">
-                Loading board…
-              </div>
-            )}
+            {isLoading && !data && <KanbanSkeleton columns={5} cards={3} />}
             {data?.stages.map((stage) => {
               const cards = cardsByStage[stage.id] ?? [];
               const isOver = draggingOver === stage.id;

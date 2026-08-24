@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/state-cards";
+import { BoardSkeleton } from "@/components/skeleton";
 import { fetchJson } from "@/lib/fetch-json";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -211,6 +212,13 @@ export default function SettingsPage() {
         onRetry={() => refetch()}
       />
     );
+  }
+
+  // Sin esto, mientras carga la lista de tarifas esta vacia y la pantalla
+  // AFIRMA "No painters configured yet" -- que es falso y ademas invita a
+  // crear duplicados de tarifas que ya existen.
+  if (isLoading && !data) {
+    return <BoardSkeleton kpis={3} rows={6} cols={4} rail={false} />;
   }
 
   const visibleRates = rates.map((r, i) => ({ r, i })).filter(({ r }) => !r._delete);

@@ -6,6 +6,7 @@ import { DollarSign, Search, Save, Info } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
 import { Button } from "@/components/ui/button";
+import { BoardSkeleton } from "@/components/skeleton";
 import { cn } from "@/lib/utils";
 
 interface MatrixRow {
@@ -170,9 +171,7 @@ export default function PricingPage() {
         </p>
       </div>
 
-      {isLoading && (
-        <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
-      )}
+      {isLoading && <BoardSkeleton kpis={3} rows={8} cols={5} rail={false} />}
       {isError && (
         <div className="py-16 text-center text-sm text-rose-600">
           Couldn&apos;t load pricing. Refresh to try again.

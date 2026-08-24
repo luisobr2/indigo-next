@@ -30,6 +30,7 @@ import {
   ScheduleOnDayModal,
   type PendingOrder,
 } from "@/components/schedule-on-day-modal";
+import { BoardSkeleton } from "@/components/skeleton";
 
 interface CalEvent {
   id: number;
@@ -236,9 +237,7 @@ export default function CalendarPage() {
           ))}
         </div>
 
-        {isLoading && (
-          <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
-        )}
+        {isLoading && <BoardSkeleton kpis={4} rows={6} cols={7} rail={false} />}
 
         {isError && (
           <div className="p-4">

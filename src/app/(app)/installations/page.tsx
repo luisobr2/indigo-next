@@ -55,6 +55,7 @@ import {
   DropdownMenuGroup,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
+import { TableRowsSkeleton } from "@/components/skeleton";
 import {
   BarChart,
   Bar,
@@ -1568,13 +1569,7 @@ export default function InstallationsPage() {
                 </tr>
               </thead>
               <tbody>
-                {isLoading && (
-                  <tr>
-                    <td colSpan={9} className="p-12 text-center text-xs text-slate-400">
-                      Loading…
-                    </td>
-                  </tr>
-                )}
+                {isLoading && <TableRowsSkeleton rows={6} cols={9} />}
                 {!isLoading && filteredInstallers.length === 0 && (
                   <tr>
                     <td colSpan={9} className="p-12 text-center text-xs text-slate-400">
