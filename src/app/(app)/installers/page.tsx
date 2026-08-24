@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
@@ -8,8 +8,6 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   CircleDollarSign,
   Download,
   DoorOpen,
@@ -20,10 +18,15 @@ import {
   Users,
 } from "lucide-react";
 import { fmtMoney, fmtNum, cn } from "@/lib/utils";
-import { toCsv, downloadCsv } from "@/lib/csv";
 import { fetchJson } from "@/lib/fetch-json";
 import { ErrorState } from "@/components/state-cards";
 import { Button } from "@/components/ui/button";
+import {
+  DateRangePicker,
+  formatRange,
+  weekOf,
+  type DateRange,
+} from "@/components/date-range-picker";
 import {
   Select,
   SelectContent,
@@ -139,17 +142,6 @@ const MODE_DOT: Record<WorkMode, string> = {
   guarantee: "bg-violet-500",
 };
 
-function mondayOf(d: Date): Date {
-  const x = new Date(d);
-  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 /** Built from the parts — `new Date("2026-08-17")` parses as UTC and shows
  *  the day before for anyone west of Greenwich, which is everyone here. */
 function parseYmd(s: string): Date {
@@ -166,11 +158,6 @@ function dayLabel(s: string): string {
   });
 }
 
-function rangeLabel(a: string, b: string): string {
-  const f = (s: string) => parseYmd(s).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  return `${f(a)} – ${f(b)}, ${parseYmd(b).getFullYear()}`;
-}
-
 /** How this person is paid, in one sentence, from their configured rule. */
 function ruleSentence(rule: Installer["rule"]): string {
   if (!rule) return "No payment rule configured.";
@@ -184,11 +171,8 @@ function ruleSentence(rule: Installer["rule"]): string {
 }
 
 export default function InstallersPage() {
-  const [monday, setMonday] = useState(() => mondayOf(new Date()));
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  const from = ymd(monday);
-  const to = ymd(sunday);
+  const [range, setRange] = useState<DateRange>(() => weekOf(new Date()));
+  const { from, to } = range;
 
   const [who, setWho] = useState("all");
   const [status, setStatus] = useState("all");
@@ -210,12 +194,6 @@ export default function InstallersPage() {
       .filter((i) => i.days.length > 0);
   }, [data, who, status]);
 
-  function shiftWeek(delta: number) {
-    const next = new Date(monday);
-    next.setDate(next.getDate() + delta * 7);
-    setMonday(mondayOf(next));
-  }
-
   function toggle(key: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -225,21 +203,9 @@ export default function InstallersPage() {
     });
   }
 
-  function exportCsv() {
-    const rows = shown.flatMap((i) => i.days.map((d) => ({ inst: i, d })));
-    const csv = toCsv(rows, [
-      { header: "Date", value: (r) => r.d.date },
-      { header: "Installer", value: (r) => r.inst.name },
-      { header: "Doors", value: (r) => r.d.doors },
-      { header: "Installs", value: (r) => r.d.installs },
-      { header: "Work Mode", value: (r) => MODE_LABEL[r.d.workMode] },
-      { header: "Incidents", value: (r) => r.d.incidents },
-      { header: "Notes", value: (r) => r.d.notes.join(" | ") },
-      { header: "Status", value: (r) => (r.d.status === "completed" ? "Completed" : "Scheduled") },
-      { header: "Amount (USD)", value: (r) => r.d.amount.toFixed(2) },
-    ]);
-    downloadCsv(`installer-pay-${from}_${to}.csv`, csv);
-  }
+  // El workbook se arma en el servidor desde el MISMO buildPayData que lee
+  // la pantalla, asi que un total exportado no puede discrepar del que se ve.
+  const exportHref = `/api/installers/pay/export?from=${from}&to=${to}`;
 
   const s = data?.summary;
 
@@ -253,25 +219,15 @@ export default function InstallersPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
-            <Button variant="ghost" size="icon-xs" onClick={() => shiftWeek(-1)} aria-label="Previous week">
-              <ChevronLeft size={16} />
-            </Button>
-            <span className="flex items-center gap-1.5 px-2 text-sm font-medium tabular-nums text-slate-700">
-              <CalendarDays size={14} className="text-slate-400" />
-              {rangeLabel(from, to)}
-            </span>
-            <Button variant="ghost" size="icon-xs" onClick={() => shiftWeek(1)} aria-label="Next week">
-              <ChevronRight size={16} />
-            </Button>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => setMonday(mondayOf(new Date()))}>
-            This week
-          </Button>
-          <Button variant="outline" size="sm" onClick={exportCsv} disabled={!shown.length}>
-            <Download size={14} />
-            Export CSV
-          </Button>
+          <DateRangePicker value={range} onChange={setRange} maxDays={92} />
+          <a
+            href={exportHref}
+            download
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+          >
+            <Download size={14} aria-hidden />
+            Export Excel
+          </a>
         </div>
       </header>
 
@@ -319,8 +275,15 @@ export default function InstallersPage() {
               <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
                 <h2 className="mr-auto text-sm font-semibold text-slate-800">Daily activity</h2>
                 <Select value={who} onValueChange={(v) => setWho(v ?? "all")}>
-                  <SelectTrigger className="h-8 w-auto text-xs">
-                    <SelectValue />
+                  <SelectTrigger className="h-8 w-auto text-xs" aria-label="Filter by installer">
+                    {/* Base UI pinta el VALOR crudo, no la etiqueta del item:
+                        con <SelectValue/> a secas el filtro decia "all". */}
+                    <SelectValue>
+                      {who === "all"
+                        ? "All installers"
+                        : (data.installers.find((i) => String(i.installerId) === who)?.name ??
+                           "All installers")}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All installers</SelectItem>
@@ -332,8 +295,14 @@ export default function InstallersPage() {
                   </SelectContent>
                 </Select>
                 <Select value={status} onValueChange={(v) => setStatus(v ?? "all")}>
-                  <SelectTrigger className="h-8 w-auto text-xs">
-                    <SelectValue />
+                  <SelectTrigger className="h-8 w-auto text-xs" aria-label="Filter by status">
+                    <SelectValue>
+                      {status === "all"
+                        ? "All status"
+                        : status === "completed"
+                          ? "Completed"
+                          : "Scheduled"}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All status</SelectItem>
@@ -345,7 +314,7 @@ export default function InstallersPage() {
 
               {shown.length === 0 ? (
                 <div className="px-4 py-12 text-center">
-                  <CalendarDays size={22} className="mx-auto mb-2 text-slate-300" />
+                  <CalendarDays size={22} className="mx-auto mb-2 text-slate-300" aria-hidden />
                   <p className="text-sm font-medium text-slate-600">
                     {data.installers.length === 0
                       ? "No installation days this week."
@@ -357,20 +326,20 @@ export default function InstallersPage() {
                   {data.installers.length === 0 && data.lastActivityDate && (
                     data.lastActivityDate < from ? (
                       <>
-                        <p className="mt-1 text-xs text-slate-400">
+                        <p className="mt-1 text-xs text-slate-500">
                           Last activity was {dayLabel(data.lastActivityDate)}.
                         </p>
                         <Button
                           variant="outline"
                           size="sm"
                           className="mt-3"
-                          onClick={() => setMonday(mondayOf(parseYmd(data.lastActivityDate!)))}
+                          onClick={() => setRange(weekOf(parseYmd(data.lastActivityDate!)))}
                         >
                           Go to that week
                         </Button>
                       </>
                     ) : (
-                      <p className="mt-1 text-xs text-slate-400">
+                      <p className="mt-1 text-xs text-slate-500">
                         A day shows up here once an order with that install date is
                         marked Installed — or as soon as one is scheduled.
                       </p>
@@ -380,15 +349,18 @@ export default function InstallersPage() {
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[820px] text-sm">
+                    <caption className="sr-only">
+                      Installer pay by day for {formatRange(range)}
+                    </caption>
                     <thead>
                       <tr className="border-b border-slate-100 text-left text-[10px] uppercase tracking-wide text-slate-400">
-                        <th className="px-4 py-2 font-medium">Date</th>
-                        <th className="px-3 py-2 font-medium">Doors</th>
-                        <th className="px-3 py-2 font-medium">Work mode</th>
-                        <th className="px-3 py-2 font-medium">Incidents</th>
-                        <th className="px-3 py-2 font-medium">Notes</th>
-                        <th className="px-3 py-2 font-medium">Status</th>
-                        <th className="px-4 py-2 text-right font-medium">Amount</th>
+                        <th scope="col" className="px-4 py-2 font-medium">Date</th>
+                        <th scope="col" className="px-3 py-2 font-medium">Doors</th>
+                        <th scope="col" className="px-3 py-2 font-medium">Work mode</th>
+                        <th scope="col" className="px-3 py-2 font-medium">Incidents</th>
+                        <th scope="col" className="px-3 py-2 font-medium">Notes</th>
+                        <th scope="col" className="px-3 py-2 font-medium">Status</th>
+                        <th scope="col" className="px-4 py-2 text-right font-medium">Amount</th>
                       </tr>
                     </thead>
                     {shown.map((inst) => (
@@ -396,7 +368,7 @@ export default function InstallersPage() {
                         <tr className="bg-slate-50/70">
                           <td colSpan={4} className="px-4 py-2">
                             <div className="flex items-center gap-2">
-                              <UserRound size={14} className="text-slate-400" />
+                              <UserRound size={14} className="text-slate-400" aria-hidden />
                               <span className="font-semibold text-slate-800">{inst.name}</span>
                               {inst.rule && !inst.rule.isOwn && (
                                 <span
@@ -406,7 +378,7 @@ export default function InstallersPage() {
                                   default rule
                                 </span>
                               )}
-                              <span className="truncate text-[11px] text-slate-400">
+                              <span className="truncate text-[11px] text-slate-500">
                                 {ruleSentence(inst.rule)}
                               </span>
                             </div>
@@ -426,14 +398,25 @@ export default function InstallersPage() {
                         </tr>
                         {inst.days.map((d) => {
                           const isOpen = expanded.has(d.key);
+                          const expandable = d.lines.length > 0;
                           return (
-                            <>
+                            <Fragment key={d.key}>
                               <tr
-                                key={d.key}
-                                onClick={() => d.lines.length && toggle(d.key)}
+                                onClick={() => expandable && toggle(d.key)}
+                                tabIndex={expandable ? 0 : undefined}
+                                role={expandable ? "button" : undefined}
+                                aria-expanded={expandable ? isOpen : undefined}
+                                onKeyDown={(e) => {
+                                  if (!expandable) return;
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    toggle(d.key);
+                                  }
+                                }}
                                 className={cn(
                                   "border-t border-slate-50",
-                                  d.lines.length && "cursor-pointer hover:bg-slate-50/60",
+                                  expandable &&
+                                    "cursor-pointer hover:bg-slate-50/60 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-600",
                                 )}
                               >
                                 <td className="whitespace-nowrap px-4 py-2 text-slate-700">
@@ -489,7 +472,7 @@ export default function InstallersPage() {
                                 </td>
                               </tr>
                               {isOpen && (
-                                <tr key={`${d.key}-x`} className="bg-slate-50/40">
+                                <tr className="bg-slate-50/40">
                                   <td colSpan={7} className="px-4 py-2">
                                     {/* Why the day paid what it paid. Without this,
                                         a $150 day for 3 doors is a number nobody
@@ -505,7 +488,7 @@ export default function InstallersPage() {
                                         >
                                           <span className="min-w-0 flex-1 truncate text-slate-600">
                                             {l.kind !== "work" && (
-                                              <Info size={11} className="mr-1 inline-block text-amber-600" />
+                                              <Info size={11} className="mr-1 inline-block text-amber-600" aria-hidden />
                                             )}
                                             {l.description}
                                           </span>
@@ -521,7 +504,7 @@ export default function InstallersPage() {
                                   </td>
                                 </tr>
                               )}
-                            </>
+                            </Fragment>
                           );
                         })}
                       </tbody>
@@ -631,13 +614,14 @@ export default function InstallersPage() {
               </h2>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] text-sm">
+                  <caption className="sr-only">Incidents reported in this period</caption>
                   <thead>
                     <tr className="border-b border-slate-100 text-left text-[10px] uppercase tracking-wide text-slate-400">
-                      <th className="px-4 py-2 font-medium">Date</th>
-                      <th className="px-3 py-2 font-medium">Order / Client</th>
-                      <th className="px-3 py-2 font-medium">Type</th>
-                      <th className="px-3 py-2 font-medium">Description</th>
-                      <th className="px-4 py-2 font-medium">Reported by</th>
+                      <th scope="col" className="px-4 py-2 font-medium">Date</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Order / Client</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Type</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Description</th>
+                      <th scope="col" className="px-4 py-2 font-medium">Reported by</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -703,7 +687,7 @@ function Kpi({
       <div className="min-w-0">
         <div className="truncate text-xs font-medium text-slate-500">{label}</div>
         <div className="text-xl font-semibold tabular-nums leading-tight text-slate-900">{value}</div>
-        <div className="truncate text-[11px] text-slate-400">{hint}</div>
+        <div className="truncate text-[11px] text-slate-500">{hint}</div>
       </div>
     </div>
   );
