@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleDollarSign,
+  BadgeCheck,
+  UserPlus,
   Download,
   DoorOpen,
   Info,
@@ -19,6 +21,16 @@ import {
 } from "lucide-react";
 import { fmtMoney, fmtNum, cn } from "@/lib/utils";
 import { fetchJson } from "@/lib/fetch-json";
+import { planSettle, costPerDoor } from "@/lib/installers/settle";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ErrorState } from "@/components/state-cards";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,6 +65,7 @@ interface PayDay {
   installs: number;
   amount: number;
   workMode: WorkMode;
+  payoutId: number | null;
   payoutName: string | null;
   payoutState: "draft" | "approved" | "paid" | "cancel" | null;
   orders: Array<{ id: number; name: string; client: string }>;
@@ -177,6 +190,17 @@ export default function InstallersPage() {
   const [who, setWho] = useState("all");
   const [status, setStatus] = useState("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [settling, setSettling] = useState<Installer | null>(null);
+  const [assigning, setAssigning] = useState<{ day: PayDay } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
+
+  // Solo se pide cuando hace falta elegir a alguien.
+  const { data: people } = useQuery<{ installers: Array<{ id: number; name: string }> }>({
+    queryKey: ["contractors"],
+    queryFn: () => fetchJson("/api/contractors"),
+    enabled: assigning !== null,
+  });
 
   const { data, isLoading, error, refetch } = useQuery<PayData>({
     queryKey: ["installer-pay", from, to],
@@ -206,6 +230,59 @@ export default function InstallersPage() {
   // El workbook se arma en el servidor desde el MISMO buildPayData que lee
   // la pantalla, asi que un total exportado no puede discrepar del que se ve.
   const exportHref = `/api/installers/pay/export?from=${from}&to=${to}`;
+
+  async function confirmSettle() {
+    if (!settling) return;
+    const plan = planSettle(settling);
+    setBusy(true);
+    try {
+      const r = await fetch("/api/billing/settle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "mark-paid", payoutIds: plan.payoutIds }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `Request failed (${r.status})`);
+      toast.success(`${settling.name}: ${plan.days} day${plan.days === 1 ? "" : "s"} marked paid`);
+      setSettling(null);
+      qc.invalidateQueries({ queryKey: ["installer-pay"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't mark it paid");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmAssign(installerId: number) {
+    if (!assigning) return;
+    setBusy(true);
+    try {
+      // Una orden por llamada: si una falla, se sabe cual.
+      const results = await Promise.allSettled(
+        assigning.day.orders.map((o) =>
+          fetch(`/api/orders/${o.id}/assign`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ installer_ids: [installerId] }),
+          }).then(async (r) => {
+            if (!r.ok) throw new Error(`${o.name}: ${r.status}`);
+          }),
+        ),
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed) {
+        toast.warning(`${assigning.day.orders.length - failed} of ${assigning.day.orders.length} assigned.`);
+      } else {
+        toast.success(`Assigned ${assigning.day.orders.length} order${assigning.day.orders.length === 1 ? "" : "s"}`);
+      }
+      setAssigning(null);
+      qc.invalidateQueries({ queryKey: ["installer-pay"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't assign");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const s = data?.summary;
 
@@ -386,14 +463,42 @@ export default function InstallersPage() {
                           <td colSpan={2} className="px-3 py-2 text-right text-xs text-slate-500">
                             {fmtNum(inst.doors)} doors · {inst.days.length} day
                             {inst.days.length === 1 ? "" : "s"}
-                          </td>
-                          <td className="px-4 py-2 text-right font-semibold tabular-nums text-slate-900">
-                            {fmtMoney(inst.total)}
-                            {inst.scheduledAmount > 0 && (
-                              <span className="ml-1 text-[11px] font-normal text-slate-400">
-                                +{fmtMoney(inst.scheduledAmount)}
+                            {/* Lo que el piso diario hizo visible: tres puertas
+                                en tres dias cuestan 150 cada una; seis en un
+                                dia, 35. Misma tarifa, distinta agenda. */}
+                            {costPerDoor(inst) !== null && (
+                              <span
+                                className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600"
+                                title="All-in cost of each installed door this period"
+                              >
+                                {fmtMoney(costPerDoor(inst)!)}/door
                               </span>
                             )}
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <span className="font-semibold tabular-nums text-slate-900">
+                                {fmtMoney(inst.total)}
+                                {inst.scheduledAmount > 0 && (
+                                  <span className="ml-1 text-[11px] font-normal text-slate-500">
+                                    +{fmtMoney(inst.scheduledAmount)}
+                                  </span>
+                                )}
+                              </span>
+                              {inst.installerId !== 0 && planSettle(inst).days > 0 && (
+                                <Button
+                                  variant="outline"
+                                  size="xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSettling(inst);
+                                  }}
+                                >
+                                  <BadgeCheck size={12} aria-hidden />
+                                  Pay
+                                </Button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                         {inst.days.map((d) => {
@@ -465,9 +570,28 @@ export default function InstallersPage() {
                                   </span>
                                 </td>
                                 <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-slate-900">
-                                  {fmtMoney(d.amount)}
-                                  {d.status === "scheduled" && (
-                                    <span className="ml-1 text-[10px] text-slate-400">est.</span>
+                                  {inst.installerId === 0 ? (
+                                    // La pantalla ya mostraba el trabajo sin
+                                    // asignar; sin esto habia que irse a la
+                                    // orden para poder hacer algo con el.
+                                    <Button
+                                      variant="outline"
+                                      size="xs"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAssigning({ day: d });
+                                      }}
+                                    >
+                                      <UserPlus size={12} aria-hidden />
+                                      Assign
+                                    </Button>
+                                  ) : (
+                                    <>
+                                      {fmtMoney(d.amount)}
+                                      {d.status === "scheduled" && (
+                                        <span className="ml-1 text-[10px] text-slate-500">est.</span>
+                                      )}
+                                    </>
                                   )}
                                 </td>
                               </tr>
@@ -660,6 +784,82 @@ export default function InstallersPage() {
           )}
         </>
       )}
+
+      {/* Marcar pagado mueve plata: el dialogo dice cuanto y cuantos dias
+          ANTES de confirmar, y de donde no sale (lo agendado). */}
+      <Dialog open={settling !== null} onOpenChange={(o) => !o && setSettling(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mark the week as paid</DialogTitle>
+            <DialogDescription>
+              {settling && (
+                <>
+                  This marks <b>{planSettle(settling).days}</b> worked day
+                  {planSettle(settling).days === 1 ? "" : "s"} for{" "}
+                  <b>{settling.name}</b> as paid, totalling{" "}
+                  <b>{fmtMoney(planSettle(settling).amount)}</b>.
+                  {settling.scheduledAmount > 0 && (
+                    <>
+                      {" "}
+                      Scheduled days are left out — nothing has been earned on them
+                      yet.
+                    </>
+                  )}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setSettling(null)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={confirmSettle} disabled={busy}>
+              {busy ? "Marking…" : "Mark as paid"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={assigning !== null} onOpenChange={(o) => !o && setAssigning(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign an installer</DialogTitle>
+            <DialogDescription>
+              {assigning && (
+                <>
+                  {assigning.day.orders.length} order
+                  {assigning.day.orders.length === 1 ? "" : "s"} scheduled for{" "}
+                  {dayLabel(assigning.day.date)}:{" "}
+                  {assigning.day.orders.map((o) => o.name).join(", ")}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="space-y-1">
+            {(people?.installers ?? []).map((p2) => (
+              <li key={p2.id}>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => confirmAssign(p2.id)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-600"
+                >
+                  {p2.name}
+                </button>
+              </li>
+            ))}
+            {people && people.installers.length === 0 && (
+              <li className="text-sm text-slate-500">No installers configured.</li>
+            )}
+            {!people && <li className="text-sm text-slate-500">Loading…</li>}
+          </ul>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setAssigning(null)} disabled={busy}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
