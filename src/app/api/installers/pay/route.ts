@@ -98,6 +98,22 @@ interface IncidentRow {
 /** Stages whose work is agreed but not done — no payout exists yet. */
 const SCHEDULED_CODES = ["ready_install", "install_scheduled"];
 
+/** Caps. `from`/`to` come off the query string, so nothing stops a caller
+ *  asking for two years. Every limit below is reported back as `truncated`
+ *  rather than silently dropping rows: this page adds up money, and a total
+ *  that quietly omitted half the week is worse than no total. */
+const MAX_RANGE_DAYS = 92;
+const PAYOUT_LIMIT = 500;
+const LINE_LIMIT = 3000;
+const ORDER_LIMIT = 500;
+const INCIDENT_LIMIT = 200;
+
+function daysBetween(a: string, b: string): number {
+  const [ay, am, ad] = a.split("-").map(Number);
+  const [by, bm, bd] = b.split("-").map(Number);
+  return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
+}
+
 export async function GET(req: NextRequest) {
   try {
     const s = await requireSession();
@@ -123,6 +139,12 @@ export async function GET(req: NextRequest) {
       startStr = ymd(monday);
       endStr = ymd(sunday);
     }
+    if (daysBetween(startStr, endStr) > MAX_RANGE_DAYS) {
+      return NextResponse.json(
+        { error: `Range too wide — ${MAX_RANGE_DAYS} days maximum.` },
+        { status: 400 },
+      );
+    }
 
     const [payouts, rateRows, scheduled] = await Promise.all([
       call<PayoutRow[]>({
@@ -138,7 +160,7 @@ export async function GET(req: NextRequest) {
           ],
           ["id", "name", "contractor_id", "work_date", "amount", "state"],
         ],
-        kwargs: { order: "work_date asc, id asc", limit: 500 },
+        kwargs: { order: "work_date asc, id asc", limit: PAYOUT_LIMIT },
       }),
       call<RateRow[]>({
         session: s.session,
@@ -162,7 +184,7 @@ export async function GET(req: NextRequest) {
           ],
           ["id", "name", "client_name", "notes", "door_count", "installation_date", "installer_ids", "stage_code", "incidence"],
         ],
-        kwargs: { limit: 500 },
+        kwargs: { limit: ORDER_LIMIT },
       }),
     ]);
 
@@ -176,7 +198,7 @@ export async function GET(req: NextRequest) {
             [["payout_id", "in", payoutIds]],
             ["id", "payout_id", "order_id", "line_kind", "description", "quantity", "rate", "amount"],
           ],
-          kwargs: { order: "line_kind, id", limit: 3000 },
+          kwargs: { order: "line_kind, id", limit: LINE_LIMIT },
         })
       : [];
 
@@ -212,7 +234,7 @@ export async function GET(req: NextRequest) {
           ],
           ["id", "order_id", "user_id", "date", "category", "description"],
         ],
-        kwargs: { order: "date desc", limit: 200 },
+        kwargs: { order: "date desc", limit: INCIDENT_LIMIT },
       }),
     ]);
 
@@ -367,7 +389,11 @@ export async function GET(req: NextRequest) {
     const scheduledByInstallerDay = new Map<string, { installerId: number; date: string; orders: OrderRow[]; doors: number }>();
     for (const o of scheduled) {
       if (!o.installation_date) continue;
-      for (const iid of o.installer_ids ?? []) {
+      // id 0 = nadie asignado. Sin esto el bucle no itera y el dia
+      // desaparece de la pantalla -- justo el trabajo que hay que
+      // accionar es el que quedaria invisible.
+      const targets = (o.installer_ids ?? []).length ? o.installer_ids : [0];
+      for (const iid of targets) {
         const key = `${iid}|${o.installation_date}`;
         const e = scheduledByInstallerDay.get(key) ?? {
           installerId: iid,
@@ -379,6 +405,8 @@ export async function GET(req: NextRequest) {
         // Shared order: each installer carries their share of the doors,
         // same split Odoo uses when it emits the payout.
         e.doors += (o.door_count || 1) / Math.max(o.installer_ids.length, 1);
+        // (con 0 instaladores el divisor es 1: las puertas van enteras al
+        //  cajon de "sin asignar")
         scheduledByInstallerDay.set(key, e);
       }
     }
@@ -386,7 +414,7 @@ export async function GET(req: NextRequest) {
     // Names for installers who only appear on scheduled work this week.
     const unknownIds = [...scheduledByInstallerDay.values()]
       .map((e) => e.installerId)
-      .filter((id) => !buckets.has(id));
+      .filter((id) => id !== 0 && !buckets.has(id));
     const names = unknownIds.length
       ? await call<Array<{ id: number; name: string }>>({
           session: s.session,
@@ -399,9 +427,14 @@ export async function GET(req: NextRequest) {
     const nameById = new Map(names.map((n) => [n.id, n.name]));
 
     for (const e of scheduledByInstallerDay.values()) {
-      const b = bucketFor(e.installerId, nameById.get(e.installerId) ?? "(unknown)");
+      const b = bucketFor(
+        e.installerId,
+        e.installerId === 0 ? "Nobody assigned" : (nameById.get(e.installerId) ?? "(unknown)"),
+      );
       const installs = e.orders.length;
-      const projected = dayAmount(b.rule, { doors: e.doors, installs }) ?? 0;
+      const projected = e.installerId === 0
+        ? 0 // no hay a quien pagarle todavia; el dia esta ahi para asignarlo
+        : (dayAmount(b.rule, { doors: e.doors, installs }) ?? 0);
       const perDoorTotal = (b.rule?.ratePerDoor ?? 0) * e.doors;
       const floor = b.rule?.dailyMinimum ?? 0;
       const workMode: WorkMode =
@@ -443,8 +476,28 @@ export async function GET(req: NextRequest) {
       for (const d of b.days) byMode[d.workMode] += d.doors;
     }
 
+    // Cuando la semana no tiene nada, la pantalla necesita poder decir
+    // "pero hay actividad hasta el X" en vez de dejar al usuario mirando
+    // ceros sin saber si el sistema fallo o si de verdad no se trabajo.
+    const lastSeen = await call<Array<{ work_date: string | false }>>({
+      session: s.session,
+      model: "indigo.payout",
+      method: "search_read",
+      args: [
+        [["contractor_type", "=", "installer"], ["state", "!=", "cancel"], ["work_date", "!=", false]],
+        ["work_date"],
+      ],
+      kwargs: { order: "work_date desc", limit: 1 },
+    });
+
+    const truncated =
+      payouts.length >= PAYOUT_LIMIT ||
+      lines.length >= LINE_LIMIT ||
+      scheduled.length >= ORDER_LIMIT ||
+      incidents.length >= INCIDENT_LIMIT;
+
     const summary = {
-      installers: installers.length,
+      installers: installers.filter((b) => b.installerId !== 0).length,
       daysWorked: installers.reduce((a, i) => a + i.days.filter((d) => d.status === "completed").length, 0),
       daysScheduled: installers.reduce((a, i) => a + i.days.filter((d) => d.status === "scheduled").length, 0),
       doors: installers.reduce((a, i) => a + i.doors, 0),
@@ -464,6 +517,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       rangeStart: startStr,
       rangeEnd: endStr,
+      // Si esto viene true, los totales de arriba estan incompletos y la
+      // pantalla tiene que decirlo: son numeros de plata.
+      truncated,
+      lastActivityDate: lastSeen[0]?.work_date || null,
+      rules: rateRows.map((r) => ({
+        partnerId: Array.isArray(r.partner_id) ? r.partner_id[0] : null,
+        partnerName: Array.isArray(r.partner_id) ? r.partner_id[1] : null,
+        ratePerDoor: r.rate,
+        dailyMinimum: r.daily_minimum,
+        bonusAmount: r.bonus_amount,
+        bonusUnit: r.bonus_unit,
+      })),
       summary,
       installers: installers.map((b) => ({
         ...b,

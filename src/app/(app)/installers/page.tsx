@@ -93,6 +93,16 @@ interface Incident {
 interface PayData {
   rangeStart: string;
   rangeEnd: string;
+  truncated: boolean;
+  lastActivityDate: string | null;
+  rules: Array<{
+    partnerId: number | null;
+    partnerName: string | null;
+    ratePerDoor: number;
+    dailyMinimum: number;
+    bonusAmount: number;
+    bonusUnit: "order" | "door";
+  }>;
   summary: {
     installers: number;
     daysWorked: number;
@@ -273,6 +283,15 @@ export default function InstallersPage() {
         </div>
       ) : !data ? null : (
         <>
+          {data.truncated && (
+            <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span>
+                This range hit the server limit, so the totals below are
+                incomplete. Narrow the dates to get exact figures.
+              </span>
+            </div>
+          )}
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Kpi icon={Users} tone="text-indigo-600" bg="bg-indigo-50" label="Installers" value={fmtNum(s!.installers)} hint="Worked this week" />
             <Kpi icon={DoorOpen} tone="text-emerald-600" bg="bg-emerald-50" label="Doors installed" value={fmtNum(s!.doorsInstalled)} hint={`${fmtNum(s!.daysWorked)} day${s!.daysWorked === 1 ? "" : "s"} worked`} />
@@ -325,9 +344,39 @@ export default function InstallersPage() {
               </div>
 
               {shown.length === 0 ? (
-                <p className="px-4 py-12 text-center text-sm text-slate-400">
-                  No installation days match this filter.
-                </p>
+                <div className="px-4 py-12 text-center">
+                  <CalendarDays size={22} className="mx-auto mb-2 text-slate-300" />
+                  <p className="text-sm font-medium text-slate-600">
+                    {data.installers.length === 0
+                      ? "No installation days this week."
+                      : "No days match this filter."}
+                  </p>
+                  {/* Una semana vacia sin contexto deja a la persona sin saber
+                      si el sistema fallo o si de verdad no se trabajo. Si hay
+                      actividad en otra semana, se dice y se lleva hasta ahi. */}
+                  {data.installers.length === 0 && data.lastActivityDate && (
+                    data.lastActivityDate < from ? (
+                      <>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Last activity was {dayLabel(data.lastActivityDate)}.
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3"
+                          onClick={() => setMonday(mondayOf(parseYmd(data.lastActivityDate!)))}
+                        >
+                          Go to that week
+                        </Button>
+                      </>
+                    ) : (
+                      <p className="mt-1 text-xs text-slate-400">
+                        A day shows up here once an order with that install date is
+                        marked Installed — or as soon as one is scheduled.
+                      </p>
+                    )
+                  )}
+                </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[820px] text-sm">
@@ -510,6 +559,27 @@ export default function InstallersPage() {
               </Panel>
 
               <Panel icon={CircleDollarSign} title="Payment rules">
+                {/* Los numeros configurados de verdad, no solo la leyenda:
+                    en una semana sin actividad esto es lo unico que la
+                    pantalla puede afirmar con certeza. */}
+                <ul className="mb-3 space-y-1.5 border-b border-slate-100 pb-3 text-xs">
+                  {data.rules.map((r) => (
+                    <li key={r.partnerId ?? "default"} className="flex flex-col">
+                      <span className="font-medium text-slate-700">
+                        {r.partnerName ?? "Everyone else"}
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        {ruleSentence({
+                          ratePerDoor: r.ratePerDoor,
+                          dailyMinimum: r.dailyMinimum,
+                          bonusAmount: r.bonusAmount,
+                          bonusUnit: r.bonusUnit,
+                          isOwn: r.partnerId !== null,
+                        })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
                 <ul className="space-y-2 text-[11px] leading-snug text-slate-500">
                   <li className="flex gap-2">
                     <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", MODE_DOT.per_door)} />
