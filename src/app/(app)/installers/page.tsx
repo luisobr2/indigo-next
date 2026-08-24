@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ErrorState } from "@/components/state-cards";
+import { BoardSkeleton } from "@/components/skeleton";
 import { Button } from "@/components/ui/button";
 import {
   DateRangePicker,
@@ -311,9 +312,7 @@ export default function InstallersPage() {
       {error ? (
         <ErrorState message="Couldn't load installer pay." onRetry={() => refetch()} />
       ) : isLoading ? (
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-400">
-          Loading…
-        </div>
+        <BoardSkeleton />
       ) : !data ? null : (
         <>
           {data.truncated && (
