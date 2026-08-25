@@ -961,43 +961,13 @@ export default function InstallationsPage() {
         })}
       </nav>
 
-      {view === "board" && (<>
-      {/* On-hold counters, by cause — Majela's 2026-08-15 request: "arriba"
-          ("va a estar eso recorrido en la parte superior"), independent of
-          the week range below (holds aren't tied to a scheduled date). The
-          label carries the meaning on its own (not just the color) so it
-          reads the same for anyone who can't easily tell blue from orange. */}
-      {data && (data.onHold.dealer.doorCount > 0 || data.onHold.client.doorCount > 0 || data.onHold.other.doorCount > 0) && (
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            On hold
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-bold text-sky-800">
-            <Building2 size={12} />
-            {holdCounterLabel("dealer", data.onHold.dealer.doorCount)}
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-bold text-orange-800">
-            <UserRound size={12} />
-            {holdCounterLabel("client", data.onHold.client.doorCount)}
-          </span>
-          {data.onHold.other.doorCount > 0 && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-              <HelpCircle size={12} />
-              {holdCounterLabel("other", data.onHold.other.doorCount)}
-            </span>
-          )}
-        </div>
-      )}
-
-      {data?.truncated && (
-        <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
-          <AlertTriangle size={15} className="flex-none text-amber-600" />
-          This range has {fmtNum(data.totalInRange ?? 0)} installations — more than
-          can be shown at once, so the KPIs and lists below are partial. Narrow the
-          date range for complete numbers.
-        </div>
-      )}
-
+      {/* Dialogos y barra masiva: FUERA de cualquier bloque de pestana.
+          Los botones que los abren estan repartidos por varias -- Reschedule
+          y Hold en "Por agendar", Reschedule en "Instaladores", "Add
+          installer" en la cabecera -- asi que montarlos dentro de
+          `view === "board"` hacia que en las demas el clic cambiara el
+          estado y no abriera nada: un boton que se ve, se puede pulsar, y no
+          hace absolutamente nada. Sin peticion, sin error, sin aviso. */}
       <AddInstallerModal
         open={addInstallerOpen}
         onClose={() => setAddInstallerOpen(false)}
@@ -1018,8 +988,10 @@ export default function InstallationsPage() {
       />
 
       {/* Bulk action bar — appears when orders are selected. Mark several as
-          Installed ("terminado") at once, or send them to another stage. */}
-      {selected.size > 0 && (
+          Installed ("terminado") at once, or send them to another stage.
+          Se muestra en las dos pestanas que tienen casillas: en "Por agendar"
+          se podian marcar filas y la barra no aparecia nunca. */}
+      {selected.size > 0 && (view === "board" || view === "pending") && (
         <div className="sticky top-2 z-20 flex flex-wrap items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 shadow-sm">
           <Badge variant="secondary" className="bg-indigo-100 text-xs font-bold uppercase tracking-wide text-indigo-700">
             {selected.size} selected
@@ -1056,6 +1028,43 @@ export default function InstallationsPage() {
           >
             Clear
           </button>
+        </div>
+      )}
+
+      {view === "board" && (<>
+      {/* On-hold counters, by cause — Majela's 2026-08-15 request: "arriba"
+          ("va a estar eso recorrido en la parte superior"), independent of
+          the week range below (holds aren't tied to a scheduled date). The
+          label carries the meaning on its own (not just the color) so it
+          reads the same for anyone who can't easily tell blue from orange. */}
+      {data && (data.onHold.dealer.doorCount > 0 || data.onHold.client.doorCount > 0 || data.onHold.other.doorCount > 0) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            On hold
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-bold text-sky-800">
+            <Building2 size={12} />
+            {holdCounterLabel("dealer", data.onHold.dealer.doorCount)}
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-bold text-orange-800">
+            <UserRound size={12} />
+            {holdCounterLabel("client", data.onHold.client.doorCount)}
+          </span>
+          {data.onHold.other.doorCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+              <HelpCircle size={12} />
+              {holdCounterLabel("other", data.onHold.other.doorCount)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {data?.truncated && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+          <AlertTriangle size={15} className="flex-none text-amber-600" />
+          This range has {fmtNum(data.totalInRange ?? 0)} installations — more than
+          can be shown at once, so the KPIs and lists below are partial. Narrow the
+          date range for complete numbers.
         </div>
       )}
 

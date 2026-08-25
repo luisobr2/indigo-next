@@ -58,17 +58,30 @@ export async function POST(
     }
 
     // Resolve the "Installation Scheduled" stage so the order leaves the
-    // pending bucket. If the stage can't be found (renamed/missing) we still
-    // set the date + installers and just skip the stage move.
+    // pending bucket.
+    //
+    // Esta lectura ya NO se traga los errores. Antes tenia un
+    // `.catch(() => [])` que confundia dos cosas muy distintas: que Odoo
+    // fallara al leer, y que la etapa no exista. En el primer caso se escribia
+    // fecha e instaladores, se saltaba el cambio de etapa y se devolvia
+    // `ok: true` igual -- el toast decia "Installation scheduled" y la orden
+    // se quedaba en la lista de pendientes, que es exactamente el sintoma que
+    // nadie relaciona con un fallo. Como esta lectura ocurre ANTES del write,
+    // dejarla lanzar no cuesta nada: no se escribio todavia, asi que el 500 es
+    // honesto y no deja la orden a medio agendar.
     const stages = await call<Array<{ id: number }>>({
       session: s.session,
       model: "indigo.stage",
       method: "search_read",
       args: [[["code", "=", "install_scheduled"]], ["id"]],
       kwargs: { limit: 1 },
-    }).catch(() => [] as Array<{ id: number }>);
-    if (stages[0]?.id) {
-      vals.stage_id = stages[0].id;
+    });
+    // Que la etapa no exista (renombrada, borrada) si es recuperable: la fecha
+    // y el instalador siguen valiendo. Pero se avisa, en vez de reportar un
+    // exito liso que esconde que la orden no se movio.
+    const stageId = stages[0]?.id;
+    if (stageId) {
+      vals.stage_id = stageId;
     }
 
     await call({
@@ -91,7 +104,16 @@ export async function POST(
       },
     }).catch(() => undefined);
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(
+      stageId
+        ? { ok: true }
+        : {
+            ok: true,
+            warning:
+              "Se guardo la fecha y el instalador, pero la etapa \"Installation Scheduled\" no existe, " +
+              "asi que la orden sigue en pendientes. Avisa a soporte.",
+          },
+    );
   } catch (e) {
     if (e instanceof Response) return e;
     return NextResponse.json(

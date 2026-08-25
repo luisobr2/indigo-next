@@ -109,12 +109,16 @@ export function ScheduleInstallationModal({
         qc.invalidateQueries({ queryKey: ["orders"] });
         qc.invalidateQueries({ queryKey: ["calendar"] });
         onClose();
+        // El servidor puede guardar la fecha y aun asi no haber podido mover
+        // la orden de etapa. Eso no es un exito liso: si se anuncia como tal,
+        // la orden se queda en pendientes y nadie sabe por que.
+        return j.warning as string | undefined;
       })
       .finally(() => setBusy(false));
 
     toast.promise(promise, {
       loading: "Scheduling…",
-      success: "Installation scheduled",
+      success: (warning) => warning ?? "Installation scheduled",
       error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }
