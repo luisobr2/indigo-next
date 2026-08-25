@@ -36,6 +36,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { NotificationsBell } from "@/components/notifications-bell";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface MeResponse {
   user: {
@@ -405,6 +406,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+            {/* Oculto en pantallas chicas: en el celular la barra ya va
+                apretada y el tema del telefono manda por defecto. */}
+            <ThemeToggle className="hidden sm:flex" />
             <NotificationsBell />
             <DropdownMenu>
               <DropdownMenuTrigger

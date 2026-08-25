@@ -22,10 +22,78 @@
 
 html,
 body {
-  background: #f4f6fb;
-  color: #1a2740;
+  background: var(--app-bg);
+  color: var(--app-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+
+/* ===================================================================
+   MODO OSCURO
+   -------------------------------------------------------------------
+   La app pinta con utilidades crudas -- bg-white, text-slate-900,
+   border-slate-200 -- repartidas en 1.520 lugares de 60 archivos, y sin
+   una sola clase `dark:`. Escribir la variante en cada una seria un mes
+   de trabajo, garantia de saltarse pantallas y el doble de mantenimiento
+   para siempre.
+   
+   Pero Tailwind v4 compila esas utilidades como
+   `background-color: var(--color-white)`, no con el hex adentro. Asi que
+   alcanza con REDEFINIR las variables aca: toda la app se da vuelta de
+   una, incluidas las pantallas que nadie vuelva a tocar.
+   
+   No es una inversion matematica. Invertir la escala da un gris lavado
+   que se lee mal; estos valores estan elegidos para un fondo oscuro:
+   superficies frias con algo de azul (la marca es azul), texto que no
+   llega al blanco puro (cansa) y bordes apenas visibles.
+   =================================================================== */
+:root {
+  --app-bg: #f4f6fb;
+  --app-ink: #1a2740;
+}
+
+.dark {
+  --app-bg: #0b1120;
+  --app-ink: #e8edf7;
+
+  /* --- Superficies. Lo que era papel ahora es fondo. --- */
+  --color-white: #131c30;      /* tarjetas, tablas, modales */
+  --color-slate-50: #0f1729;   /* franjas y cabeceras de tabla */
+  --color-slate-100: #1a2440;
+  --color-slate-200: #24304f;  /* bordes */
+  --color-slate-300: #2f3d61;
+
+  /* --- Texto. Se sube en la escala, no se invierte a ciegas. --- */
+  --color-slate-400: #7d8db0;  /* texto terciario, iconos apagados */
+  --color-slate-500: #98a7c6;  /* secundario */
+  --color-slate-600: #b3c0da;
+  --color-slate-700: #cbd5e9;
+  --color-slate-800: #dde5f3;
+  --color-slate-900: #eef2fa;  /* titulos */
+
+  /* --- Azul de marca: el #1f4486 no se lee sobre fondo oscuro, asi que
+         los pasos medios y oscuros se aclaran. Los claros pasan a ser
+         fondos tenues en vez de casi blancos. --- */
+  --color-indigo-50: #16203a;
+  --color-indigo-100: #1c2c4d;
+  --color-indigo-600: #7f9ddd;
+  --color-indigo-700: #94aee8;
+  --color-indigo-800: #a8bff0;
+
+  /* --- Tintes de estado. Sin esto los badges quedan como manchas claras
+         sobre el fondo oscuro: bg-emerald-50 seguiria siendo casi blanco. --- */
+  --color-emerald-50: #0d2a22;  --color-emerald-700: #6ee7b7;
+  --color-amber-50:   #2c2410;  --color-amber-700:   #fcd34d;
+  --color-amber-800:  #fde68a;
+  --color-rose-50:    #2d1420;  --color-rose-600:    #fb7185;
+  --color-rose-700:   #fda4af;
+  --color-sky-50:     #0d2233;  --color-sky-700:     #7dd3fc;
+  --color-violet-50:  #1e1733;  --color-violet-700:  #c4b5fd;
+  --color-red-50:     #2d1418;  --color-red-600:     #fb7185;
+
+  /* La barra de scroll fina tambien estaba fija. */
+  --scrollbar-thumb: #2f3d61;
 }
 
 @layer utilities {
@@ -37,7 +105,7 @@ body {
     height: 6px;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+    background: var(--scrollbar-thumb, #cbd5e1);
     border-radius: 999px;
   }
 }
