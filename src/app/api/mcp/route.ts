@@ -8,6 +8,7 @@ import {
 import { verifyMcpToken, isInternalUser, type McpIdentity } from "@/lib/mcp/token";
 import { checkRate, clientKeyFromHeaders } from "@/lib/mcp/rate-limit";
 import { TOOL_DEFS, runTool } from "@/lib/mcp/tools";
+import { issuerFrom } from "@/lib/mcp/oauth-issuer";
 
 export const runtime = "nodejs";
 
@@ -136,9 +137,19 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
   if (!verified) {
+    // `resource_metadata` es lo que arranca el flujo OAuth (RFC 9728): un
+    // cliente que llega sin credencial lee esta cabecera, va a buscar el
+    // documento, y de ahi saca donde registrarse y a donde mandar al usuario.
+    // Sin ella, un cliente que no sabe pegar un token a mano —Claude Desktop
+    // por conector, Cowork— se queda en el 401 sin saber que hay una puerta.
     return Response.json(
       { jsonrpc: "2.0", error: { code: -32001, message: "Token invalido." }, id: null },
-      { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="indigo-mcp"' } },
+      {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": `Bearer realm="indigo-mcp", resource_metadata="${issuerFrom(req)}/.well-known/oauth-protected-resource"`,
+        },
+      },
     );
   }
   // Rebound to a `const` of the non-null type: TypeScript won't carry the

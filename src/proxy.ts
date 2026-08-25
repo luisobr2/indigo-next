@@ -36,6 +36,21 @@ export function proxy(req: NextRequest) {
     // a fixed pair of literal comparisons, never startsWith("/api/mcp").
     pathname === "/api/mcp" ||
     pathname === "/api/mcp/" ||
+    // Flujo OAuth del MCP. Tiene que ser publico por definicion: son las
+    // puertas por las que alguien que TODAVIA no tiene sesion consigue
+    // credenciales. Dejarlas detras del gate las rompia de dos formas
+    // distintas y ninguna legible -- el descubrimiento (una peticion de
+    // servidor a servidor, sin cookie) recibia un 307 a la pagina de login,
+    // y /api/oauth/* devolvia el 401 JSON del gate en vez del error OAuth
+    // que el cliente sabe interpretar.
+    //
+    // Prefijo acotado con la barra final para que no exista un /api/oauthXYZ
+    // que quede exento por parecerse (la misma cautela que arriba con
+    // /api/mcp). El descubrimiento entra por su forma reescrita ademas de la
+    // literal, porque el rewrite de next.config.ts corre DESPUES de esto.
+    pathname.startsWith("/api/oauth/") ||
+    pathname.startsWith("/.well-known/oauth-") ||
+    pathname.startsWith("/well-known/oauth-") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname === "/"

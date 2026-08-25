@@ -13,6 +13,8 @@
  * flow — every subsequent tool call re-authenticates with the same
  * uid + apiKey pair via `execute_kw`.
  */
+import { OAUTH_TOKEN_PREFIX, readAccessToken } from "./oauth.ts";
+
 // Lazy import to allow loading in test environments that don't resolve @/ aliases
 async function getRpc() {
   const { rpcAuthenticate, rpcExecuteKw } = await import("@/lib/odoo/rpc");
@@ -53,9 +55,35 @@ export function isInternalUser(groups: string[]): boolean {
   return groups.includes(INTERNAL_USER_GROUP);
 }
 
+/**
+ * Convierte el header en el par login+clave con el que se llama a Odoo.
+ *
+ * Acepta las dos formas que puede tener un bearer aqui:
+ *
+ *   1. `<login>.<claveApi>` — la historica, la que se pega a mano.
+ *   2. `imcp_access.…` — un access token de OAuth, que lleva ese mismo par
+ *      cifrado dentro (ver ./oauth.ts).
+ *
+ * Que la traduccion viva aqui es lo que hace que OAuth no toque nada mas: de
+ * esta funcion para abajo —verifyMcpToken, las 13 herramientas, las ACL de
+ * Odoo— todo sigue viendo exactamente lo mismo que antes.
+ *
+ * El orden importa: primero se prueba OAuth. Un token de OAuth tambien tiene
+ * puntos, asi que si se partiera antes por el ultimo punto saldria un par
+ * absurdo que Odoo rechazaria, y el resultado seria un 401 en vez de una
+ * sesion valida.
+ */
 export function parseBearer(header: string | null): { login: string; apiKey: string } | null {
   if (!header) return null;
   const raw = header.trim().replace(/^Bearer\s+/i, "").trim();
+
+  if (raw.startsWith(OAUTH_TOKEN_PREFIX)) {
+    // Solo un access token. Un refresh token presentado aqui no vale: es
+    // credencial del endpoint /token, no del MCP, y readAccessToken lo
+    // rechaza por proposito.
+    return readAccessToken(raw, Date.now());
+  }
+
   // Split on the LAST dot: Odoo logins are emails and contain dots.
   const idx = raw.lastIndexOf(".");
   if (idx <= 0 || idx === raw.length - 1) return null;
