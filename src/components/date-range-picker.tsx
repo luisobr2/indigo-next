@@ -111,11 +111,24 @@ export function DateRangePicker({
   value,
   onChange,
   maxDays,
+  onClear,
+  className,
+  labelClassName,
 }: {
   value: DateRange;
   onChange: (r: DateRange) => void;
   /** Server-side cap, mirrored here so the user is told before they submit. */
   maxDays?: number;
+  /** Cuando se pasa, el desplegable ofrece "Any date" como primera opcion.
+   *  Es la forma de apagar el filtro sin sacar una X al lado: los demas
+   *  filtros de esa barra se apagan desde su propio desplegable, y una X
+   *  suelta solo para este seria una pieza que no existe en ningun otro. */
+  onClear?: () => void;
+  /** Para que el control pueda adoptar la altura y el radio de la barra de
+   *  filtros donde se monte. En Instaladores vive en su propia barra y no
+   *  necesita nada; en Ordenes tiene que igualar a los <select> de al lado. */
+  className?: string;
+  labelClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<DateRange>(value);
@@ -144,7 +157,12 @@ export function DateRangePicker({
   }
 
   return (
-    <div className="relative flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
+    <div
+      className={cn(
+        "relative flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1",
+        className,
+      )}
+    >
       <Button variant="ghost" size="icon-xs" onClick={() => step(-1)} aria-label="Previous period">
         <ChevronLeft size={16} />
       </Button>
@@ -160,9 +178,12 @@ export function DateRangePicker({
         }}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="flex items-center gap-1.5 rounded px-2 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+        className={cn(
+          "flex items-center gap-1.5 rounded px-2 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600",
+          labelClassName,
+        )}
       >
-        <CalendarDays size={14} className="text-slate-500" />
+        <CalendarDays size={14} className="text-current opacity-60" />
         {formatRange(value)}
       </button>
 
@@ -184,6 +205,20 @@ export function DateRangePicker({
             }}
           >
             <ul className="mb-3 space-y-0.5">
+              {onClear && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClear();
+                      setOpen(false);
+                    }}
+                    className="w-full rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-600"
+                  >
+                    Any date
+                  </button>
+                </li>
+              )}
               {PRESETS.map((p) => (
                 <li key={p.id}>
                   <button

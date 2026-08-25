@@ -23,7 +23,6 @@ import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
 import { paymentLabel, STAGE_BADGE } from "@/lib/labels";
 import {
   DateRangePicker,
-  formatRange,
   type DateRange,
 } from "@/components/date-range-picker";
 import { TableSkeleton } from "@/components/skeleton";
@@ -884,29 +883,27 @@ function OrdersInner() {
           />
 
           {/* Rango de fechas de la orden.
-              Arranca APAGADO y no con un rango por defecto: la pantalla de
-              ordenes es la que se abre para buscar cualquier cosa, y entrar
-              con un mes ya puesto escondia ordenes sin que nadie lo pidiera.
-              Mientras no se active, el boton ocupa lo que ocupa un filtro y
-              nada mas. */}
+
+              Tiene que verse como los <select> de al lado o parece pegado de
+              otra pantalla: misma altura (h-11), mismo radio (rounded-xl), y
+              el mismo azul de "filtro activo" que ellos usan. Se apaga desde
+              su propio desplegable ("Any date"), como los demas se apagan
+              eligiendo "any" -- no con una X suelta que ningun otro tiene.
+
+              Arranca APAGADO y no con un rango por defecto: esta es la
+              pantalla que se abre para buscar cualquier cosa, y entrar con un
+              mes ya puesto escondia ordenes sin que nadie lo pidiera. */}
           {range ? (
-            <div className="flex items-center gap-1">
-              <DateRangePicker value={range} onChange={setRange} />
-              <button
-                type="button"
-                onClick={() => setRange(null)}
-                aria-label={`Quitar el filtro de fechas (${formatRange(range)})`}
-                title="Quitar el filtro de fechas"
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              >
-                <X size={14} />
-              </button>
-            </div>
+            <DateRangePicker
+              value={range}
+              onChange={setRange}
+              onClear={() => setRange(null)}
+              className="h-11 rounded-xl border-indigo-200 px-1"
+              labelClassName="font-semibold text-indigo-700"
+            />
           ) : (
-            <Button
+            <button
               type="button"
-              variant="outline"
-              size="sm"
               onClick={() => {
                 // Arranca en el mes en curso: es el rango que mas se pide y
                 // deja claro de un vistazo que el filtro ya esta actuando.
@@ -916,11 +913,12 @@ function OrdersInner() {
                   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
                 setRange({ from: ymd(first), to: ymd(now) });
               }}
-              className="gap-1.5 text-slate-600"
+              style={{ width: "180px" }}
+              className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white pl-3.5 pr-3 text-left text-sm text-slate-700 transition hover:border-slate-300 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
             >
-              <CalendarDays size={14} />
-              Date range
-            </Button>
+              <span className="flex-1">Date: any</span>
+              <CalendarDays size={16} className="text-slate-400" />
+            </button>
           )}
 
           <FilterSelect
