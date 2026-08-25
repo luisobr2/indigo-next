@@ -27,6 +27,7 @@ import { NextResponse } from "next/server";
 
 import { rpcAuthenticate, rpcExecuteKw } from "@/lib/odoo/rpc";
 import { issueAuthCode, readClientId, redirectUriAllowed } from "@/lib/mcp/oauth";
+import { checkRate, clientKeyFromHeaders } from "@/lib/mcp/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -200,6 +201,22 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  // Mismo freno que el endpoint del MCP, y por la misma razon: cada intento
+  // aqui cuesta una autenticacion contra un Odoo que corre con un solo worker
+  // compartido con la tienda y el portal de dealers. Ademas esto es un
+  // formulario de acceso, o sea la superficie de fuerza bruta obvia. Odoo trae
+  // su propio enfriamiento tras varios fallos, pero eso protege la CUENTA; el
+  // servidor hay que protegerlo aparte, porque diez mil intentos contra
+  // logins distintos no disparan ningun enfriamiento y aun asi lo tumban.
+  const rate = checkRate(`oauth:${clientKeyFromHeaders(req.headers)}`, Date.now());
+  if (!rate.ok) {
+    return humanError(
+      "Demasiados intentos",
+      "Espera unos segundos y vuelve a intentarlo.",
+      429,
+    );
+  }
+
   const body = await req.formData();
   const get = (k: string) => String(body.get(k) ?? "");
 

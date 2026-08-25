@@ -56,15 +56,32 @@ ventana: también el icono de la bandeja) y volver a abrirlo.
 | **Claude Code** | HTTP directo. Acepta el header, no necesita nada más. |
 | **Codex** | HTTP directo. El token lo lee de la variable `INDIGO_MCP_TOKEN`. |
 | **Claude Desktop** | **Necesita un puente.** Solo sabe arrancar programas que hablan por stdio, así que en el medio corre `mcp-remote`, instalado en `C:\MCPS\indigo-mcp`. |
-| **Cowork** | **No funciona todavía.** Ver abajo. |
+| **Cowork y cualquier alta por conector** | Pegás la URL y listo: el servidor habla OAuth. Ver abajo. |
 
-### Cowork: por ahora no
+---
 
-Cowork corre del lado de Anthropic, así que no hay dónde levantar el puente, y
-su alta de conectores negocia por OAuth — que este servidor **no publica**
-(`/.well-known/oauth-authorization-server` redirige al login del panel). Pegar
-la URL ahí no va a funcionar. Habilitarlo es un trabajo aparte: montar OAuth
-sobre la sesión que el panel ya tiene.
+## Sin token: entrar con tu usuario de siempre (OAuth)
+
+Desde el 2026-08-25 no hace falta token para los clientes que saben negociarlo
+solos. Pegás **la URL y nada más**:
+
+```
+https://app.indigodecors.com/api/mcp
+```
+
+El cliente descubre por su cuenta que hay que autenticarse, te abre una
+pantalla de Indigo, entrás con **tu correo y tu contraseña de Odoo** — los de
+siempre — y ya está. No hay nada que copiar ni que pegar, y no hay ningún
+token que se te pueda escapar por WhatsApp.
+
+Por debajo, esa pantalla te emite una clave API a tu nombre. La ves en Odoo
+(*Mi perfil → Seguridad de la cuenta*) como **"MCP OAuth - <nombre del
+cliente>"**, y borrarla ahí corta el acceso de ese cliente al instante. Es la
+misma revocación de siempre.
+
+Lo que sigue en esta nota —tokens pegados a mano, el script, el puente— sigue
+funcionando y es lo que usan Codex y Claude Code. Para Claude Desktop conectado
+como conector, y para Cowork, este camino es mejor.
 
 ### Si lo configurás a mano en Claude Desktop
 
@@ -168,6 +185,18 @@ por dealer o por cliente — en vez de tomar esa lista como completa.
 - **Emitir una clave para alguien sin pasar por la UI:** `res.users.apikeys`
   `.with_user(u)._generate("rpc", "<nombre>", False)` en `odoo shell`, y
   `env.cr.commit()` — el shell no commitea solo.
+- **Re-verificar el flujo OAuth:** `node scripts/mcp-oauth-eval.mjs` con
+  `OAUTH_URL`, `OAUTH_LOGIN` y `OAUTH_PASSWORD`. 27 comprobaciones, y la mitad
+  son casos que TIENEN que fallar (verifier equivocado, redirect_uri no
+  declarada, PKCE plain, refresh token usado como access token). Cada corrida
+  emite una clave real llamada `MCP OAuth - eval`; conviene borrarlas.
+- **Sin almacenamiento:** no hay tabla de clientes, codigos ni tokens. Todo va
+  cifrado con una clave derivada de `SESSION_SECRET`. Consecuencia a tener
+  presente: **rotar `SESSION_SECRET` invalida todas las conexiones OAuth de
+  golpe** (y todas las sesiones del panel). Los clientes vuelven a pedir login;
+  no se pierde nada, pero hay que avisar.
+- **Las claves emitidas por OAuth** se llaman `MCP OAuth - <cliente>`. Para ver
+  quien tiene conexiones vivas, filtrar por ese prefijo en `res.users.apikeys`.
 - **Re-verificar que sigue sano:** `node scripts/mcp-eval.mjs` con `MCP_URL`,
   `MCP_TOKEN`, `ODOO_URL` y `ODOO_DB` seteados. 13 escenarios; uno comprueba que
   Odoo sigue rechazando escrituras no autorizadas.
