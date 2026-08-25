@@ -36,6 +36,9 @@ export async function POST(
       stage_id?: number;
       note?: string;
       source?: string;
+      /** Presente solo cuando el destino es Invoiced / Paid y quien mueve ya
+       *  confirmo el estado de cobro. Ver el bloque de facturacion abajo. */
+      invoice?: { payment_state?: string; payment_ref?: string };
     };
     const stageId = Number(body.stage_id);
     if (!Number.isFinite(stageId)) {
@@ -64,10 +67,54 @@ export async function POST(
 
     const noteText = (body.note ?? "").trim();
 
+    const writeVals: Record<string, unknown> = { stage_id: stageId };
+
+    /**
+     * Facturacion en bloque.
+     *
+     * El asistente "Invoice and mark paid" bloqueaba el movimiento masivo
+     * porque, decia el aviso, captura datos por orden que el sistema necesita
+     * despues. Se fue a mirar que hace de verdad, y para el paso
+     * Installed -> Invoiced no es asi:
+     *
+     *   - Los pagos a instaladores se crean al ENTRAR en Installed, no al
+     *     salir, asi que ya estan creados.
+     *   - No hay SQF ni foto en este paso (eso es CNC y Painting).
+     *   - El importe lo rellena solo el propio asistente desde
+     *     `total_dealer_charge`, o sea que el sistema ya lo sabe.
+     *   - Y ese importe NO se guarda en ningun campo: solo se escribe en el
+     *     historial como texto.
+     *
+     * Lo unico que el asistente aporta de verdad es el estado de cobro y una
+     * referencia opcional. Asi que se piden UNA vez para todo el lote y aqui
+     * se reproduce lo mismo por orden, incluida la linea de historial con su
+     * importe propio -- que se lee de la orden, nunca se recibe del cliente:
+     * un importe que llega por la red es un importe que se puede falsear.
+     */
+    let invoiceChatter = "";
+    const wantsInvoice = !!body.invoice && stage.code === "invoiced";
+    if (wantsInvoice) {
+      const paymentState =
+        body.invoice?.payment_state === "partial" ? "partial" : "paid";
+      const ref = (body.invoice?.payment_ref ?? "").trim().slice(0, 60);
+      const charge = await call<Array<{ total_dealer_charge: number }>>({
+        session: s.session,
+        model: "indigo.order",
+        method: "read",
+        args: [[orderId], ["total_dealer_charge"]],
+        kwargs: {},
+      });
+      const amount = Number(charge[0]?.total_dealer_charge ?? 0);
+      writeVals.payment_state = paymentState;
+      invoiceChatter =
+        paymentState === "paid"
+          ? `Invoiced - $${amount.toFixed(2)} collected.`
+          : `Invoiced - partial payment, $${amount.toFixed(2)} invoiced.`;
+      if (ref) invoiceChatter += ` Ref: ${ref}`;
+    }
     // If the user typed a note, append it to the order's `notes` field (a dated
     // log, newest first) so it shows in the prominent "Note" card — that's
     // where Majela looks for the notes she writes when moving an order.
-    const writeVals: Record<string, unknown> = { stage_id: stageId };
     if (noteText) {
       const cur = await call<Array<{ notes: string | false }>>({
         session: s.session,
@@ -93,7 +140,11 @@ export async function POST(
     // <b>/<i> tags got double-escaped and showed the raw tags to the user.
     const sourceLabel = body.source ? ` (${body.source})` : "";
     const baseLine = `Sent to ${stage.name}${sourceLabel}.`;
-    const chatterBody = noteText ? `${baseLine}\n${noteText}` : baseLine;
+    // La linea de facturacion va primero: es la que alguien busca cuando
+    // repasa como se cobro una orden, no la de "Sent to".
+    const chatterBody = [invoiceChatter, baseLine, noteText]
+      .filter(Boolean)
+      .join("\n");
     await call({
       session: s.session,
       model: "indigo.order",

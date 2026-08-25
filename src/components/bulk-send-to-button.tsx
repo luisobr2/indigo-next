@@ -96,6 +96,9 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
   const [busy, setBusy] = useState(false);
   const [showOrderList, setShowOrderList] = useState(false);
   const [overrideBackwards, setOverrideBackwards] = useState(false);
+  // Facturacion en bloque: se pregunta una vez y se aplica a todo el lote.
+  const [paymentState, setPaymentState] = useState<"paid" | "partial">("paid");
+  const [paymentRef, setPaymentRef] = useState("");
 
   const byCode = new Map(stages.map((s) => [s.code, s]));
   const count = orderIds.length;
@@ -164,12 +167,21 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
     setNote("");
     setOverrideBackwards(false);
     setShowOrderList(false);
+    setPaymentState("paid");
+    setPaymentRef("");
   }
 
   async function send() {
     if (!target || !count) return;
     setBusy(true);
     const stage = target;
+    // Se resuelve UNA vez, fuera del bucle, para que las N ordenes del lote
+    // lleven exactamente lo mismo. `isInvoiceBulk` se declara mas abajo pero
+    // ya esta asignado cuando esto se ejecuta: send() solo se llama desde el
+    // render, o sea despues de que el cuerpo del componente termine.
+    const invoice = isInvoiceBulk
+      ? { payment_state: paymentState, payment_ref: paymentRef.trim() }
+      : undefined;
     // Same dead-connection recovery as the single-order Send To (see
     // src/lib/resilient-write.ts): a flaky link used to turn straight into
     // "N failed" here, with no retry and no way to tell a network drop
@@ -185,6 +197,7 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
                 stage_id: stage.id,
                 note,
                 source: `Bulk move (${count})`,
+                ...(invoice ? { invoice } : {}),
               }),
             });
             const text = await r.text();
@@ -261,8 +274,38 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
         cfg.withAmount
       );
     });
-  const blockedSourceStages = Array.from(new Set(sourceStagesNeedingWizard));
+  const criticalSourceStages = Array.from(new Set(sourceStagesNeedingWizard));
+
+  /**
+   * Excepcion: facturar en bloque desde Installed.
+   *
+   * La regla de arriba bloqueaba TODO movimiento masivo que saliera de
+   * Installed, porque su asistente marca `withAmount`. Se fue a mirar que
+   * captura de verdad y para el paso Installed -> Invoiced / Paid no protege
+   * nada de lo que el aviso decia: los pagos a instaladores se crean al ENTRAR
+   * en Installed (ya estan hechos), no hay SQF ni foto en este paso, y el
+   * importe lo rellena el propio asistente desde `total_dealer_charge` -- y no
+   * lo guarda en ningun campo, solo lo escribe en el historial.
+   *
+   * Lo unico real que aporta es el estado de cobro. Asi que en vez de bloquear
+   * se pregunta una vez para todo el lote. 41 clics pasan a ser uno sin perder
+   * nada.
+   *
+   * Sigue bloqueado salir de CNC, Painting o Installation Scheduled: ahi si se
+   * capturan SQF, fotos y firmas que no se pueden inventar para un lote.
+   */
+  const isInvoiceBulk =
+    target?.code === "invoiced" &&
+    criticalSourceStages.length > 0 &&
+    criticalSourceStages.every((c) => c === "installed");
+
+  const blockedSourceStages = isInvoiceBulk ? [] : criticalSourceStages;
   const hasBlockedSource = blockedSourceStages.length > 0;
+
+  // Las que de verdad se mueven. `same` ya esta en el destino y `unknown` son
+  // las canceladas o en stock: contarlas en el boton era prometer un numero
+  // que no iba a pasar.
+  const movable = counts.forward + counts.backward;
 
   const confirmDisabled =
     !target ||
@@ -272,7 +315,10 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
     // Backwards moves require an explicit override to unlock.
     (counts.backward > 0 && !overrideBackwards) ||
     // If EVERY order is already in the target stage we have nothing to do.
-    (counts.same === ordersLoaded.length && ordersLoaded.length > 0);
+    (counts.same === ordersLoaded.length && ordersLoaded.length > 0) ||
+    // Ni una sola se mueve (p. ej. todo lo tildado esta cancelado): confirmar
+    // solo produciria una tanda de fallos.
+    (movable === 0 && !ordersQ.isLoading);
 
   return (
     <>
@@ -449,14 +495,31 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
                       Bulk move blocked. Some selected orders are currently
                       in{" "}
                       <strong>
+                        {/* El NOMBRE DE LA ETAPA, no el titulo del asistente.
+                            Decia "currently in Invoice and mark paid", que es
+                            el nombre de una accion: ninguna orden esta nunca
+                            ahi, y quien lo leia no podia saber cuales apartar. */}
                         {blockedSourceStages
-                          .map((c) => STAGE_WIZARDS[c]?.title || c)
+                          .map((c) => byCode.get(c)?.name || c)
                           .join(", ")}
                       </strong>
-                      , which captures per-order data (SQF / photo / amount).
+                      , where leaving the stage captures per-order data
+                      {" ("}
+                      {Array.from(
+                        new Set(
+                          blockedSourceStages.flatMap((c) => {
+                            const cfg = STAGE_WIZARDS[c];
+                            return [
+                              cfg?.withSqfTable ? "SQF" : "",
+                              cfg?.withPhoto ? "photo" : "",
+                              cfg?.withSignature ? "signature" : "",
+                            ].filter(Boolean);
+                          }),
+                        ),
+                      ).join(" / ")}
+                      {")"} that can&apos;t be filled in for a whole batch.
                       Open each order and use its &quot;Save &amp;
-                      advance&quot; button so the wizard records the data
-                      and contractor payouts are created correctly.
+                      advance&quot; button.
                     </div>
                   </div>
                 </div>
@@ -480,6 +543,17 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
                   <strong>{counts.forward}</strong>{" "}
                   {counts.forward === 1 ? "order will move" : "orders will move"}{" "}
                   forward in the flow.
+                </div>
+              )}
+              {/* Las canceladas y las de stock. El dialogo ya lo avisaba en
+                  prosa arriba, pero sin numero: con 45 tildadas nadie sabia
+                  cuantas de las suyas caian aqui. */}
+              {!ordersQ.isLoading && counts.unknown > 0 && (
+                <div className="rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-700">
+                  <strong>{counts.unknown}</strong>{" "}
+                  {counts.unknown === 1 ? "order is" : "orders are"} cancelled,
+                  in stock, or couldn&apos;t be read — those stay where they
+                  are.
                 </div>
               )}
               {!ordersQ.isLoading && counts.backward > 0 && (
@@ -512,6 +586,71 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
                     Yes, move {counts.backward}{" "}
                     {counts.backward === 1 ? "order" : "orders"} backwards
                   </label>
+                </div>
+              )}
+
+              {/* Facturar en bloque. Sustituye al bloqueo: lo unico que el
+                  asistente por orden aporta de verdad en este paso es el
+                  estado de cobro, asi que se pregunta una vez. El importe NO
+                  se pide -- cada orden ya tiene el suyo calculado, y el
+                  servidor lo lee de ahi. */}
+              {isInvoiceBulk && !ordersQ.isLoading && (
+                <div className="space-y-2 rounded-xl border-2 border-indigo-200 bg-indigo-50/60 px-3 py-2.5 text-xs text-indigo-900">
+                  <div className="font-semibold">
+                    Invoicing {movable} {movable === 1 ? "order" : "orders"}
+                  </div>
+                  <p className="text-[11px] text-indigo-800/80">
+                    Each order is logged with its own calculated amount. Only
+                    confirm &quot;Paid in full&quot; if every order in the
+                    selection was actually collected.
+                  </p>
+                  <div
+                    role="radiogroup"
+                    aria-label="Payment status"
+                    className="flex flex-wrap gap-2"
+                  >
+                    {(
+                      [
+                        ["paid", "Paid in full"],
+                        ["partial", "Partial payment"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <label
+                        key={value}
+                        className={cn(
+                          "flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium ring-1",
+                          paymentState === value
+                            ? "bg-indigo-700 text-white ring-indigo-700"
+                            : "bg-white text-indigo-900 ring-indigo-200",
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="bulk-payment-state"
+                          value={value}
+                          checked={paymentState === value}
+                          onChange={() => setPaymentState(value)}
+                          className="sr-only"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="space-y-1">
+                    <Label
+                      htmlFor="bulk-payment-ref"
+                      className="text-[11px] text-indigo-900"
+                    >
+                      Reference (optional) — check #, transfer ID
+                    </Label>
+                    <input
+                      id="bulk-payment-ref"
+                      value={paymentRef}
+                      onChange={(e) => setPaymentRef(e.target.value)}
+                      maxLength={60}
+                      className="w-full rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
                 </div>
               )}
 
@@ -550,7 +689,13 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
               className="bg-indigo-700 text-white shadow shadow-indigo-700/30 hover:bg-indigo-800"
             >
               <Check size={14} />
-              {busy ? `Moving ${count}…` : `Confirm — move ${count}`}
+              {/* El numero que de verdad se va a mover. Prometia `count` (todo
+                  lo tildado) mientras el aviso de al lado decia otra cosa y a
+                  veces no se movia ninguna: tres cifras distintas en el mismo
+                  dialogo. */}
+              {busy
+                ? `Moving ${movable}…`
+                : `Confirm — ${isInvoiceBulk ? "invoice" : "move"} ${movable}`}
             </Button>
           </DialogFooter>
         </DialogContent>
