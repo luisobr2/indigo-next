@@ -7,6 +7,7 @@ import {
   shopStartOfDay,
   shopEndOfDay,
   toOdooDatetime,
+  shopRangeBounds,
 } from "./shop-time.ts";
 
 // ---------------------------------------------------------------------
@@ -118,4 +119,58 @@ test("toOdooDatetime emits naive UTC in Odoo's format", () => {
 
 test("the zone is Miami's", () => {
   assert.equal(SHOP_TIME_ZONE, "America/New_York");
+});
+
+// ---------------------------------------------------------------------
+// shopRangeBounds — el rango de fechas del listado de ordenes.
+// ---------------------------------------------------------------------
+
+test("un dia suelto abarca desde su medianoche de Miami hasta la siguiente", () => {
+  const r = shopRangeBounds("2026-08-25", "2026-08-25")!;
+  // Verano: Miami va UTC-4, asi que la medianoche local son las 04:00 UTC.
+  assert.equal(r.start, "2026-08-25 04:00:00");
+  assert.equal(r.endExclusive, "2026-08-26 04:00:00");
+});
+
+test("el pedido de las 21:00 de Miami cae dentro de SU dia, no del siguiente", () => {
+  // Este es el bug que el helper existe para evitar: guardado como 01:00 UTC
+  // del 26, un rango construido en UTC lo dejaria fuera del 25 -- mientras la
+  // tabla lo sigue mostrando en el 25 porque formatea en hora local.
+  const r = shopRangeBounds("2026-08-25", "2026-08-25")!;
+  const guardado = "2026-08-26 01:00:00"; // 21:00 del 25 en Miami
+  assert.ok(guardado >= r.start && guardado < r.endExclusive);
+});
+
+test("en invierno el desplazamiento es de 5 horas", () => {
+  const r = shopRangeBounds("2026-01-15", "2026-01-15")!;
+  assert.equal(r.start, "2026-01-15 05:00:00");
+  assert.equal(r.endExclusive, "2026-01-16 05:00:00");
+});
+
+test("un rango de varios dias incluye entero el ultimo dia", () => {
+  const r = shopRangeBounds("2026-08-01", "2026-08-31")!;
+  assert.equal(r.start, "2026-08-01 04:00:00");
+  assert.equal(r.endExclusive, "2026-09-01 04:00:00");
+  const ultimoInstante = "2026-08-31 23:59:59"; // aun de agosto en Miami
+  assert.ok(ultimoInstante < r.endExclusive);
+});
+
+test("un rango al reves se ordena en vez de devolver vacio", () => {
+  const alReves = shopRangeBounds("2026-08-31", "2026-08-01")!;
+  const derecho = shopRangeBounds("2026-08-01", "2026-08-31")!;
+  assert.deepEqual(alReves, derecho);
+});
+
+test("el cambio de hora de primavera no descuadra los limites", () => {
+  // 2026-03-08: el dia local dura 23 h.
+  const r = shopRangeBounds("2026-03-08", "2026-03-08")!;
+  assert.equal(r.start, "2026-03-08 05:00:00");   // aun EST
+  assert.equal(r.endExclusive, "2026-03-09 04:00:00"); // ya EDT
+});
+
+test("una fecha con formato invalido devuelve null en vez de un rango absurdo", () => {
+  for (const bad of ["", "25/08/2026", "2026-8-5", "ayer", "2026-08-25T10:00"]) {
+    assert.equal(shopRangeBounds(bad, "2026-08-25"), null, `deberia rechazar ${bad}`);
+    assert.equal(shopRangeBounds("2026-08-25", bad), null, `deberia rechazar ${bad}`);
+  }
 });

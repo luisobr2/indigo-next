@@ -117,3 +117,50 @@ export function shopEndOfDay(now: Date, timeZone: string = SHOP_TIME_ZONE): Date
 export function toOdooDatetime(date: Date): string {
   return date.toISOString().slice(0, 19).replace("T", " ");
 }
+
+/**
+ * Los dos extremos, en UTC, de un rango de dias del taller.
+ *
+ * Recibe dos fechas de calendario tal y como las escribe una persona
+ * ("2026-08-25"), que son dias de MIAMI, y devuelve los limites que Odoo
+ * necesita para comparar contra sus datetimes UTC.
+ *
+ * Sin esto el filtro miente justo donde mas se nota: un pedido entrado a las
+ * 21:00 de Miami se guarda como la 01:00 UTC del dia SIGUIENTE, asi que un
+ * rango construido en UTC lo deja fuera de su propio dia -- mientras la tabla,
+ * que si formatea en hora local, lo sigue mostrando en el dia anterior. El
+ * filtro y la columna dirian cosas distintas sobre la misma fila.
+ *
+ * El limite superior es EXCLUSIVO (el arranque del dia siguiente): asi entra
+ * todo el dia final hasta las 23:59:59.999 sin depender de la precision con
+ * la que Odoo guarde los segundos.
+ *
+ * Se ancla cada dia al mediodia UTC antes de convertir. A esa hora Miami va
+ * por las 07:00 u 08:00, o sea el mismo dia de calendario tanto en invierno
+ * como en verano; anclar a medianoche caeria justo en el borde que se
+ * pretende resolver.
+ */
+export function shopRangeBounds(
+  from: string,
+  to: string,
+  timeZone: string = SHOP_TIME_ZONE,
+): { start: string; endExclusive: string } | null {
+  const noonUtc = (ymd: string): Date | null => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+    if (!m) return null;
+    const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12));
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+
+  const a = noonUtc(from);
+  const b = noonUtc(to);
+  if (!a || !b) return null;
+  // Un rango al reves no es un error del usuario que valga la pena rechazar:
+  // se ordena y se le da lo que evidentemente queria.
+  const [lo, hi] = a.getTime() <= b.getTime() ? [a, b] : [b, a];
+
+  return {
+    start: toOdooDatetime(shopStartOfDay(lo, timeZone)),
+    endExclusive: toOdooDatetime(shopEndOfDay(hi, timeZone)),
+  };
+}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
+import { shopRangeBounds } from "@/lib/shop-time";
 
 export const runtime = "nodejs";
 
@@ -55,6 +56,7 @@ const ORDER_FIELDS_V2_EXTRA = [
  *   ?stages=cnc,painting  multiple stages
  *   ?dealer=12          filter by dealer id
  *   ?q=text             search client_name/name
+ *   ?from=&to=          rango de fechas de orden (dias de Miami)
  *   ?limit=N            default 80
  *   ?offset=N
  */
@@ -86,6 +88,27 @@ export async function GET(req: NextRequest) {
     const archived = sp.get("archived") === "1";
     if (archived) domain.push(["active", "=", false]);
     const ctx = archived ? { active_test: false } : {};
+
+    // ?from=YYYY-MM-DD&to=YYYY-MM-DD — rango por fecha de la orden.
+    //
+    // Se filtra por `create_date`, que es la fecha que la tabla muestra bajo
+    // el numero de orden: si el filtro mirara otro campo, buscar "25 de
+    // agosto" devolveria filas que en pantalla dicen otra fecha.
+    //
+    // Los limites se traducen a UTC como dias de MIAMI (ver shopRangeBounds).
+    // El servidor y Odoo van en UTC, donde el dia cambia a las 20:00 locales:
+    // sin esa traduccion, todo lo entrado por la tarde se filtraria bajo el
+    // dia siguiente. Un rango mal formado se ignora en vez de devolver cero
+    // resultados sin explicacion.
+    const fromParam = sp.get("from");
+    const toParam = sp.get("to");
+    if (fromParam && toParam) {
+      const bounds = shopRangeBounds(fromParam, toParam);
+      if (bounds) {
+        domain.push(["create_date", ">=", bounds.start]);
+        domain.push(["create_date", "<", bounds.endExclusive]);
+      }
+    }
 
     const payment = sp.get("payment");
     if (payment) {

@@ -14,12 +14,18 @@ import {
   Ban,
   AlertCircle,
   AlertTriangle,
+  CalendarDays,
   X,
 } from "lucide-react";
 import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
 import { paymentLabel, STAGE_BADGE } from "@/lib/labels";
+import {
+  DateRangePicker,
+  formatRange,
+  type DateRange,
+} from "@/components/date-range-picker";
 import { TableSkeleton } from "@/components/skeleton";
 import { EmptyState } from "@/components/state-cards";
 import { toCsv, downloadCsv } from "@/lib/csv";
@@ -334,6 +340,13 @@ function OrdersInner() {
   const [stage, setStage] = useState<string>(sp.get("stage") ?? "");
   const [dealer, setDealer] = useState<string>(sp.get("dealer") ?? "");
   const [payment, setPayment] = useState<string>(sp.get("payment") ?? "");
+  // Rango de fechas de la orden. null = sin filtro; la pantalla arranca
+  // mostrandolo todo, que es lo que Majela espera al entrar.
+  const [range, setRange] = useState<DateRange | null>(() => {
+    const f = sp.get("from");
+    const t = sp.get("to");
+    return f && t ? { from: f, to: t } : null;
+  });
   const [flag, setFlag] = useState<string>(
     sp.get("overdue") === "true"
       ? "overdue"
@@ -348,7 +361,7 @@ function OrdersInner() {
   // so a bulk action can never run against stale, off-view order ids.
   useEffect(() => {
     setSelected(new Set());
-  }, [stage, dealer, payment, flag, page]);
+  }, [stage, dealer, payment, flag, range, page]);
 
   // Who am I? Gates the "New Order" button to roles allowed to create
   // orders (manager / office / admin) — the POST endpoint enforces the same.
@@ -457,22 +470,53 @@ function OrdersInner() {
     if (flag === "overdue") params.set("overdue", "true");
     if (flag === "on_hold") params.set("on_hold", "true");
     if (flag === "incidence") params.set("incidence", "true");
+    if (range) {
+      params.set("from", range.from);
+      params.set("to", range.to);
+    }
     const qs = params.toString();
     const next = qs ? `?${qs}` : "";
     window.history.replaceState(null, "", `/orders${next}`);
-  }, [stage, dealer, payment, flag]);
+  }, [stage, dealer, payment, flag, range]);
 
   const activeFilterCount =
     (stage ? 1 : 0) +
     (dealer ? 1 : 0) +
     (payment ? 1 : 0) +
-    (flag ? 1 : 0);
+    (flag ? 1 : 0) +
+    (range ? 1 : 0);
 
   function clearFilters() {
     setStage("");
     setDealer("");
     setPayment("");
     setFlag("");
+    setRange(null);
+  }
+
+  /**
+   * La URL de /api/orders con TODOS los filtros activos puestos.
+   *
+   * Existe porque el listado y la impresion los armaban por separado, con las
+   * mismas ocho lineas copiadas. Ese duplicado es exactamente como se olvida
+   * un filtro nuevo en una de las dos y el papel deja de coincidir con la
+   * pantalla -- que es lo peor que puede pasarle a un listado impreso.
+   */
+  function filteredUrl(): URL {
+    const url = new URL("/api/orders", window.location.origin);
+    if (stage) url.searchParams.set("stage", stage);
+    if (dealer) url.searchParams.set("dealer", dealer);
+    if (payment) url.searchParams.set("payment", payment);
+    if (flag === "overdue") url.searchParams.set("overdue", "true");
+    if (flag === "on_hold") url.searchParams.set("on_hold", "true");
+    if (flag === "incidence") url.searchParams.set("incidence", "true");
+    if (flag === "archived") url.searchParams.set("archived", "1");
+    if (debouncedQ) url.searchParams.set("q", debouncedQ);
+    if (range) {
+      url.searchParams.set("from", range.from);
+      url.searchParams.set("to", range.to);
+    }
+    return url;
   }
 
   const { data, isLoading } = useQuery<{
@@ -485,20 +529,14 @@ function OrdersInner() {
       dealer,
       payment,
       flag,
+      range?.from ?? "",
+      range?.to ?? "",
       debouncedQ,
       page,
       pageSize,
     ],
     queryFn: async () => {
-      const url = new URL("/api/orders", window.location.origin);
-      if (stage) url.searchParams.set("stage", stage);
-      if (dealer) url.searchParams.set("dealer", dealer);
-      if (payment) url.searchParams.set("payment", payment);
-      if (flag === "overdue") url.searchParams.set("overdue", "true");
-      if (flag === "on_hold") url.searchParams.set("on_hold", "true");
-      if (flag === "incidence") url.searchParams.set("incidence", "true");
-      if (flag === "archived") url.searchParams.set("archived", "1");
-      if (debouncedQ) url.searchParams.set("q", debouncedQ);
+      const url = filteredUrl();
       url.searchParams.set("limit", String(pageSize));
       url.searchParams.set("offset", String(page * pageSize));
       const r = await fetch(url);
@@ -514,15 +552,7 @@ function OrdersInner() {
   // Re-fetches every matching order (ignores pagination) so the printout
   // covers the full filtered view, then opens a print-ready window.
   async function printList() {
-    const url = new URL("/api/orders", window.location.origin);
-    if (stage) url.searchParams.set("stage", stage);
-    if (dealer) url.searchParams.set("dealer", dealer);
-    if (payment) url.searchParams.set("payment", payment);
-    if (flag === "overdue") url.searchParams.set("overdue", "true");
-    if (flag === "on_hold") url.searchParams.set("on_hold", "true");
-    if (flag === "incidence") url.searchParams.set("incidence", "true");
-    if (flag === "archived") url.searchParams.set("archived", "1");
-    if (debouncedQ) url.searchParams.set("q", debouncedQ);
+    const url = filteredUrl();
     url.searchParams.set("limit", "2000");
     url.searchParams.set("offset", "0");
 
@@ -852,6 +882,46 @@ function OrdersInner() {
             onChange={setPayment}
             width="170px"
           />
+
+          {/* Rango de fechas de la orden.
+              Arranca APAGADO y no con un rango por defecto: la pantalla de
+              ordenes es la que se abre para buscar cualquier cosa, y entrar
+              con un mes ya puesto escondia ordenes sin que nadie lo pidiera.
+              Mientras no se active, el boton ocupa lo que ocupa un filtro y
+              nada mas. */}
+          {range ? (
+            <div className="flex items-center gap-1">
+              <DateRangePicker value={range} onChange={setRange} />
+              <button
+                type="button"
+                onClick={() => setRange(null)}
+                aria-label={`Quitar el filtro de fechas (${formatRange(range)})`}
+                title="Quitar el filtro de fechas"
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                // Arranca en el mes en curso: es el rango que mas se pide y
+                // deja claro de un vistazo que el filtro ya esta actuando.
+                const now = new Date();
+                const first = new Date(now.getFullYear(), now.getMonth(), 1);
+                const ymd = (d: Date) =>
+                  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                setRange({ from: ymd(first), to: ymd(now) });
+              }}
+              className="gap-1.5 text-slate-600"
+            >
+              <CalendarDays size={14} />
+              Date range
+            </Button>
+          )}
 
           <FilterSelect
             placeholder="Flag"
