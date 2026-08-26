@@ -638,6 +638,10 @@ function PayoutCard({
                         })
                       }
                       title="Print receipt"
+                      // 24x24 era el objetivo mas pequeno de toda la app y se
+                      // repetia 73 veces en esta pantalla. Se agranda solo en
+                      // el telefono; en el escritorio el raton acierta.
+                      className="h-11 w-11 sm:h-6 sm:w-6"
                     >
                       <Printer size={12} />
                     </Button>
