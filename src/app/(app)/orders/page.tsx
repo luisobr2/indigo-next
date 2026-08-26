@@ -846,7 +846,7 @@ function OrdersInner() {
         </div>
 
         {/* Filter row */}
-        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-white px-4 py-3 ring-1 ring-slate-100">
+        <div className="flex flex-col gap-2 rounded-xl bg-white px-3 py-3 ring-1 ring-slate-100 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:px-4">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
             Filters
           </span>
@@ -898,7 +898,7 @@ function OrdersInner() {
               value={range}
               onChange={setRange}
               onClear={() => setRange(null)}
-              className="h-11 rounded-xl border-indigo-200 px-1"
+              className="h-11 w-full justify-between rounded-xl border-indigo-200 px-1 sm:w-auto sm:justify-start"
               labelClassName="font-semibold text-indigo-700"
             />
           ) : (
@@ -913,8 +913,7 @@ function OrdersInner() {
                   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
                 setRange({ from: ymd(first), to: ymd(now) });
               }}
-              style={{ width: "180px" }}
-              className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white pl-3.5 pr-3 text-left text-sm text-slate-700 transition hover:border-slate-300 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              className="flex h-11 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white pl-3.5 pr-3 text-left text-sm text-slate-700 transition hover:border-slate-300 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 sm:w-[180px]"
             >
               <span className="flex-1">Date: any</span>
               <CalendarDays size={16} className="text-slate-400" />
@@ -1091,7 +1090,11 @@ function FilterSelect({
 }) {
   const active = value !== "";
   return (
-    <div className="relative" style={{ width }}>
+    // El ancho fijo pasa a ser una preferencia de pantalla grande. En 390 px
+    // los cinco filtros con anchos distintos (220/200/170/180/160) envolvian
+    // uno por linea y cada uno con una sangria distinta: una escalera que
+    // parecia rota aunque funcionara. En movil van a ancho completo.
+    <div className="relative w-full sm:w-[--filter-w]" style={{ "--filter-w": width } as React.CSSProperties}>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}

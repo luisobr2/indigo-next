@@ -862,11 +862,17 @@ export default function InstallationsPage() {
 
       {/* Date-range control — the whole board reflects installations whose
           scheduled date falls inside this range (e.g. Mon 7 → Sat 12). */}
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+      {/* En el telefono esto ocupaba ~350 px: la etiqueta, los dos campos y el
+          paso adelante/atras caian cada uno en su linea por el flex-wrap. Se
+          reordena en dos filas -- primero el rango con sus flechas, que es lo
+          que de verdad se toca a diario, y debajo los campos y los atajos --
+          y la etiqueta larga se queda solo en pantallas grandes. */}
+      <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:px-4 sm:py-3">
+        <span className="hidden items-center gap-1.5 text-sm font-semibold text-slate-700 sm:flex">
           <Calendar size={15} className="text-indigo-700" />
           Showing installations
         </span>
+        <div className="flex items-center gap-2 sm:contents">
         <input
           type="date"
           value={range.from}
@@ -878,9 +884,9 @@ export default function InstallationsPage() {
             if (from) setRange((r) => ({ from, to: r.to < from ? from : r.to }));
           }}
           aria-label="From date"
-          className="h-9 rounded-lg border border-slate-200 px-2 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none"
+          className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-2 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none sm:h-9 sm:flex-none"
         />
-        <span className="text-slate-400">to</span>
+        <span className="text-slate-400">–</span>
         <input
           type="date"
           value={range.to}
@@ -890,39 +896,47 @@ export default function InstallationsPage() {
             if (to) setRange((r) => ({ to, from: r.from > to ? to : r.from }));
           }}
           aria-label="To date"
-          className="h-9 rounded-lg border border-slate-200 px-2 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none"
+          className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-2 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none sm:h-9 sm:flex-none"
         />
-        <div className="ml-1 flex items-center gap-1">
+        </div>
+        {/* Tira que se desliza en vez de envolver: tres atajos en 390 px no
+            caben, y envolviendolos cada uno se comia una linea entera. */}
+        <div className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 scrollbar-thin sm:mx-0 sm:ml-1 sm:overflow-visible sm:px-0">
           <RangePreset onClick={setThisWeek}>This week</RangePreset>
           <RangePreset onClick={setNextWeek}>Next week</RangePreset>
           <RangePreset onClick={setThisMonth}>This month</RangePreset>
         </div>
-        <div className="ml-auto flex items-center gap-1 text-xs text-slate-600">
+        <div className="order-first flex items-center justify-between gap-1 text-sm text-slate-600 sm:order-none sm:ml-auto sm:justify-start sm:text-xs">
           <button
             type="button"
             onClick={() => shiftRange(-rangeDays)}
-            className="rounded p-1 hover:bg-slate-100"
+            className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-slate-100 sm:h-auto sm:w-auto sm:rounded sm:p-1"
             aria-label="Previous period"
           >
-            <ChevronLeft size={15} />
+            <ChevronLeft size={18} className="sm:hidden" />
+            <ChevronLeft size={15} className="hidden sm:block" />
           </button>
-          <span className="min-w-[130px] text-center font-medium">
+          <span className="min-w-[130px] text-center font-semibold text-slate-800 sm:font-medium sm:text-slate-600">
             {formatRange(range.from, range.to)}
           </span>
           <button
             type="button"
             onClick={() => shiftRange(rangeDays)}
-            className="rounded p-1 hover:bg-slate-100"
+            className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-slate-100 sm:h-auto sm:w-auto sm:rounded sm:p-1"
             aria-label="Next period"
           >
-            <ChevronRight size={15} />
+            <ChevronRight size={18} className="sm:hidden" />
+            <ChevronRight size={15} className="hidden sm:block" />
           </button>
         </div>
       </div>
 
       {/* Pestanas. Cada una responde una pregunta distinta, y llevan el
           contador de lo que hay dentro para no tener que entrar a mirar. */}
-      <nav className="flex flex-wrap items-center gap-1 border-b border-slate-200">
+      {/* Deslizante en movil. Envolviendo, las cinco pestanas caian en dos
+          filas (~150 px); una tira horizontal es ademas el gesto que la gente
+          ya espera de unas pestanas en el telefono. */}
+      <nav className="-mx-3 flex items-center gap-1 overflow-x-auto border-b border-slate-200 px-3 scrollbar-thin sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
         {INSTALL_VIEWS.map((v) => {
           const count =
             v.key === "pending"
@@ -940,7 +954,7 @@ export default function InstallationsPage() {
               onClick={() => chooseView(v.key)}
               aria-current={view === v.key ? "page" : undefined}
               className={cn(
-                "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition",
+                "-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition sm:py-2",
                 view === v.key
                   ? "border-indigo-700 text-indigo-800"
                   : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700",
