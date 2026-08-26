@@ -84,12 +84,22 @@ function LoginInner() {
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50 px-4 py-8">
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="relative">
+          {/* El logo existe en una sola polaridad: la palabra "indigo" y
+              "DECORS" van en azul marino sobre fondo transparente, pensadas
+              para papel blanco. Sobre el fondo oscuro desaparecian -- solo
+              sobrevivia la acuarela.
+
+              Se resuelve con una placa clara detras, y no con un filtro:
+              invertir o aclarar una acuarela la ensucia y ademas cambia un
+              color de marca, que no es nuestro para tocarlo. La placa deja el
+              logo EXACTAMENTE como es y solo le devuelve el fondo para el que
+              se dibujo. En modo claro no se pinta nada. */}
+          <div className="rounded-3xl px-6 py-4 dark:bg-white/95 dark:shadow-lg dark:shadow-black/30">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/indigo-logo.webp"
               alt="Indigo Decors"
-              className="mx-auto h-28 w-auto max-w-[280px] object-contain"
+              className="mx-auto h-24 w-auto max-w-[260px] object-contain sm:h-28 sm:max-w-[280px]"
             />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-indigo-900">
@@ -101,7 +111,7 @@ function LoginInner() {
         {mode === "forgot" ? (
           <form
             onSubmit={onForgot}
-            className="space-y-5 rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-100"
+            className="space-y-5 rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-100 dark:shadow-black/40"
           >
             {sent ? (
               <>
@@ -162,7 +172,7 @@ function LoginInner() {
                   type="submit"
                   disabled={busy}
                   size="lg"
-                  className="h-11 w-full text-base font-semibold shadow-lg shadow-indigo-700/30"
+                  className="h-11 w-full text-base font-semibold shadow-lg shadow-indigo-700/30 dark:shadow-black/40"
                 >
                   {busy ? "Sending…" : "Send reset link"}
                 </Button>
@@ -182,7 +192,7 @@ function LoginInner() {
         ) : (
           <form
             onSubmit={onSubmit}
-            className="space-y-5 rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-100"
+            className="space-y-5 rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-100 dark:shadow-black/40"
           >
             <div className="space-y-2">
               <Label htmlFor="login">Email</Label>
@@ -255,7 +265,7 @@ function LoginInner() {
               type="submit"
               disabled={busy}
               size="lg"
-              className="h-11 w-full text-base font-semibold shadow-lg shadow-indigo-700/30"
+              className="h-11 w-full text-base font-semibold shadow-lg shadow-indigo-700/30 dark:shadow-black/40"
             >
               {busy ? "Signing in…" : "Sign in"}
             </Button>

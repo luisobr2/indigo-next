@@ -77,9 +77,23 @@ body {
          fondos tenues en vez de casi blancos. --- */
   --color-indigo-50: #16203a;
   --color-indigo-100: #1c2c4d;
+  /* La escala se invierte: en claro va de claro a oscuro, aqui al reves.
+     Los pasos 200-500 casi solo se usan como bordes y anillos (20 y 17 usos
+     de border/ring-indigo-200, 24 de border-indigo-300...); sin redefinirlos
+     conservaban su valor CLARO y se dibujaban como contornos brillantes
+     sobre fondo oscuro. */
+  --color-indigo-200: #2b4470;
+  --color-indigo-300: #33507f;
+  --color-indigo-400: #3c5c9e;
+  --color-indigo-500: #4a6fbe;
   --color-indigo-600: #7f9ddd;
   --color-indigo-700: #94aee8;
   --color-indigo-800: #a8bff0;
+  /* `text-indigo-900` es el titulo de marca: aparece en el login, en la
+     cabecera del panel y en seis sitios mas. Sin esto se quedaba en #0a1a3d
+     -- practicamente el mismo color que el fondo oscuro (#0b1120), asi que
+     "Indigo Decors" era un texto invisible. */
+  --color-indigo-900: #bccff5;
 
   /* --- Tintes de estado. Sin esto los badges quedan como manchas claras
          sobre el fondo oscuro: bg-emerald-50 seguiria siendo casi blanco. --- */
@@ -197,8 +211,13 @@ body {
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  /* HEREDADO DE LA PLANTILLA, Y ESTABA MAL. `:root` fija el azul de marca
+     (#1f4486) y este bloque lo pisaba con un gris sin croma, asi que en modo
+     oscuro TODOS los botones primarios de la app salian blancos -- el "Sign
+     in" del login incluido. Se pone un azul de marca aclarado, porque el
+     original es demasiado oscuro para leerse sobre un fondo oscuro. */
+  --primary: #3f6fc7;
+  --primary-foreground: #ffffff;
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -208,7 +227,9 @@ body {
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  /* El anillo de foco tambien era gris. En oscuro se ve poco, y es la unica
+     pista de donde esta el teclado. */
+  --ring: #5b86d6;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
