@@ -46,6 +46,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { MobileCardList, MobileRowCard } from "@/components/mobile-row-card";
 import { BulkSendToButton } from "@/components/bulk-send-to-button";
 import {
   DropdownMenu,
@@ -827,7 +828,7 @@ export default function InstallationsPage() {
       {/* Header */}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             Installations
           </h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -1178,7 +1179,76 @@ export default function InstallationsPage() {
               open the order to close it out.
             </span>
           </div>
-          <div className="overflow-x-auto">
+          {/* Movil: tarjetas. La tabla mide 900 px en una ventana de 364, asi
+              que la direccion, la fecha y los botones quedaban a tres
+              pantallas de arrastre -- y Reschedule/Hold median 28 px de alto,
+              muy por debajo de los 44 que pide un dedo. */}
+          <MobileCardList className="p-3">
+            {overdue.map((o) => (
+              <MobileRowCard
+                key={o.id}
+                selected={selected.has(o.id)}
+                onSelect={() => toggleSel(o.id)}
+                selectLabel={`Select ${o.dealer_ref || o.name}`}
+                title={
+                  <Link href={`/orders/${o.id}`} className="text-indigo-700 hover:underline">
+                    {o.dealer_ref || o.name}
+                  </Link>
+                }
+                subtitle={o.client_name}
+                badge={
+                  <span className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700">
+                    {o.days_overdue}d late
+                  </span>
+                }
+                fields={[
+                  { label: "Scheduled", value: fmtYmd(o.scheduled_date) },
+                  { label: "Qty", value: String(o.qty) },
+                  {
+                    label: "Installer",
+                    value:
+                      o.installer === "Unassigned" ? (
+                        <span className="text-rose-700">Unassigned</span>
+                      ) : (
+                        o.installer
+                      ),
+                  },
+                  { label: "Address", value: o.client_address || "—", wide: true },
+                ]}
+                action={
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setScheduleTarget({
+                          id: o.id,
+                          label: o.dealer_ref || o.name,
+                          clientName: o.client_name,
+                          installerIds: o.installer_ids,
+                          scheduled: true,
+                          date: o.scheduled_date,
+                        })
+                      }
+                      className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-600 text-sm font-semibold text-white transition hover:bg-rose-700"
+                    >
+                      <Calendar size={15} /> Reschedule
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: false })
+                      }
+                      className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700 transition hover:border-amber-400 hover:bg-amber-50"
+                    >
+                      <Pause size={15} /> Hold
+                    </button>
+                  </div>
+                }
+              />
+            ))}
+          </MobileCardList>
+
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[900px] text-sm">
               <thead className="bg-rose-100/60 text-left text-[10px] font-bold uppercase tracking-wide text-rose-800">
                 <tr>
@@ -1360,7 +1430,67 @@ export default function InstallationsPage() {
               </DropdownMenu>
             </div>
           </div>
-          <div className="overflow-x-auto">
+          {/* Movil: tarjetas, igual que en Overdue. Aqui las columnas son
+              configurables por usuario, asi que la tarjeta muestra las que
+              esa persona eligio ver -- si se ocultan en la tabla, se ocultan
+              tambien aqui, en vez de tener dos verdades distintas. */}
+          <MobileCardList className="p-3">
+            {sortedPending.map((o) => (
+              <MobileRowCard
+                key={o.id}
+                selected={selected.has(o.id)}
+                onSelect={() => toggleSel(o.id)}
+                selectLabel={`Select ${o.dealer_ref || o.name}`}
+                title={
+                  <Link href={`/orders/${o.id}`} className="text-indigo-700 hover:underline">
+                    {o.dealer_ref || o.name}
+                  </Link>
+                }
+                subtitle={o.client_name}
+                fields={visiblePendCols
+                  .filter((c) => c.key !== "order" && c.key !== "client")
+                  .map((c) => ({
+                    label: c.label,
+                    value: c.cell(o),
+                    wide: c.key === "address",
+                  }))}
+                action={
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setScheduleTarget({
+                          id: o.id,
+                          label: o.dealer_ref || o.name,
+                          clientName: o.client_name,
+                          installerIds: o.installer_ids,
+                        })
+                      }
+                      className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-amber-600 text-sm font-semibold text-white transition hover:bg-amber-700"
+                    >
+                      <Calendar size={15} /> Schedule
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setHoldTarget({ id: o.id, name: o.dealer_ref || o.name, releasing: false })
+                      }
+                      className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700 transition hover:border-amber-400 hover:bg-amber-50"
+                    >
+                      <Pause size={15} /> Hold
+                    </button>
+                  </div>
+                }
+              />
+            ))}
+            {sortedPending.length === 0 && (
+              <p className="rounded-2xl border border-amber-200 bg-white p-6 text-center text-sm text-amber-800">
+                Ninguna orden pendiente cae en ese filtro.
+              </p>
+            )}
+          </MobileCardList>
+
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[880px] text-sm">
               <thead className="bg-amber-100/60 text-left text-[10px] font-bold uppercase tracking-wide text-amber-800">
                 <tr>
@@ -2245,22 +2375,33 @@ function KpiTile({
   iconColor: string;
 }) {
   return (
-    <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-      <div className="flex items-start gap-3">
+    // Compacta en el telefono. Estas seis tarjetas median 230 px cada una en
+    // 390 px de ancho -- el icono de 48 px al lado del texto obligaba a que
+    // "Doors to Install" y "Pending - Client" partieran en dos lineas, y la
+    // pista de abajo en otras dos. Seiscientos y pico pixeles de scroll antes
+    // de ver una sola instalacion.
+    <div className="rounded-2xl bg-white p-2.5 shadow-sm ring-1 ring-slate-100 sm:p-4">
+      <div className="flex items-center gap-2 sm:items-start sm:gap-3">
         <span
           className={cn(
-            "flex h-12 w-12 flex-none items-center justify-center rounded-xl",
+            "flex h-9 w-9 flex-none items-center justify-center rounded-lg sm:h-12 sm:w-12 sm:rounded-xl",
             iconBg,
           )}
         >
-          <Icon size={20} className={iconColor} />
+          <Icon size={16} className={cn(iconColor, "sm:hidden")} />
+          <Icon size={20} className={cn(iconColor, "hidden sm:block")} />
         </span>
         <div className="min-w-0">
-          <div className="text-xs font-medium text-slate-500">{label}</div>
-          <div className="mt-0.5 text-2xl font-bold leading-tight text-slate-900">
+          <div className="text-[11px] font-medium leading-tight text-slate-500 sm:text-xs">
+            {label}
+          </div>
+          <div className="text-xl font-bold leading-tight text-slate-900 sm:mt-0.5 sm:text-2xl">
             {value}
           </div>
-          <div className="text-[10px] uppercase tracking-wide text-slate-400">
+          {/* La pista ("IN QUEUE", "ON CALENDAR") repite lo que ya dice la
+              etiqueta. En un monitor decora; en un telefono cuesta dos lineas
+              por tarjeta. Se oculta, no se borra. */}
+          <div className="hidden text-[10px] uppercase tracking-wide text-slate-400 sm:block">
             {hint}
           </div>
         </div>

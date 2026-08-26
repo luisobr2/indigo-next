@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { MobileCardList, MobileRowCard } from "@/components/mobile-row-card";
 import { BulkSendToButton } from "@/components/bulk-send-to-button";
 import { QuickStageActionButton } from "@/components/quick-stage-action-button";
 import { ColumnsMenu } from "@/components/columns-menu";
@@ -349,7 +350,7 @@ export default function PaintPage() {
       {/* Header */}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             Paint
           </h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -491,8 +492,68 @@ export default function PaintPage() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      {/* Movil: una tarjeta por orden.
+          La tabla mide 1200 px dentro de una ventana de 364 px, asi que el
+          SQF, el color y el importe -- la hoja del pintor entera -- quedaban a
+          tres pantallas de arrastre, con el boton de accion al final de todo.
+          Aqui se lee de un vistazo y "Received" ocupa el ancho completo. */}
+      <MobileCardList>
+        {isLoading && (
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-40 animate-pulse rounded-2xl bg-slate-100" />
+            ))}
+          </div>
+        )}
+        {!isLoading && sortedRows.length === 0 && (
+          <p className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-400">
+            No orders in painting stage
+          </p>
+        )}
+        {!isLoading &&
+          sortedRows.map((r) => (
+            <MobileRowCard
+              key={r.id}
+              selected={selected.has(r.id)}
+              onSelect={() => toggleOne(r.id)}
+              selectLabel={`Select ${r.dealer_ref || r.name}`}
+              title={
+                <Link href={`/orders/${r.id}`} className="text-indigo-700 hover:underline">
+                  {r.dealer_ref || r.name}
+                </Link>
+              }
+              subtitle={
+                [companyOf(r), r.client_name, r.customer_po ? `PO: ${r.customer_po}` : ""]
+                  .filter(Boolean)
+                  .join(" · ")
+              }
+              fields={[
+                { label: "Color", value: colorLabel(r.first_line?.color) },
+                { label: "Door type", value: doorTypeLabel(r.first_line?.door_type) },
+                { label: "SQF", value: (r.total_sqf || 0).toFixed(2), strong: true },
+                {
+                  label: "Total",
+                  value: fmtMoney((r.total_sqf || 0) * PAINT_RATE),
+                  strong: true,
+                },
+                { label: "Sides", value: String(r.first_line?.paint_sides ?? 2) },
+              ]}
+              action={
+                <QuickStageActionButton
+                  orderId={r.id}
+                  targetStageCode="ready_install"
+                  label="Received"
+                  loadingVerb="Marking received"
+                />
+              }
+            />
+          ))}
+      </MobileCardList>
+
+      {/* Tabla: solo de tablet para arriba. Comparar veinte filas de un
+          vistazo es lo que una tabla hace bien y una lista de tarjetas hace
+          mal, asi que no se sustituye, conviven. */}
+      <div className="hidden overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm md:block">
         <div className="overflow-x-auto scrollbar-thin">
           <table className="w-full min-w-[1200px] text-sm">
             <thead className="bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
