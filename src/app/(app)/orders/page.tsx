@@ -25,6 +25,7 @@ import {
   DateRangePicker,
   type DateRange,
 } from "@/components/date-range-picker";
+import { MobileCardList, MobileRowCard } from "@/components/mobile-row-card";
 import { TableSkeleton } from "@/components/skeleton";
 import { EmptyState } from "@/components/state-cards";
 import { toCsv, downloadCsv } from "@/lib/csv";
@@ -956,7 +957,66 @@ function OrdersInner() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      {/* Movil: una tarjeta por orden. La tabla mide 1.100 px en una ventana
+          de 364, o sea 3,2 anchos de telefono de arrastre lateral para leer
+          una sola fila. La tarjeta respeta las columnas que cada persona
+          eligio ver, para que no haya dos verdades sobre lo mismo: "order" y
+          "client" se sacan de la lista porque ya son el titulo y el
+          subtitulo. */}
+      <MobileCardList>
+        {isLoading &&
+          Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-36 animate-pulse rounded-2xl bg-slate-100" />
+          ))}
+        {!isLoading && records.length === 0 && (
+          <EmptyState
+            title="No orders match"
+            message="Try clearing filters or searching by client name."
+          />
+        )}
+        {!isLoading &&
+          records.map((r) => (
+            <MobileRowCard
+              key={r.id}
+              selected={selected.has(r.id)}
+              onSelect={() => toggleOne(r.id)}
+              selectLabel={`Select ${r.name}`}
+              title={
+                <Link href={`/orders/${r.id}`} className="text-indigo-700 hover:underline">
+                  {r.name}
+                </Link>
+              }
+              subtitle={[r.client_name, fmtDate(r.create_date)].filter(Boolean).join(" · ")}
+              badge={
+                <Badge
+                  variant="secondary"
+                  className={`shrink-0 text-[10px] font-bold uppercase ${STAGE_BADGE[r.stage_code] ?? ""}`}
+                >
+                  {m2o(r.stage_id)?.name ?? "—"}
+                </Badge>
+              }
+              fields={visibleCols
+                .filter((c) => !["order", "client", "stage"].includes(c.key))
+                .map((c) => ({
+                  label: c.label,
+                  value: c.cell(r),
+                  wide: c.key === "address" || c.key === "email",
+                }))}
+            />
+          ))}
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => {
+            setPageSize(sz);
+            setPage(0);
+          }}
+        />
+      </MobileCardList>
+
+      <div className="hidden overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm md:block">
         <div className="overflow-x-auto scrollbar-thin">
           <table className="w-full min-w-[1100px] text-sm">
           <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">

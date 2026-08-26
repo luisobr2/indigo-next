@@ -345,7 +345,7 @@ export default function BillingPage() {
             {(toInvoiceQ.data?.records ?? []).map((o) => (
               <li
                 key={o.id}
-                className="flex items-center gap-3 rounded-xl border border-slate-100 p-3 transition hover:bg-amber-50/30"
+                className="flex flex-col gap-2 rounded-xl border border-slate-100 p-3 transition hover:bg-amber-50/30 sm:flex-row sm:items-center sm:gap-3"
               >
                 <div className="flex-1 min-w-0">
                   <Link
@@ -361,15 +361,18 @@ export default function BillingPage() {
                     {m2o(o.dealer_id)?.name} · {o.door_count} doors
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="font-bold text-slate-900">
+                <div className="sm:text-right">
+                  <div className="text-lg font-bold text-slate-900 sm:text-base">
                     {fmtMoney(o.total_dealer_charge)}
                   </div>
                 </div>
+                {/* A ancho completo y con 44 px de alto en el telefono: en la
+                    fila horizontal quedaba estrujado a 65x28, muy por debajo
+                    de lo que un dedo acierta. */}
                 <Button
                   size="sm"
                   onClick={() => setInvoiceOrder(o)}
-                  className="bg-emerald-600 text-white shadow shadow-emerald-600/20 hover:bg-emerald-700"
+                  className="h-11 w-full bg-emerald-600 text-sm text-white shadow shadow-emerald-600/20 hover:bg-emerald-700 sm:h-7 sm:w-auto sm:text-[0.8rem]"
                 >
                   Invoice
                 </Button>
@@ -418,7 +421,7 @@ export default function BillingPage() {
               return (
                 <li
                   key={o.id}
-                  className="flex items-center gap-3 rounded-xl border border-slate-100 p-3 transition hover:bg-rose-50/30"
+                  className="flex flex-col gap-2 rounded-xl border border-slate-100 p-3 transition hover:bg-rose-50/30 sm:flex-row sm:items-center sm:gap-3"
                 >
                   <div className="flex-1 min-w-0">
                     <Link
