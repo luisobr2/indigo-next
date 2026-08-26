@@ -94,7 +94,12 @@ function LoginInner() {
               color de marca, que no es nuestro para tocarlo. La placa deja el
               logo EXACTAMENTE como es y solo le devuelve el fondo para el que
               se dibujo. En modo claro no se pinta nada. */}
-          <div className="rounded-3xl px-6 py-4 dark:bg-white/95 dark:shadow-lg dark:shadow-black/30">
+          {/* OJO con el color: aqui NO sirve `dark:bg-white`. En modo oscuro
+              `--color-white` esta redefinido a #131c30 (es el color de las
+              tarjetas y las tablas), asi que `bg-white` pinta azul marino y la
+              placa se volvia invisible. Hace falta un blanco literal, fuera
+              de la escala de tokens. */}
+          <div className="rounded-3xl px-6 py-4 dark:bg-[#f7f9fc] dark:shadow-lg dark:shadow-black/40">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/indigo-logo.webp"
