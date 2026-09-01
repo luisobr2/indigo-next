@@ -1,4 +1,5 @@
 import {
+  Sparkles,
   LayoutDashboard,
   ListChecks,
   CheckCircle2,
@@ -59,6 +60,10 @@ export const NAV_ITEMS: NavItem[] = [
   // Page + code kept at /customizer in case it's revisited.
   // { href: "/customizer", label: "3D Customizer", icon: Rotate3d, show: allManagerOrOffice },
   { href: "/inventory/available-stock", label: "Available Stock", icon: Package, show: allManagerOrOffice },
+  // Sin `show`: el asistente es para TODOS los roles internos, no solo
+  // oficina. El pintor y el de CNC tambien lo usan y cada uno ve lo suyo,
+  // porque el asistente consulta Odoo como esa persona.
+  { href: "/asistente", label: "Asistente IA", icon: Sparkles },
   { href: "/settings", label: "Settings", icon: Settings, show: allManagerOrOffice },
   // ----- Administration -----
   { href: "/admin/dealers", label: "Dealers", icon: Building2, show: allManagerOrOffice, section: "Administration" },
