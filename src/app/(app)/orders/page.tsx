@@ -847,8 +847,12 @@ function OrdersInner() {
         </div>
 
         {/* Filter row */}
-        <div className="flex flex-col gap-2 rounded-xl bg-white px-3 py-3 ring-1 ring-slate-100 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:px-4">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+        {/* Rejilla de DOS columnas en el telefono. A ancho completo cada
+            filtro se comia una fila y los cinco sumaban ~340 px, cuando
+            "Stage: any" cabe de sobra en media pantalla. De `sm` en
+            adelante vuelve a ser la fila que envuelve, con sus anchos. */}
+        <div className="grid grid-cols-2 gap-2 rounded-xl bg-white px-3 py-3 ring-1 ring-slate-100 sm:flex sm:flex-wrap sm:items-center sm:gap-3 sm:px-4">
+          <span className="col-span-2 text-xs font-bold uppercase tracking-wider text-slate-500 sm:col-span-1">
             Filters
           </span>
 
@@ -895,6 +899,10 @@ function OrdersInner() {
               pantalla que se abre para buscar cualquier cosa, y entrar con un
               mes ya puesto escondia ordenes sin que nadie lo pidiera. */}
           {range ? (
+            // Encendido ocupa las dos columnas: el rango escrito
+            // ("Aug 1 - Aug 25, 2026") mas las dos flechas no entra en media
+            // pantalla sin recortarse.
+            <div className="col-span-2 sm:contents">
             <DateRangePicker
               value={range}
               onChange={setRange}
@@ -902,6 +910,7 @@ function OrdersInner() {
               className="h-11 w-full justify-between rounded-xl border-indigo-200 px-1 sm:w-auto sm:justify-start"
               labelClassName="font-semibold text-indigo-700"
             />
+            </div>
           ) : (
             <button
               type="button"
@@ -935,7 +944,9 @@ function OrdersInner() {
           />
 
           {activeFilterCount > 0 && (
-            <>
+            // En la rejilla van juntos y a lo ancho: sueltos, cada uno se
+            // quedaria con media fila y el contador flotaria solo.
+            <div className="col-span-2 flex items-center gap-2 sm:contents">
               <Badge
                 variant="secondary"
                 className="bg-indigo-50 px-2.5 py-1 text-xs text-indigo-700"
@@ -952,7 +963,7 @@ function OrdersInner() {
                 <X size={14} />
                 Clear
               </Button>
-            </>
+            </div>
           )}
         </div>
       </div>
