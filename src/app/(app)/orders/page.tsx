@@ -152,13 +152,21 @@ const ORDER_COLUMNS: OrderCol[] = [
   {
     key: "po",
     label: "PO",
-    cell: (r) => <span className="text-slate-600">{(r.customer_po as string) || "—"}</span>,
+    cell: (r) => (
+      <div className="max-w-[150px] truncate text-slate-600" title={(r.customer_po as string) || ""}>
+        {(r.customer_po as string) || "—"}
+      </div>
+    ),
     print: (r) => (r.customer_po as string) || "",
   },
   {
     key: "client",
     label: "Client",
-    cell: (r) => <span className="font-medium text-slate-800">{r.client_name}</span>,
+    cell: (r) => (
+      <div className="max-w-[190px] truncate font-medium text-slate-800" title={r.client_name}>
+        {r.client_name}
+      </div>
+    ),
     print: (r) => r.client_name,
   },
   {
@@ -170,13 +178,21 @@ const ORDER_COLUMNS: OrderCol[] = [
   {
     key: "email",
     label: "Email",
-    cell: (r) => <span className="text-slate-600">{(r.client_email as string) || "—"}</span>,
+    cell: (r) => (
+      <div className="max-w-[210px] truncate text-slate-600" title={(r.client_email as string) || ""}>
+        {(r.client_email as string) || "—"}
+      </div>
+    ),
     print: (r) => (r.client_email as string) || "",
   },
   {
     key: "dealer",
     label: "Dealer",
-    cell: (r) => <span className="text-slate-600">{m2o(r.dealer_id)?.name ?? "—"}</span>,
+    cell: (r) => (
+      <div className="max-w-[140px] truncate text-slate-600" title={m2o(r.dealer_id)?.name ?? ""}>
+        {m2o(r.dealer_id)?.name ?? "—"}
+      </div>
+    ),
     print: (r) => m2o(r.dealer_id)?.name ?? "",
   },
   {
