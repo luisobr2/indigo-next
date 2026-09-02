@@ -256,3 +256,27 @@ body {
     @apply font-sans;
   }
 }
+/* ------------------------------------------------------------------
+   Sombra que avisa de que un contenedor tiene mas contenido al costado.
+
+   La tabla de Ordenes mide 2005 px con las trece columnas puestas: no
+   entra en ninguna pantalla y hace scroll horizontal. Eso es correcto,
+   pero sin ninguna senal visual lo que se ve es una tabla CORTADA, y la
+   gente supone que la app esta rota en vez de arrastrar.
+
+   Truco de fondos, sin JavaScript: las capas `local` van pegadas al
+   contenido y tapan a las `scroll` cuando estas en un extremo, asi que la
+   sombra aparece SOLO del lado hacia el que todavia queda contenido. Si
+   no hay desborde, no se ve ninguna.
+
+   El color de las capas tapadoras sale de --color-white, que es el fondo
+   real de la tarjeta en los dos temas (en oscuro esa variable ya vale
+   #131c30), asi que no hace falta una version por tema.
+   ------------------------------------------------------------------ */
+.scroll-hint {
+  background:
+    linear-gradient(to right, var(--color-white) 30%, transparent) left center / 40px 100% no-repeat local,
+    linear-gradient(to left, var(--color-white) 30%, transparent) right center / 40px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(15 23 42 / 0.13), transparent) left center / 16px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(15 23 42 / 0.13), transparent) right center / 16px 100% no-repeat scroll;
+}

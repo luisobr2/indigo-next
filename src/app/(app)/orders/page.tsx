@@ -1044,7 +1044,7 @@ function OrdersInner() {
       </MobileCardList>
 
       <div className="hidden overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm md:block">
-        <div className="overflow-x-auto scrollbar-thin">
+        <div className="scroll-hint overflow-x-auto scrollbar-thin">
           <table className="w-full min-w-[1100px] text-sm">
           <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
