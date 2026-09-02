@@ -1165,7 +1165,12 @@ function FilterSelect({
     // los cinco filtros con anchos distintos (220/200/170/180/160) envolvian
     // uno por linea y cada uno con una sangria distinta: una escalera que
     // parecia rota aunque funcionara. En movil van a ancho completo.
-    <div className="relative w-full sm:w-[--filter-w]" style={{ "--filter-w": width } as React.CSSProperties}>
+    // OJO con la sintaxis: `w-[--filter-w]` compilaba a `width:--filter-w`,
+    // una declaracion invalida que el navegador tira, asi que ganaba `w-full`
+    // y los filtros salian a ancho completo TAMBIEN en escritorio. En
+    // Tailwind v3 los corchetes envolvian la variable en var() solos; en v4
+    // ya no, hay que escribirlo.
+    <div className="relative w-full sm:w-[var(--filter-w)]" style={{ "--filter-w": width } as React.CSSProperties}>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
