@@ -34,6 +34,7 @@ import {
 } from "@/components/schedule-installation-modal";
 import { EditOrderPanel } from "@/components/edit-order-panel";
 import { HoldModal } from "@/components/hold-modal";
+import { NotifyClientModal } from "@/components/notify-client-modal";
 import { CancelModal } from "@/components/cancel-modal";
 import { StageWizardModal, STAGE_WIZARDS } from "@/components/stage-wizard-modal";
 import { SendToDesignerControl } from "@/components/send-to-designer-control";
@@ -72,6 +73,7 @@ export default function OrderDetailPage({
   const [holdOpen, setHoldOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [notifyOpen, setNotifyOpen] = useState(false);
   const [schedTarget, setSchedTarget] = useState<ScheduleTarget | null>(null);
   const [unscheduling, setUnscheduling] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
@@ -395,6 +397,19 @@ export default function OrderDetailPage({
               className={o.incidence ? "border-rose-200 text-rose-700 hover:bg-rose-50" : ""}
             >
               <StickyNote size={14} /> Note / Incident
+            </Button>
+          )}
+          {/* Aviso HACIA FUERA. Va pegado a Note/Incident porque las dos son
+              "comunicar algo de esta orden": aquella hacia dentro (queda en el
+              historial del equipo), esta hacia fuera (sale un correo al
+              dealer y TAMBIEN queda en el historial). */}
+          {canAssign && (
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => setNotifyOpen(true)}
+            >
+              <Mail size={14} /> Notify
             </Button>
           )}
           {canAssign && (
@@ -962,6 +977,19 @@ export default function OrderDetailPage({
         onClose={() => {
           setSchedTarget(null);
           refetch();
+        }}
+      />
+
+      <NotifyClientModal
+        orderId={parseInt(id, 10)}
+        orderName={o.name}
+        stageCode={o.stage_code}
+        open={notifyOpen}
+        onClose={() => setNotifyOpen(false)}
+        onSuccess={() => {
+          // El envio deja una anotacion en el chatter, asi que hay que
+          // refrescar la actividad para que se vea sin recargar.
+          qc.invalidateQueries({ queryKey: ["order-activity", parseInt(id, 10)] });
         }}
       />
 

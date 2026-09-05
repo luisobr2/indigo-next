@@ -44,19 +44,29 @@ function numOr(v: string | undefined, fallback: number): number {
 /**
  * GET /api/settings — returns:
  *   capacities: { cnc, painting, install }
+ *   notify: { client_on_stage }  — avisos automaticos al dealer
  *   rates: indigo.contractor.rate records (active + archived)
  */
 export async function GET() {
   try {
     const s = await requireSession();
 
-    const [caps, rates] = await Promise.all([
+    const [caps, notify, rates] = await Promise.all([
       // Read via a sudo'd, manager-gated method so plain managers (who can't
       // read ir.config_parameter directly) can load Settings.
       call<{ cnc: string; painting: string; install: string }>({
         session: s.session,
         model: "ir.config_parameter",
         method: "indigo_get_capacities",
+        args: [],
+        kwargs: {},
+      }),
+      // Mismo motivo que las capacidades: metodo con sudo y puerta de
+      // manager, porque un manager no puede leer ir.config_parameter.
+      call<{ notify_client_on_stage: boolean }>({
+        session: s.session,
+        model: "ir.config_parameter",
+        method: "indigo_get_notify_settings",
         args: [],
         kwargs: {},
       }),
@@ -75,6 +85,7 @@ export async function GET() {
         painting: numOr(caps.painting, 200),
         install: numOr(caps.install, 5),
       },
+      notify: { client_on_stage: !!notify?.notify_client_on_stage },
       rates,
     });
   } catch (e) {
@@ -88,6 +99,8 @@ export async function GET() {
 
 interface PutBody {
   capacities?: { cnc?: number; painting?: number; install?: number };
+  /** Avisos automaticos al dealer en los cuatro hitos. */
+  notify?: { client_on_stage?: boolean };
   rates?: Array<
     Omit<Partial<RateRow>, "partner_id"> & {
       id?: number;
@@ -172,6 +185,16 @@ export async function PUT(req: NextRequest) {
       });
     }
 
+    if (body.notify && typeof body.notify.client_on_stage === "boolean") {
+      await call({
+        session: s.session,
+        model: "ir.config_parameter",
+        method: "indigo_set_notify_settings",
+        args: [{ notify_client_on_stage: body.notify.client_on_stage }],
+        kwargs: {},
+      });
+    }
+
     if (body.rates) {
       for (const r of body.rates) {
         if (r._delete && r.id) {
@@ -219,11 +242,18 @@ export async function PUT(req: NextRequest) {
     }
 
     // Refresh and return
-    const [caps, rates] = await Promise.all([
+    const [caps, notifyAfter, rates] = await Promise.all([
       call<{ cnc: string; painting: string; install: string }>({
         session: s.session,
         model: "ir.config_parameter",
         method: "indigo_get_capacities",
+        args: [],
+        kwargs: {},
+      }),
+      call<{ notify_client_on_stage: boolean }>({
+        session: s.session,
+        model: "ir.config_parameter",
+        method: "indigo_get_notify_settings",
         args: [],
         kwargs: {},
       }),
@@ -238,6 +268,7 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      notify: { client_on_stage: !!notifyAfter?.notify_client_on_stage },
       capacities: {
         cnc: numOr(caps.cnc, 8),
         painting: numOr(caps.painting, 200),

@@ -16,6 +16,7 @@ import {
   Users,
   AlertTriangle,
   Wand2,
+  Mail,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -77,6 +78,8 @@ interface DraftRate {
 
 interface SettingsData {
   capacities: Capacities;
+  /** Automatic emails to the dealer at the four milestones. */
+  notify: { client_on_stage: boolean };
   rates: RateRow[];
 }
 
@@ -106,6 +109,7 @@ export default function SettingsPage() {
   });
 
   const [caps, setCaps] = useState<Capacities>({ cnc: 8, painting: 200, install: 5 });
+  const [notifyOnStage, setNotifyOnStage] = useState(false);
   const [rates, setRates] = useState<DraftRate[]>([]);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -113,6 +117,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (data) {
       setCaps(data.capacities);
+      setNotifyOnStage(!!data.notify?.client_on_stage);
       // Odoo hands many2ones back as [id, name]; the draft carries the bare id.
       setRates(
         data.rates.map((r) => ({
@@ -168,6 +173,7 @@ export default function SettingsPage() {
     setSaving(true);
     const payload = {
       capacities: caps,
+      notify: { client_on_stage: notifyOnStage },
       rates: rates.map((r) => ({
         id: r.id,
         _delete: r._delete,
@@ -190,7 +196,7 @@ export default function SettingsPage() {
       .then(async (r) => {
         const j = await r.json();
         if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
-        qc.setQueryData(["settings"], { capacities: j.capacities, rates: j.rates });
+        qc.setQueryData(["settings"], { capacities: j.capacities, notify: j.notify, rates: j.rates });
         qc.invalidateQueries({ queryKey: ["dashboard"] });
         setDirty(false);
         return j;
@@ -289,6 +295,50 @@ export default function SettingsPage() {
             onChange={(v) => { setCaps((c) => ({ ...c, install: v })); setDirty(true); }}
           />
         </div>
+      </section>
+
+      {/* ---------- Avisos al dealer ---------- */}
+      <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-slate-900">
+            Automatic emails to the dealer
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            One automatic email to the dealer when an order reaches a
+            milestone. One-off notices are still sent by hand from the{" "}
+            <strong className="text-slate-700">Notify</strong> button on each
+            order, whether this is on or off.
+          </p>
+        </div>
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+          <Checkbox
+            checked={notifyOnStage}
+            onCheckedChange={(v) => {
+              setNotifyOnStage(v === true);
+              setDirty(true);
+            }}
+            className="mt-0.5"
+          />
+          <span className="text-sm">
+            <span className="flex items-center gap-1.5 font-medium text-slate-900">
+              <Mail size={14} className="text-indigo-600" />
+              Notify the dealer at milestones
+            </span>
+            <span className="mt-1 block text-xs text-slate-500">
+              Four of the thirteen stages:{" "}
+              <strong className="text-slate-700">CNC</strong> (in production),{" "}
+              <strong className="text-slate-700">Ready for Installation</strong>,{" "}
+              <strong className="text-slate-700">Installation Scheduled</strong> and{" "}
+              <strong className="text-slate-700">Installed</strong>. The other
+              nine are internal work and send nothing.
+            </span>
+            <span className="mt-1.5 block text-xs text-slate-500">
+              Goes to the dealer&apos;s email, not the homeowner&apos;s. Dealers with
+              no email get nothing and the order moves on regardless — set one
+              in Admin → Dealers.
+            </span>
+          </span>
+        </label>
       </section>
 
       {/* ---------- Contractor rates ---------- */}
