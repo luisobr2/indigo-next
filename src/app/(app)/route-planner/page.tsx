@@ -43,6 +43,17 @@ interface RouteOrder {
   client_address: string;
   client_phone: string;
   installation_date: string | false;
+  measurement_date: string | false;
+  // visit_type / visit_date unifican los dos viajes que se hacen a la MISMA
+  // casa: primero a medir, despues a instalar. El planificador filtraba solo
+  // por installation_date, y por eso las mediciones no podian entrar nunca en
+  // la ruta del dia aunque cayeran de camino.
+  visit_type: "measure" | "install" | false;
+  visit_date: string | false;
+  // Geografia del trabajo: pese al prefijo, no son de instalacion. Salen del
+  // codigo postal y valen igual para una medicion.
+  install_corridor: string | false;
+  install_distance_mi: number;
   installer_ids: number[];
   dealer_id: [number, string] | false;
 }
@@ -106,7 +117,7 @@ export default function RoutePlannerPage() {
     queryKey: ["route-planner"],
     queryFn: () =>
       fetchJson<{ records: RouteOrder[] }>(
-        "/api/orders?stages=install_scheduled,ready_install&limit=200",
+        "/api/orders?stages=install_scheduled,ready_install,measure_pending&limit=200",
       ),
   });
 
@@ -125,8 +136,11 @@ export default function RoutePlannerPage() {
   const records = useMemo(() => {
     const all = data?.records ?? [];
     return all.filter((r) => {
-      if (!r.installation_date) return false;
-      if (String(r.installation_date).slice(0, 10) !== day) return false;
+      // visit_date, no installation_date: para una medicion la fecha que
+      // manda es measurement_date, y mirar solo la de instalacion dejaba
+      // fuera del dia a todas las mediciones.
+      if (!r.visit_date) return false;
+      if (String(r.visit_date).slice(0, 10) !== day) return false;
       if (installerId !== "" && !(r.installer_ids || []).includes(installerId))
         return false;
       return true;
@@ -188,13 +202,13 @@ export default function RoutePlannerPage() {
             size="lg"
             onClick={() => {
               if (!stops.length) {
-                toast.warning("No installations scheduled");
+                toast.warning("No visits scheduled");
                 return;
               }
               openOdooReport({
                 report: REPORTS.installationAddresses,
                 ids: stops.map((o) => o.id),
-                filename: `installations-${new Date().toISOString().slice(0, 10)}.pdf`,
+                filename: `visits-${new Date().toISOString().slice(0, 10)}.pdf`,
               });
             }}
           >
@@ -205,7 +219,7 @@ export default function RoutePlannerPage() {
             size="lg"
             onClick={() => {
               if (!stops.length) {
-                toast.warning("No installations scheduled");
+                toast.warning("No visits scheduled");
                 return;
               }
               // Build a WhatsApp-shareable text version of the day's stops in
@@ -213,11 +227,11 @@ export default function RoutePlannerPage() {
               // addresses with commas/spaces survive the wa.me handler. No
               // phone prefix -> opens the contact picker on the device.
               const lines = [
-                `*Indigo Decors — Installations ${fmtDate(day)}*`,
+                `*Indigo Decors — ${fmtDate(day)}*`,
                 "",
                 ...stops.map((o, i) =>
                   [
-                    `${i + 1}. ${o.name} — ${o.client_name}`,
+                    `${i + 1}. ${o.visit_type === "measure" ? "[MEASURE] " : ""}${o.name} — ${o.client_name}`,
                     o.client_address
                       ? `   ${o.client_address.replace(/\n/g, ", ")}`
                       : "",
@@ -304,7 +318,7 @@ export default function RoutePlannerPage() {
           )}
           {!isLoading && !isError && stops.length === 0 && (
             <div className="py-12 text-center text-sm text-slate-400">
-              No installations scheduled for {fmtDate(day)}
+              No visits scheduled for {fmtDate(day)}
               {installerId !== "" ? " for this installer" : ""}.
             </div>
           )}
@@ -406,10 +420,26 @@ function SortableStop({
           <MapPin size={11} className="mt-0.5 shrink-0" />
           <span className="line-clamp-2">{o.client_address}</span>
         </div>
-        <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
-          <span>
-            {o.installation_date ? fmtDate(o.installation_date) : "No date"}
-          </span>
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+          {/* Que se va a hacer en esta parada. Medir e instalar comparten
+              ruta pero no herramientas ni duracion, asi que quien conduce
+              tiene que verlo antes de salir. */}
+          {o.visit_type === "measure" && (
+            <span className="rounded bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700">
+              MEASURE
+            </span>
+          )}
+          <span>{o.visit_date ? fmtDate(o.visit_date) : "No date"}</span>
+          {/* Zona y millas: ya se calculaban en Odoo desde el codigo postal
+              y no se enseñaban en ningun sitio donde se decidiera una ruta. */}
+          {o.install_corridor && (
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600">
+              {o.install_corridor}
+            </span>
+          )}
+          {o.install_distance_mi > 0 && (
+            <span>{o.install_distance_mi.toFixed(0)} mi</span>
+          )}
           {index < total - 1 && (
             <ArrowRight size={10} className="text-slate-300" />
           )}

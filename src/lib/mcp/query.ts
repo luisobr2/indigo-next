@@ -71,6 +71,13 @@ const ORDER_FIELDS: Record<string, FieldKind> = {
   payment_state: "char",
   date_paid: "date",
   installation_date: "date",
+  // Visitas. measurement_date es la fecha de ir a medir, que hasta ahora no
+  // existia; visit_type/visit_date unifican los dos viajes a la misma casa.
+  // Sin esto la IA no puede responder "que mediciones hay pendientes al
+  // norte" -- ORDER_FIELDS es lista blanca, no una sugerencia.
+  measurement_date: "date",
+  visit_type: "char",
+  visit_date: "date",
   expected_completion_date: "date",
   create_date: "datetime",
   write_date: "datetime",

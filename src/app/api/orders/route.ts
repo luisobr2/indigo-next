@@ -29,6 +29,11 @@ const ORDER_FIELDS_BASE = [
   "painter_id",
   "installer_ids",
   "installation_date",
+  // Geografia del trabajo. Pese al prefijo install_, NO son de instalacion:
+  // se calculan desde el codigo postal y valen igual para una medicion.
+  // Van en la lista BASE porque existen en produccion desde agosto.
+  "install_corridor",
+  "install_distance_mi",
   "expected_completion_date",
   "days_in_current_stage",
   "is_overdue",
@@ -48,6 +53,17 @@ const ORDER_FIELDS_V2_EXTRA = [
   "paint_done_at",
   "cancelled_at",
   "incidence",
+  // Visitas: medir e instalar son dos viajes a la MISMA casa. visit_type y
+  // visit_date los unifican para que el planificador de ruta pueda mezclarlos
+  // en el mismo dia, en vez de mirar solo installation_date.
+  //
+  // Van aqui y no en la lista base A PROPOSITO: son campos nuevos, y la base
+  // es la lista a la que se cae cuando Odoo aun no tiene el upgrade. Pedir un
+  // campo inexistente desde la base tumbaria la lista de ordenes ENTERA si el
+  // panel se despliega antes que el modulo.
+  "measurement_date",
+  "visit_type",
+  "visit_date",
 ];
 
 /**
@@ -309,6 +325,7 @@ const CREATABLE_ORDER_FIELDS = [
   "client_address",
   "notes",
   "installation_date",
+  "measurement_date",
   "expected_completion_date",
   "priv_ref",
   "customer_po",

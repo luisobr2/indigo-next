@@ -50,8 +50,33 @@ test("formatOrder flattens Odoo's many2one tuples and false-for-empty", () => {
     stage: "Painting",
     dealer: "Lock Tight",
     installation_date: null,
+    visit_type: null,
+    visit_date: null,
     doors: 2,
   });
+});
+
+test("formatOrder surfaces a pending MEASUREMENT, which has no install date", () => {
+  // El caso que motivo añadir visit_*: una orden a medir no tiene
+  // installation_date, asi que con solo ese campo la IA la veia como una
+  // orden sin nada programado. visit_type/visit_date son los que dicen que
+  // alguien tiene que conducir hasta alli, y cuando.
+  const row = {
+    id: 9,
+    name: "IO-0009",
+    client_name: "Diaz",
+    client_address: "1200 Brickell Ave, Miami, FL 33131",
+    stage_id: [4, "Measurement Pending"],
+    dealer_id: [2, "Lock Tight"],
+    installation_date: false,
+    visit_type: "measure",
+    visit_date: "2026-09-18",
+    door_count: 1,
+  };
+  const out = formatOrder(row);
+  assert.equal(out.installation_date, null, "una medicion no tiene fecha de instalacion");
+  assert.equal(out.visit_type, "measure");
+  assert.equal(out.visit_date, "2026-09-18");
 });
 
 // ---------------------------------------------------------------------
@@ -224,14 +249,28 @@ test("toMcpToolError falls back to ERROR_ODOO for a non-Error throw", () => {
 // confirm handshake itself — see the runWriteTool suite below.
 // ---------------------------------------------------------------------
 
-const WRITE_TOOL_NAMES = ["advance_order", "assign_order", "schedule_install", "hold_order", "add_note"];
+// Esta lista es el contrato de las herramientas de ESCRITURA: cada una tiene
+// que pedir order_id y aceptar 'confirm' opcional. Una herramienta que escriba
+// y no este aqui queda fuera de esas comprobaciones, que es justo como se
+// cuela una que no pide confirmacion.
+const WRITE_TOOL_NAMES = [
+  "advance_order",
+  "assign_order",
+  "schedule_install",
+  "schedule_measurement",
+  "hold_order",
+  "add_note",
+];
 
-test("all five Fase 2 write tools are registered in TOOL_DEFS", () => {
+test("every write tool is registered in TOOL_DEFS", () => {
   const names = new Set(TOOL_DEFS.map((t) => t.name));
   for (const name of WRITE_TOOL_NAMES) {
     assert.ok(names.has(name), `expected TOOL_DEFS to include '${name}'`);
   }
-  assert.ok(TOOL_DEFS.length >= 11, `expected at least 11 tools (6 read + 5 write), got ${TOOL_DEFS.length}`);
+  assert.ok(
+    TOOL_DEFS.length >= 12,
+    `expected at least 12 tools (6 read + 6 write), got ${TOOL_DEFS.length}`,
+  );
 });
 
 test("every write tool's schema declares an optional 'confirm' string argument", () => {

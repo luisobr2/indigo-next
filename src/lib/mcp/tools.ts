@@ -111,6 +111,12 @@ export interface FormattedOrder {
   stage: string | null;
   dealer: string | null;
   installation_date: string | null;
+  // Que clase de desplazamiento pide la orden y para cuando. Se devuelven
+  // ADEMAS de installation_date, no en su lugar: una orden a medir tiene
+  // visita pero no fecha de instalacion, y quitar el campo viejo romperia a
+  // cualquiera que ya lo lea.
+  visit_type: "measure" | "install" | null;
+  visit_date: string | null;
   doors: number;
 }
 
@@ -128,6 +134,8 @@ export function formatOrder(row: Record<string, unknown>): FormattedOrder {
     stage: m2oLabel(row.stage_id),
     dealer: m2oLabel(row.dealer_id),
     installation_date: emptyToNull(row.installation_date as string | false),
+    visit_type: emptyToNull(row.visit_type as "measure" | "install" | false),
+    visit_date: emptyToNull(row.visit_date as string | false),
     doors: row.door_count as number,
   };
 }
@@ -400,7 +408,7 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "today_board",
     title: "Today's production board",
     description:
-      "Shows orders currently in an active production stage (excludes Invoiced/Paid and Closed), grouped by stage in pipeline order, up to 500 orders across all active stages (the working set is normally far smaller than that ceiling). Use this to answer 'what's on the board right now' questions like '¿qué hay para pintar hoy?' or 'what's in CNC today' without paging through the full order list. Returns one group per stage that has work in it, each with the matching orders (client, dealer, door count, install date), plus `shown`/`total`/`truncated` — check `truncated` before treating the result as complete; if true, narrow with find_orders (stage or dealer filter) instead.",
+      "Shows orders currently in an active production stage (excludes Invoiced/Paid and Closed), grouped by stage in pipeline order, up to 500 orders across all active stages (the working set is normally far smaller than that ceiling). Use this to answer 'what's on the board right now' questions like '¿qué hay para pintar hoy?' or 'what's in CNC today' without paging through the full order list. Returns one group per stage that has work in it, each with the matching orders (client, dealer, door count, install date, and `visit_type`/`visit_date` — 'measure' or 'install' when the order needs someone to drive to the client's address, so a pending measurement shows up on the board instead of being invisible), plus `shown`/`total`/`truncated` — check `truncated` before treating the result as complete; if true, narrow with find_orders (stage or dealer filter) instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -694,6 +702,28 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: "schedule_measurement",
+    title: "Schedule (or reschedule) a measurement visit",
+    description:
+      "Sets the measurement date for ONE order — the day someone drives out to take the dimensions. Unlike schedule_install this does NOT change the stage: 'Measurement Pending' already IS the stage for a measurement that has not happened yet, and there is no 'scheduled' variant of it. Use it so a pending measurement lands on the same day route as the installations near it, instead of being an untracked errand. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm').",
+    inputSchema: {
+      type: "object",
+      properties: {
+        order_id: {
+          type: "number",
+          description: "The numeric indigo.order id to schedule. One order per call.",
+        },
+        measurement_date: {
+          type: "string",
+          description: "Measurement date as YYYY-MM-DD.",
+        },
+        confirm: CONFIRM_SCHEMA_PROPERTY,
+      },
+      required: ["order_id", "measurement_date"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "hold_order",
     title: "Put an order on hold, or release it",
     description:
@@ -766,6 +796,8 @@ const ORDER_LIST_FIELDS = [
   "stage_id",
   "dealer_id",
   "installation_date",
+  "visit_type",
+  "visit_date",
   "door_count",
 ];
 
@@ -1958,6 +1990,56 @@ async function scheduleInstall(args: Record<string, unknown>, id: McpIdentity, n
   return runWriteTool("schedule_install", args, id, () => planScheduleInstall(args, id), now);
 }
 
+async function planScheduleMeasurement(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
+  const orderId = requireOrderId(args, "schedule_measurement");
+  const date = typeof args.measurement_date === "string" ? args.measurement_date.trim() : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw mcpError("ENTRADA_INVALIDA", "schedule_measurement requiere 'measurement_date' en formato YYYY-MM-DD.");
+  }
+
+  await requireOfficeRole(id, "programar una medición");
+
+  const execute = await getRpc();
+  const rows = await execute<AdvanceOrderRow[]>(
+    id.uid,
+    id.apiKey,
+    "indigo.order",
+    "search_read",
+    [[["id", "=", orderId]], ["id", "name", "client_name", "stage_code"]],
+    { limit: 1 },
+  );
+  if (!rows.length) throw mcpError("NO_ENCONTRADO", `No existe la orden ${orderId}.`);
+  const order = rows[0];
+
+  const messageParts = [`Orden ${order.name} (${order.client_name}): se programará la medición para el ${date}.`];
+  // A diferencia de schedule_install, NO se cambia de etapa: 'measure_pending'
+  // ya es la etapa de una medicion sin hacer. Pero si la orden ni siquiera
+  // esta ahi, la fecha se guardaria en una orden que nadie va a medir y no
+  // apareceria en ninguna ruta -- avisar es mas util que rechazarlo, porque
+  // adelantar la fecha antes de confirmar el diseño es legitimo.
+  if (order.stage_code !== "measure_pending") {
+    messageParts.push(
+      `Aviso: la orden está en '${order.stage_code}', no en 'Measurement Pending', así que la fecha se guardará pero la visita no saldrá en la ruta hasta que la orden llegue a esa etapa.`,
+    );
+  }
+
+  return {
+    message: messageParts.join(" "),
+    extra: { order: order.name, client: order.client_name },
+    execute: async () => {
+      await execute(id.uid, id.apiKey, "indigo.order", "write", [[orderId], { measurement_date: date }], {});
+      await execute(id.uid, id.apiKey, "indigo.order", "message_post", [[orderId]], {
+        body: `Medición programada para <b>${date}</b>.${AI_ORIGIN_SUFFIX}`,
+        message_type: "comment",
+      }).catch(() => undefined);
+    },
+  };
+}
+
+async function scheduleMeasurement(args: Record<string, unknown>, id: McpIdentity, now: number) {
+  return runWriteTool("schedule_measurement", args, id, () => planScheduleMeasurement(args, id), now);
+}
+
 /** The three hold_cause values indigo.order accepts (Odoo 17.0.0.88.0+). */
 export type HoldCause = "dealer" | "client" | "other";
 const HOLD_CAUSES: HoldCause[] = ["dealer", "client", "other"];
@@ -2175,6 +2257,8 @@ async function dispatchTool(
       return assignOrder(args, id, now);
     case "schedule_install":
       return scheduleInstall(args, id, now);
+    case "schedule_measurement":
+      return scheduleMeasurement(args, id, now);
     case "hold_order":
       return holdOrder(args, id, now);
     case "add_note":

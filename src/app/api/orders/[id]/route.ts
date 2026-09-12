@@ -41,6 +41,10 @@ const ORDER_FIELDS_BASE = [
   "painter_id",
   "installer_ids",
   "installation_date",
+  // Geografia del trabajo: pese al prefijo install_, sale del codigo postal y
+  // vale igual para una medicion. En la lista base porque existe desde agosto.
+  "install_corridor",
+  "install_distance_mi",
   "expected_completion_date",
   "days_in_current_stage",
   "is_overdue",
@@ -53,6 +57,12 @@ const ORDER_FIELDS_BASE = [
 ];
 
 const ORDER_FIELDS_V2_EXTRA = [
+  // Campos NUEVOS de visitas. Van aqui y no en la lista base a proposito: la
+  // base es a la que se cae cuando Odoo aun no tiene el upgrade, y pedir un
+  // campo inexistente desde ahi tumbaria la ficha de la orden entera.
+  "measurement_date",
+  "visit_type",
+  "visit_date",
   "digi_started_at",
   "digi_done_at",
   "cnc_started_at",
@@ -232,6 +242,7 @@ const EDITABLE_ORDER_FIELDS = [
   "customer_po",
   "notes",
   "installation_date",
+  "measurement_date",
   "expected_completion_date",
 ] as const;
 
