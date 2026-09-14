@@ -270,7 +270,6 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
       return !!(
         cfg.withSqfTable ||
         cfg.withPhoto ||
-        cfg.withSignature ||
         cfg.withAmount
       );
     });
@@ -511,8 +510,7 @@ export function BulkSendToButton({ orderIds, stages, onSuccess }: Props) {
                             const cfg = STAGE_WIZARDS[c];
                             return [
                               cfg?.withSqfTable ? "SQF" : "",
-                              cfg?.withPhoto ? "photo" : "",
-                              cfg?.withSignature ? "signature" : "",
+                              cfg?.withPhoto ? "photos" : "",
                             ].filter(Boolean);
                           }),
                         ),

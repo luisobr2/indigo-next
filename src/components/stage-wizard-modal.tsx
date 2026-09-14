@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Camera, CheckCircle2, FileSignature } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Camera, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
-import { SignaturePad, SignaturePadHandle } from "./signature-pad";
 import {
   Dialog,
   DialogContent,
@@ -25,10 +24,10 @@ export interface StageWizardConfig {
   description: string;
   /** Primary action label shown on the submit button */
   submitLabel: string;
-  /** Optional photo upload field (Mark painted / Mark installed) */
+  /** Optional photo upload field (Mark painted / Mark installed).
+   *  Acepta VARIAS: una sola puerta necesita el frente, el detalle del
+   *  ornamento y el marco, y antes solo cabia una. */
   withPhoto?: boolean;
-  /** Optional signature canvas (Mark installed) */
-  withSignature?: boolean;
   /** Optional amount field for the Invoice & paid wizard */
   withAmount?: boolean;
   /**
@@ -74,10 +73,9 @@ export function StageWizardModal({
 }: StageWizardModalProps) {
   const [note, setNote] = useState("");
   const [amount, setAmount] = useState<string>("");
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const sigRef = useRef<SignaturePadHandle>(null);
 
   interface SqfLine {
     id: number;
@@ -209,11 +207,19 @@ export function StageWizardModal({
       }
       if (config.withAmount && amount.trim() !== "")
         payload.amount_collected = parseFloat(amount);
-      if (config.withPhoto && photoFile)
-        payload.photo = await fileToBase64(photoFile);
-      if (config.withSignature) {
-        const sigData = sigRef.current?.getDataURL();
-        if (sigData) payload.signature = sigData;
+      if (config.withPhoto && photoFiles.length) {
+        // Las fotos se suben ANTES de abrir el asistente y aqui solo viajan
+        // sus ids: mandar varios base64 dentro del payload del asistente
+        // hincharia la llamada hasta decenas de MB con fotos de movil.
+        const datas = await Promise.all(photoFiles.map(fileToBase64));
+        const r = await fetch(`/api/orders/${orderId}/photos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ photos: datas, names: photoFiles.map((f) => f.name) }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "No se pudieron subir las fotos");
+        payload.photo_ids = [[6, 0, d.ids]];
       }
       if (config.withSqfTable && sqfLines.length) {
         const line_sqfs: Record<string, number> = {};
@@ -303,7 +309,7 @@ export function StageWizardModal({
             <div className="space-y-1.5">
               <Label htmlFor="wizard-photo" className="flex items-center gap-2">
                 <Camera size={12} />
-                Photo (optional)
+                Photos (optional)
               </Label>
               {/* Native input — Base UI Input wrapper breaks the file picker. */}
               <label
@@ -311,30 +317,25 @@ export function StageWizardModal({
                 className="flex h-10 w-full cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition hover:bg-slate-50"
               >
                 <Camera size={14} className="text-indigo-600" />
-                {photoFile ? (
-                  <span className="truncate text-slate-900">{photoFile.name}</span>
+                {photoFiles.length === 1 ? (
+                  <span className="truncate text-slate-900">{photoFiles[0].name}</span>
+                ) : photoFiles.length > 1 ? (
+                  <span className="text-slate-900">{photoFiles.length} fotos</span>
                 ) : (
-                  <span>Choose photo…</span>
+                  <span>Choose photos…</span>
                 )}
               </label>
+              {/* Sin `capture`: ese atributo abre la camara directamente y la
+                  camara devuelve UNA foto, asi que anulaba el multiple. Sin
+                  el, el movil ofrece elegir entre camara y galeria. */}
               <input
                 id="wizard-photo"
                 type="file"
                 accept="image/*"
-                capture="environment"
-                onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+                multiple
+                onChange={(e) => setPhotoFiles(Array.from(e.target.files ?? []))}
                 className="hidden"
               />
-            </div>
-          )}
-
-          {config.withSignature && (
-            <div className="space-y-1.5">
-              <Label className="flex items-center gap-2">
-                <FileSignature size={12} />
-                Customer signature
-              </Label>
-              <SignaturePad ref={sigRef} height={150} />
             </div>
           )}
 
@@ -529,10 +530,9 @@ export const STAGE_WIZARDS: Record<string, StageWizardConfig> = {
     wizard: "indigo.installed.wizard",
     title: "Mark installed",
     description:
-      "Snap a photo and have the customer sign. Order moves to Installed.",
+      "Take as many photos as you need. Order moves to Installed.",
     submitLabel: "Save & advance to Installed",
     withPhoto: true,
-    withSignature: true,
   },
   installed: {
     wizard: "indigo.invoiced.paid.wizard",
