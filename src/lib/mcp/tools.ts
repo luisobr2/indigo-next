@@ -862,6 +862,10 @@ export const TOOL_DEFS: ToolDef[] = [
             additionalProperties: false,
           },
         },
+        allow_duplicate: {
+          type: "boolean",
+          description: "Only pass this after the preview warned that this dealer already has an order for this client AND a person told you it is genuinely a second, different job. It is how a repeat customer gets through; it is not a way to clear a warning you did not read.",
+        },
         confirm: CONFIRM_SCHEMA_PROPERTY,
       },
       required: ["dealer_id", "client_name", "doors"],
@@ -2472,6 +2476,82 @@ export function inchesLabel(value: number): string {
   return `${whole} ${num}/${den}`;
 }
 
+/**
+ * A client name reduced to a comparable key: lowercased, accents stripped,
+ * punctuation dropped, tokens sorted. "SOTELO, GERMAN" and "German Sotelo"
+ * both become "german sotelo".
+ *
+ * Used ONLY for comparison, never for storage. Their production data holds
+ * every convention at once — "ADRIANA DIFEO", "Adeolu Adelekan",
+ * "Allen, Thomas" — so rewriting an incoming name into one house style
+ * would just add a fourth. The name goes in exactly as it was given; this
+ * key is what makes the duplicate check see past the formatting.
+ */
+export function clientNameKey(name: string): string[] {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .sort();
+}
+
+/**
+ * True when two client names are close enough to be the same person: the
+ * same tokens, or one name's tokens wholly contained in the other's.
+ *
+ * The containment case is not hypothetical. Production holds both
+ * "FREDERIC, VIERGENIE" and "FREDERIC, VIERGENIE L" as separate orders, and
+ * "DORON SHERMAN repeticion" — someone typed the Spanish for "repeat" into
+ * a client's name because they caught the double AFTER it was created.
+ * Exact matching would miss the first pair, which is the kind this tool
+ * makes more likely, not less: an agent that times out mid-create and
+ * retries sends a name that differs by a keystroke.
+ */
+export function namesLookLikeSamePerson(a: string[], b: string[]): boolean {
+  if (!a.length || !b.length) return false;
+  const [corto, largo] = a.length <= b.length ? [a, b] : [b, a];
+  const set = new Set(largo);
+  return corto.every((t) => set.has(t));
+}
+
+/**
+ * Odoo's own ZIP extraction, mirrored from _zip_from_address in
+ * addons/indigo_decors/models/indigo_order.py: the LAST run of five digits
+ * wins, because the ZIP trails the state while the street number leads.
+ * Reproduced rather than guessed at, so the preview can say what Odoo will
+ * actually file — the ZIP drives the distance-based installation fee.
+ */
+export function zipFromAddress(address: string): string | null {
+  const m = address.match(/(?<!\d)(\d{5})(?!\d)/g);
+  return m && m.length ? m[m.length - 1] : null;
+}
+
+/**
+ * What to tell the human about the ZIP, or null when it looks fine.
+ *
+ * Every one of the 312 orders in production sits in a 33xxx ZIP — Miami-
+ * Dade, Broward, Palm Beach. So a ZIP outside that is either a genuinely
+ * distant job worth a second look, or the failure Odoo's own docstring
+ * records: an address written with no ZIP, where the five-digit STREET
+ * NUMBER gets filed instead. That really happened ("17042 NW 10th ST ...
+ * FL33028" landed a Pennsylvania ZIP), and 17042 is exactly what this
+ * catches. A warning, never a block: they are free to take a job anywhere,
+ * and a human is reading the preview.
+ */
+export function zipWarning(address: string | undefined): string | null {
+  if (!address) return "sin direccion, asi que la orden no tendra ZIP y no se le podra calcular el cargo de instalacion";
+  const zip = zipFromAddress(address);
+  if (!zip) return "la direccion no trae un ZIP de 5 digitos: Odoo dejara la orden sin ZIP y sin cargo de instalacion";
+  if (!zip.startsWith("33")) {
+    return `de esa direccion Odoo va a sacar el ZIP ${zip}, y las 312 ordenes que existen estan todas en 33xxx (sur de Florida). Si la direccion no trae ZIP, lo que se esta tomando es el NUMERO DE LA CALLE`;
+  }
+  return null;
+}
+
 async function planCreateOrder(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
   const dealerId = args.dealer_id;
   if (typeof dealerId !== "number" || !Number.isInteger(dealerId) || dealerId <= 0) {
@@ -2541,6 +2621,47 @@ async function planCreateOrder(args: Record<string, unknown>, id: McpIdentity): 
     }
   }
 
+  // Is this order already in the system? Nothing else here can create a
+  // double, and this tool can: the confirm token is a stateless HMAC with
+  // no replay protection (see ./confirm.ts), so an agent that retries after
+  // a timeout re-presents a token that still verifies, and Odoo creates a
+  // second order. The other six write tools are safe from that because they
+  // act on an order that already exists; this one is not.
+  //
+  // This closes the replay hole as a side effect, and that depends on
+  // WHERE the check sits: buildPlan re-runs on the confirm call too (see
+  // runWriteTool), so a replayed token re-queries and finds the order the
+  // first confirm just created. Do not hoist this lookup out of buildPlan
+  // or cache it between preview and confirm — that would hand the replay
+  // back the stale "no duplicates" answer from before the order existed.
+  //
+  // Narrowed server-side by the longest word in the name (usually the
+  // surname), then compared properly in memory — an Odoo domain cannot
+  // express "same tokens in any order".
+  const claveNueva = clientNameKey(clientName);
+  const tokenLargo = [...claveNueva].sort((a, b) => b.length - a.length)[0] ?? "";
+  let duplicados: Array<{ id: number; name: string; client_name: string }> = [];
+  if (tokenLargo.length >= 3) {
+    const candidatos = await execute<Array<{ id: number; name: string; client_name: string }>>(
+      id.uid,
+      id.apiKey,
+      "indigo.order",
+      "search_read",
+      [
+        [
+          ["dealer_id", "=", dealerId],
+          ["client_name", "ilike", tokenLargo],
+        ],
+        ["id", "name", "client_name"],
+      ],
+      { limit: 20, order: "create_date desc" },
+    );
+    duplicados = candidatos.filter((o) =>
+      namesLookLikeSamePerson(claveNueva, clientNameKey(o.client_name || "")),
+    );
+  }
+  const permitirDuplicado = args.allow_duplicate === true;
+
   const orderVals: Record<string, unknown> = {
     dealer_id: dealerId,
     client_name: clientName,
@@ -2593,14 +2714,37 @@ async function planCreateOrder(args: Record<string, unknown>, id: McpIdentity): 
   const puertas = doors.reduce((n, d) => n + d.qty, 0);
   const extra: Record<string, unknown> = { dealer: dealer.name, client: clientName, doors: puertas };
 
+  const avisos: string[] = [];
+  const zipAviso = zipWarning(orderVals.client_address as string | undefined);
+  if (zipAviso) avisos.push(`  AVISO ZIP: ${zipAviso}.`);
+  if (duplicados.length) {
+    const lista = duplicados.map((o) => `${o.name} (${o.client_name})`).join(", ");
+    avisos.push(
+      permitirDuplicado
+        ? `  DUPLICADO ACEPTADO: ${dealer.name} ya tiene ${lista}. Se va a crear igual porque se paso allow_duplicate.`
+        : `  YA EXISTE: ${dealer.name} ya tiene ${lista}. Esto NO se va a crear. Si de verdad es un trabajo distinto del mismo cliente, preguntaselo a la persona y vuelve a llamar con allow_duplicate: true.`,
+    );
+  }
+  if (duplicados.length) extra.existing_orders = duplicados.map((o) => o.name);
+
   return {
     message:
       `crear una orden nueva para ${dealer.name}, en etapa New Order, con ${puertas} ` +
       `puerta${puertas === 1 ? "" : "s"}:\n${contacto}\n${detalle}` +
       `\n  Notas: ${orderVals.notes ?? "(vacias)"}` +
+      (avisos.length ? `\n${avisos.join("\n")}` : "") +
       `\nRevisa cada dato contra la hoja antes de confirmar: desde aqui no se puede deshacer.`,
     extra,
     execute: async () => {
+      // Checked here and not earlier on purpose: buildPlan runs for the
+      // preview too, and the preview is exactly where a human needs to SEE
+      // the clash. Throwing during buildPlan would hide it behind an error.
+      if (duplicados.length && !permitirDuplicado) {
+        throw mcpError(
+          "ENTRADA_INVALIDA",
+          `No se creo nada: ${dealer.name} ya tiene ${duplicados.map((o) => `${o.name} (${o.client_name})`).join(", ")}. Si es el mismo trabajo, ya esta cargado. Si de verdad es otro distinto para el mismo cliente, confirmalo con la persona y vuelve a llamar con allow_duplicate: true.`,
+        );
+      }
       const newId = await execute<number>(id.uid, id.apiKey, "indigo.order", "create", [orderVals], {});
       extra.order_id = newId;
       const rows = await execute<Array<{ id: number; name: string }>>(

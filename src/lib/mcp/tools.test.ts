@@ -15,6 +15,10 @@ import {
   requireHoldCause,
   parseOrderDoors,
   inchesLabel,
+  clientNameKey,
+  namesLookLikeSamePerson,
+  zipFromAddress,
+  zipWarning,
 } from "./tools.ts";
 import { issueConfirmToken, CONFIRM_TOKEN_TTL_MS } from "./confirm.ts";
 import type { McpIdentity } from "./token.ts";
@@ -774,4 +778,87 @@ test("inchesLabel writes a decimal back as the fraction on the sheet", () => {
   assert.equal(inchesLabel(75.125), "75 1/8");
   assert.equal(inchesLabel(72), "72");
   assert.equal(inchesLabel(20.5), "20 1/2");
+});
+
+// ---------------------------------------------------------------------
+// create_order — the duplicate guard. This tool is the only one that can
+// create a double: the confirm token is a stateless HMAC (./confirm.ts),
+// so a retried call re-presents a token that still verifies. Production
+// already carries the scars of doubles caught by hand — an order whose
+// client is literally named "DORON SHERMAN repeticion", and the pair
+// "FREDERIC, VIERGENIE" / "FREDERIC, VIERGENIE L".
+// ---------------------------------------------------------------------
+
+test("clientNameKey sees past filing order and capitalisation", () => {
+  // Both of these conventions are in their production data today.
+  assert.deepEqual(clientNameKey("SOTELO, GERMAN"), ["german", "sotelo"]);
+  assert.deepEqual(clientNameKey("German Sotelo"), ["german", "sotelo"]);
+  assert.deepEqual(clientNameKey("  german   sotelo  "), ["german", "sotelo"]);
+});
+
+test("clientNameKey strips accents so one spelling doesn't hide the other", () => {
+  assert.deepEqual(clientNameKey("José Martínez"), clientNameKey("Jose Martinez"));
+});
+
+test("namesLookLikeSamePerson matches the same name written either way round", () => {
+  assert.ok(namesLookLikeSamePerson(clientNameKey("SOTELO, GERMAN"), clientNameKey("German Sotelo")));
+});
+
+test("namesLookLikeSamePerson catches the near-miss that is already in production", () => {
+  // These two exist as separate orders right now.
+  assert.ok(
+    namesLookLikeSamePerson(clientNameKey("FREDERIC, VIERGENIE"), clientNameKey("FREDERIC, VIERGENIE L")),
+    "a middle initial must not be enough to hide a duplicate",
+  );
+});
+
+test("namesLookLikeSamePerson keeps different people apart", () => {
+  assert.ok(!namesLookLikeSamePerson(clientNameKey("Ana Martinez"), clientNameKey("Ana Roldan")));
+  assert.ok(!namesLookLikeSamePerson(clientNameKey("Errol Belle"), clientNameKey("Errol Wilson")));
+  assert.ok(!namesLookLikeSamePerson(clientNameKey("Carol Burgess"), clientNameKey("Carol Pennant")));
+});
+
+test("namesLookLikeSamePerson treats an empty name as no match", () => {
+  assert.ok(!namesLookLikeSamePerson([], clientNameKey("German Sotelo")));
+  assert.ok(!namesLookLikeSamePerson(clientNameKey("German Sotelo"), []));
+});
+
+test("create_order's allow_duplicate is optional, so the guard is on by default", () => {
+  const def = TOOL_DEFS.find((t) => t.name === "create_order")!;
+  const props = def.inputSchema.properties as Record<string, { type?: string }>;
+  assert.equal(props.allow_duplicate?.type, "boolean");
+  assert.ok(!def.inputSchema.required?.includes("allow_duplicate"));
+});
+
+// ---------------------------------------------------------------------
+// create_order — the ZIP the order gets filed under drives the distance
+// based installation fee, and Odoo takes the LAST five digits of the free
+// text address. All 312 orders in production sit in a 33xxx ZIP.
+// ---------------------------------------------------------------------
+
+test("zipFromAddress takes the last five digits, like Odoo does", () => {
+  assert.equal(zipFromAddress("726 S D St, Lake Worth, FL 33460"), "33460");
+  // The state written flush against the ZIP — common, and the reason Odoo's
+  // own version dropped word boundaries.
+  assert.equal(zipFromAddress("17042 NW 10th ST PEMBROKE PINES FL33028"), "33028");
+  assert.equal(zipFromAddress("no digits here"), null);
+});
+
+test("zipWarning stays quiet on a normal South Florida address", () => {
+  assert.equal(zipWarning("726 S D St, Lake Worth, FL 33460"), null);
+  assert.equal(zipWarning("17042 NW 10th ST PEMBROKE PINES FL33028"), null);
+});
+
+test("zipWarning catches the street number being filed as the ZIP", () => {
+  // The exact failure Odoo's _zip_from_address docstring records: no ZIP in
+  // the text, so the five-digit street number wins.
+  const aviso = zipWarning("17042 NW 10th ST PEMBROKE PINES FL");
+  assert.ok(aviso && /17042/.test(aviso), aviso ?? "expected a warning");
+  assert.ok(aviso && /NUMERO DE LA CALLE/.test(aviso));
+});
+
+test("zipWarning flags an address with no ZIP at all, and no address", () => {
+  assert.ok(zipWarning("Lake Worth, FL"));
+  assert.ok(zipWarning(undefined));
+  assert.ok(zipWarning(""));
 });
