@@ -21,6 +21,7 @@ import {
   zipWarning,
 } from "./tools.ts";
 import { issueConfirmToken, CONFIRM_TOKEN_TTL_MS } from "./confirm.ts";
+import { SERVER_INSTRUCTIONS } from "./instructions.ts";
 import type { McpIdentity } from "./token.ts";
 
 test("every tool advertises a name, description and object schema", () => {
@@ -861,4 +862,73 @@ test("zipWarning flags an address with no ZIP at all, and no address", () => {
   assert.ok(zipWarning("Lake Worth, FL"));
   assert.ok(zipWarning(undefined));
   assert.ok(zipWarning(""));
+});
+
+// ---------------------------------------------------------------------
+// SERVER_INSTRUCTIONS — the briefing MCP hands the agent in the initialize
+// response, before it has read a single tool. Its whole job is to carry
+// the rules that belong to no single tool, so the assertions below are
+// about coverage, not wording: they fail if a rule quietly disappears,
+// and stay green when someone rewrites a sentence.
+// ---------------------------------------------------------------------
+
+test("the server briefing names what the shop does, and does not do", () => {
+  // A dealer's sheet lists windows alongside the door. An agent that does
+  // not know Indigo only does doors will happily file them all.
+  assert.match(SERVER_INSTRUCTIONS, /DECORATES DOORS/);
+  assert.match(SERVER_INSTRUCTIONS, /does not make windows/i);
+});
+
+test("the server briefing says to answer in the person's language, not in JSON", () => {
+  assert.match(SERVER_INSTRUCTIONS, /Spanish/);
+  assert.match(SERVER_INSTRUCTIONS, /raw JSON/i);
+});
+
+test("the server briefing tells the agent to ask instead of guessing", () => {
+  assert.match(SERVER_INSTRUCTIONS, /DO NOT GUESS/i);
+  // The lesson create_order was built around, stated once for every tool.
+  assert.match(SERVER_INSTRUCTIONS, /read off a photo is a READING/i);
+});
+
+test("the server briefing points at the discovery tools by name", () => {
+  for (const tool of ["list_dealers", "list_designs", "list_stages", "list_people", "get_order"]) {
+    assert.ok(SERVER_INSTRUCTIONS.includes(tool), `briefing should name ${tool}`);
+  }
+});
+
+test("every tool the briefing names is actually registered", () => {
+  // A renamed tool must not leave the briefing pointing at nothing.
+  const registrados = new Set(TOOL_DEFS.map((t) => t.name));
+  for (const m of SERVER_INSTRUCTIONS.matchAll(/\b(list_\w+|get_order|find_orders|today_board)\b/g)) {
+    assert.ok(registrados.has(m[1]), `briefing names '${m[1]}', which is not in TOOL_DEFS`);
+  }
+});
+
+test("the server briefing explains the preview-then-confirm handshake", () => {
+  assert.match(SERVER_INSTRUCTIONS, /confirm/);
+  assert.match(SERVER_INSTRUCTIONS, /writes nothing/i);
+});
+
+test("the server briefing says never to work around a refusal", () => {
+  assert.match(SERVER_INSTRUCTIONS, /PERMISO_DENEGADO/);
+  assert.match(SERVER_INSTRUCTIONS, /Never work around a refusal/i);
+});
+
+test("the server briefing carries no personal or dealer names — this repo is public", () => {
+  for (const nombre of ["Majela", "Javier", "Locktight", "Lock Tight", "USA Windows", "Safeguard"]) {
+    assert.ok(
+      !SERVER_INSTRUCTIONS.includes(nombre),
+      `the briefing must not name '${nombre}': src/lib/mcp/instructions.ts is in a public repository`,
+    );
+  }
+});
+
+test("the server briefing stays short enough to sit beside the tool descriptions", () => {
+  // It is re-sent on every connection and shares the context window with
+  // ~12k characters of tool descriptions. A cap keeps it from growing into
+  // a second manual.
+  assert.ok(
+    SERVER_INSTRUCTIONS.length < 3000,
+    `briefing is ${SERVER_INSTRUCTIONS.length} chars; keep tool-specific guidance in the tool's own description`,
+  );
 });

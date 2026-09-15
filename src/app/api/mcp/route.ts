@@ -8,6 +8,7 @@ import {
 import { verifyMcpToken, isInternalUser, type McpIdentity } from "@/lib/mcp/token";
 import { checkRate, clientKeyFromHeaders } from "@/lib/mcp/rate-limit";
 import { TOOL_DEFS, runTool } from "@/lib/mcp/tools";
+import { SERVER_INSTRUCTIONS } from "@/lib/mcp/instructions";
 import { issuerFrom } from "@/lib/mcp/oauth-issuer";
 
 export const runtime = "nodejs";
@@ -39,7 +40,10 @@ const COMPILED_TOOLS = TOOL_DEFS.map((def) => ({
 }));
 
 function buildServer(identity: McpIdentity): McpServer {
-  const server = new McpServer({ name: "indigo-decors", version: "1.0.0" });
+  const server = new McpServer(
+    { name: "indigo-decors", version: "1.0.0" },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
   for (const { def, inputSchema } of COMPILED_TOOLS) {
     server.registerTool(
       def.name,
