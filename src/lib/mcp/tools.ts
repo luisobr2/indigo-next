@@ -781,6 +781,93 @@ export const TOOL_DEFS: ToolDef[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "create_order",
+    title: "Create a new order from a dealer's sheet",
+    description:
+      "Creates ONE new order, with its doors, in stage 'New Order'. Built for the way orders actually arrive at the shop: a photo or scan of the dealer's quote sheet, often with the client's details handwritten on top. Read the sheet, call this, and the office confirms the preview. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm').\n\nWHAT TO PUT IN, AND WHAT TO LEAVE OUT. Contact details (name, phone, address) transcribe reliably and are most of the typing this saves. Measurements and design codes do NOT: the same sheet read twice gives '24 7/8' once and '24 1/8' the next, and a handwritten 'B59' reads as '859'. Both are production inputs where a wrong value is expensive and invisible. So omit 'width'/'height' and 'design_code' unless a PERSON read them out to you — not because you read them off an image. Leaving them out is correct and expected; someone fills them in Odoo, where they already do it. Put whatever the sheet says verbatim in 'notes' instead, so it is on the order for whoever does.\n\nA dealer's sheet usually also lists WINDOWS (horizontal roller, single hung, fixed, picture). Indigo decorates doors only — do not send those as doors.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dealer_id: {
+          type: "number",
+          description: "The numeric res.partner id of the dealer the order comes from. Get it from list_dealers — never guess an id, and never invent a dealer that isn't on that list.",
+        },
+        client_name: {
+          type: "string",
+          description: "The end client's name, as the sheet gives it. Write it the way a person would say it ('German Sotelo'), not the filing order the sheet often uses ('SOTELO, GERMAN').",
+        },
+        client_phone: {
+          type: "string",
+          description: "Optional. The end client's phone.",
+        },
+        client_address: {
+          type: "string",
+          description: "Optional. The installation address, street / city / state+ZIP. Odoo pulls the ZIP out of it on its own, and the ZIP is what drives the installation fee — so keep the ZIP in the text.",
+        },
+        client_email: {
+          type: "string",
+          description: "Optional. The end client's email.",
+        },
+        dealer_ref: {
+          type: "string",
+          description: "Optional. The code or name the DEALER uses for this end client.",
+        },
+        customer_po: {
+          type: "string",
+          description: "Optional. The dealer's own order/quote number for this job, usually printed on the sheet.",
+        },
+        notes: {
+          type: "string",
+          description: "Optional, and the right home for anything you read but should not file into a typed field — handwritten measurements, a design code that isn't in the catalog, scribbles in the margin. Quote it verbatim and say it came off the sheet.",
+        },
+        doors: {
+          type: "array",
+          description: "The doors this order is for — one entry per door. At least one, at most 20. Windows on the same sheet are not doors.",
+          items: {
+            type: "object",
+            properties: {
+              door_type: {
+                type: "string",
+                enum: ["SD", "DD", "sidelite"],
+                description: "SD = single door, DD = double door, sidelite = door with sidelites. A sheet line reading 'SWING DOOR / SINGLE LEAF' is SD.",
+              },
+              color: {
+                type: "string",
+                enum: ["white", "bronze", "bronze_eco", "black", "custom"],
+                description: "The finish. A printed FINISH of 'AAMA 2604 BRONZE' is 'bronze'. There is no default: a door painted the wrong color is scrapped, so if the sheet doesn't say and nobody told you, ask instead of picking one.",
+              },
+              design_code: {
+                type: "string",
+                description: "Optional. A catalog code exactly as list_designs gives it ('ID07-SD', 'CUSTOM-SD'). Dealer sheets carry the DEALER's own codes ('TD-SD-B59'), which are not catalog codes and will be rejected — put those in 'notes'. Omit this unless a person told you the catalog design.",
+              },
+              width: {
+                type: "number",
+                description: "Optional. Panel width in inches, decimal (24 7/8 is 24.875). Only from a person, never read off an image — see the tool description.",
+              },
+              height: {
+                type: "number",
+                description: "Optional. Panel height in inches, decimal. Only from a person, never read off an image.",
+              },
+              qty: {
+                type: "number",
+                description: "Optional, defaults to 1. How many identical doors this entry stands for.",
+              },
+              glass_type: {
+                type: "string",
+                description: "Optional. Glass type as the sheet words it, e.g. 'ESW'.",
+              },
+            },
+            required: ["door_type", "color"],
+            additionalProperties: false,
+          },
+        },
+        confirm: CONFIRM_SCHEMA_PROPERTY,
+      },
+      required: ["dealer_id", "client_name", "doors"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------
@@ -2208,6 +2295,332 @@ async function addNote(args: Record<string, unknown>, id: McpIdentity, now: numb
 }
 
 // ---------------------------------------------------------------------
+// create_order
+// ---------------------------------------------------------------------
+
+/** indigo.order.line's door_type selection, verbatim from the addon. */
+const DOOR_TYPES = ["SD", "DD", "sidelite"] as const;
+type DoorType = (typeof DOOR_TYPES)[number];
+const DOOR_TYPE_LABEL: Record<DoorType, string> = {
+  SD: "puerta sencilla",
+  DD: "puerta doble",
+  sidelite: "puerta con sidelites",
+};
+
+/** indigo.order.line's color selection, verbatim from the addon. */
+const LINE_COLORS = ["white", "bronze", "bronze_eco", "black", "custom"] as const;
+type LineColor = (typeof LINE_COLORS)[number];
+
+/** At most this many door entries in one create_order call. A dealer sheet
+ *  carries a handful of lines; a number far above that is a malformed
+ *  argument, not a real order, and each entry becomes an Odoo record. */
+const MAX_DOORS_PER_ORDER = 20;
+
+/**
+ * Inches. Anything above this is a typo, not a door.
+ *
+ * Not an invented limit — measured against the 322 order lines in
+ * production on 2026-09-15. The largest real panel is 72 x 103 in (a double
+ * door). The only rows above that are two that are already wrong in their
+ * data: one 25.875 x 665.813 (a 65.813 that got an extra digit) and one
+ * 222 x 222. 120 in clears every genuine row by a wide margin and catches
+ * both of those, which is exactly the shape of mistake a transcribed
+ * measurement makes.
+ */
+const MAX_DIMENSION_IN = 120;
+
+/** One door entry, already validated and normalised into Odoo line vals. */
+export interface DoorSpec {
+  door_type: DoorType;
+  color: LineColor;
+  design_code?: string;
+  width?: number;
+  height?: number;
+  qty: number;
+  glass_type?: string;
+}
+
+function invalidInput(message: string): never {
+  throw mcpError("ENTRADA_INVALIDA", message);
+}
+
+/**
+ * Validates create_order's `doors` argument into DoorSpecs. Pure — no Odoo,
+ * no clock — so the rules below are unit-testable on their own, the same
+ * reason requireHoldCause above is a separate function.
+ *
+ * Design codes are NOT resolved here (that needs a catalog read); this only
+ * checks their shape. See planCreateOrder for the lookup.
+ *
+ * Why door_type and color are required but design and dimensions are not:
+ * the panel's own "add a piece" route (src/app/api/orders/[id]/lines/
+ * route.ts) demands a design and positive dimensions, because a human is
+ * sitting in front of the form with the order already open. This tool is
+ * fed by someone reading a sheet, where those two fields are precisely the
+ * ones that do not survive the reading — measured on a real sheet, the same
+ * image read four times gave three different fractions and three different
+ * design codes, while the contact block came out identical every time. An
+ * order with no dimensions yet is a normal order sitting in New Order; an
+ * order with confident WRONG dimensions is a scrapped door. Type and color,
+ * by contrast, are printed on the sheet, read cleanly, and are needed
+ * before anyone can do anything with the door at all.
+ */
+export function parseOrderDoors(args: Record<string, unknown>): DoorSpec[] {
+  const raw = args.doors;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    invalidInput(
+      "create_order requiere 'doors': una lista con al menos una puerta. Si la hoja solo trae ventanas (roller, hung, fixed), no hay nada que crear — Indigo decora puertas.",
+    );
+  }
+  if (raw.length > MAX_DOORS_PER_ORDER) {
+    invalidInput(
+      `create_order acepta como maximo ${MAX_DOORS_PER_ORDER} puertas por orden y recibio ${raw.length}. Si de verdad son tantas, crea varias ordenes.`,
+    );
+  }
+
+  return raw.map((entry, i) => {
+    const pos = `La puerta ${i + 1}`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      invalidInput(`${pos} de 'doors' no es un objeto.`);
+    }
+    const d = entry as Record<string, unknown>;
+
+    const doorType = d.door_type;
+    if (typeof doorType !== "string" || !(DOOR_TYPES as readonly string[]).includes(doorType)) {
+      invalidInput(`${pos} necesita 'door_type': 'SD' (sencilla), 'DD' (doble) o 'sidelite'.`);
+    }
+    const color = d.color;
+    if (typeof color !== "string" || !(LINE_COLORS as readonly string[]).includes(color)) {
+      invalidInput(
+        `${pos} necesita 'color': ${LINE_COLORS.join(", ")}. No hay valor por defecto — una puerta pintada del color equivocado se pierde, asi que si la hoja no lo dice, preguntalo.`,
+      );
+    }
+
+    const spec: DoorSpec = {
+      door_type: doorType as DoorType,
+      color: color as LineColor,
+      qty: 1,
+    };
+
+    if (d.qty !== undefined) {
+      if (typeof d.qty !== "number" || !Number.isInteger(d.qty) || d.qty < 1 || d.qty > 50) {
+        invalidInput(`${pos} tiene un 'qty' invalido: debe ser un entero entre 1 y 50.`);
+      }
+      spec.qty = d.qty;
+    }
+
+    for (const dim of ["width", "height"] as const) {
+      const v = d[dim];
+      if (v === undefined) continue;
+      if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
+        invalidInput(
+          `${pos} tiene '${dim}' invalido: debe ser un numero de pulgadas mayor que cero, en decimal (24 7/8 se escribe 24.875).`,
+        );
+      }
+      if (v > MAX_DIMENSION_IN) {
+        invalidInput(
+          `${pos} trae '${dim}' de ${v} pulgadas, y el panel mas grande que ha hecho Indigo mide 103. Eso no es una medida, es un error de transcripcion. Si la leiste de una foto, no la mandes: dejala fuera y ponla literal en 'notes'.`,
+        );
+      }
+      spec[dim] = v;
+    }
+
+    if (d.design_code !== undefined) {
+      if (typeof d.design_code !== "string" || !d.design_code.trim()) {
+        invalidInput(`${pos} tiene 'design_code' vacio. Omitelo si no lo sabes.`);
+      }
+      spec.design_code = d.design_code.trim();
+    }
+    if (d.glass_type !== undefined) {
+      if (typeof d.glass_type !== "string") invalidInput(`${pos} tiene 'glass_type' que no es texto.`);
+      const g = d.glass_type.trim();
+      if (g) spec.glass_type = g;
+    }
+
+    return spec;
+  });
+}
+
+/** Trims an optional string argument, returning undefined for anything
+ *  empty or absent, so a blank string never lands in Odoo as a value. */
+function optionalText(args: Record<string, unknown>, key: string): string | undefined {
+  const v = args[key];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "string") invalidInput(`create_order: '${key}' debe ser texto.`);
+  const t = v.trim();
+  return t ? t : undefined;
+}
+
+/**
+ * Inches as a person writes them on a sheet: 24.875 -> "24 7/8". Used only
+ * in the preview text, so whoever confirms sees the measurement in the form
+ * they would recognise off the paper rather than as a decimal — a wrong
+ * 24 1/8 is obvious next to the sheet; 24.125 is not.
+ */
+export function inchesLabel(value: number): string {
+  const whole = Math.floor(value);
+  // Sixteenths is the finest division that appears on their sheets.
+  const sixteenths = Math.round((value - whole) * 16);
+  if (sixteenths === 0) return String(whole);
+  if (sixteenths === 16) return String(whole + 1);
+  let num = sixteenths;
+  let den = 16;
+  while (num % 2 === 0) {
+    num /= 2;
+    den /= 2;
+  }
+  return `${whole} ${num}/${den}`;
+}
+
+async function planCreateOrder(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
+  const dealerId = args.dealer_id;
+  if (typeof dealerId !== "number" || !Number.isInteger(dealerId) || dealerId <= 0) {
+    invalidInput("create_order requiere un 'dealer_id' numerico. Sacalo de list_dealers — nunca lo adivines.");
+  }
+  const clientName = optionalText(args, "client_name");
+  if (!clientName) {
+    invalidInput("create_order requiere 'client_name', el nombre del cliente final.");
+  }
+  const doors = parseOrderDoors(args);
+
+  // The same gate the panel's own POST /api/orders applies (manager or
+  // office) — see this file's top doc comment on why it lives here too.
+  await requireOfficeRole(id, "crear ordenes");
+
+  const execute = await getRpc();
+
+  // The dealer must exist AND actually be a dealer: res.partner also holds
+  // contractors and plain contacts, and indigo.order's dealer_id domain
+  // (is_indigo_dealer) would reject those anyway — catching it here turns a
+  // raw Odoo domain error into something the caller can act on.
+  const dealers = await execute<Array<{ id: number; name: string }>>(
+    id.uid,
+    id.apiKey,
+    "res.partner",
+    "search_read",
+    [
+      [
+        ["id", "=", dealerId],
+        ["is_indigo_dealer", "=", true],
+      ],
+      ["id", "name"],
+    ],
+    { limit: 1 },
+  );
+  if (!dealers.length) {
+    throw mcpError(
+      "NO_ENCONTRADO",
+      `No existe un dealer con id ${dealerId}. Lista los dealers con list_dealers y usa un id de ahi.`,
+    );
+  }
+  const dealer = dealers[0];
+
+  // Resolve every design code that was passed, in one read. A code that is
+  // not in the catalog is REJECTED rather than dropped: dealer sheets carry
+  // the DEALER's own codes ('TD-SD-B59'), which look plausible and are not
+  // catalog codes, and quietly creating the door with no design would hide
+  // that the code was never understood.
+  const codes = [...new Set(doors.map((d) => d.design_code).filter((c): c is string => !!c))];
+  const designByCode = new Map<string, { id: number; name: string }>();
+  if (codes.length) {
+    const found = await execute<Array<{ id: number; code: string; name: string }>>(
+      id.uid,
+      id.apiKey,
+      "indigo.design",
+      "search_read",
+      [[["code", "in", codes]], ["id", "code", "name"]],
+      { limit: codes.length },
+    );
+    for (const d of found) designByCode.set(d.code, { id: d.id, name: d.name });
+    const missing = codes.filter((c) => !designByCode.has(c));
+    if (missing.length) {
+      throw mcpError(
+        "NO_ENCONTRADO",
+        `Estos codigos de diseno no estan en el catalogo: ${missing.join(", ")}. Los del catalogo son del tipo 'ID07-SD' o 'CUSTOM-SD' — busca el correcto con list_designs. Si lo que tienes es el codigo del DEALER (los de la hoja, tipo 'TD-SD-B59'), ese no va aqui: quita 'design_code' y ponlo literal en 'notes'.`,
+      );
+    }
+  }
+
+  const orderVals: Record<string, unknown> = {
+    dealer_id: dealerId,
+    client_name: clientName,
+    line_ids: doors.map((d) => {
+      const line: Record<string, unknown> = {
+        door_type: d.door_type,
+        color: d.color,
+        qty: d.qty,
+      };
+      if (d.design_code) line.design_id = designByCode.get(d.design_code)!.id;
+      if (d.width !== undefined) line.width = d.width;
+      if (d.height !== undefined) line.height = d.height;
+      if (d.glass_type) line.glass_type = d.glass_type;
+      return [0, 0, line];
+    }),
+  };
+  for (const key of ["client_phone", "client_address", "client_email", "dealer_ref", "customer_po", "notes"]) {
+    const v = optionalText(args, key);
+    if (v !== undefined) orderVals[key] = v;
+  }
+
+  // The preview has to show every value about to be written, not a summary
+  // of them: it is the only place a human sees a misread phone number or a
+  // wrong color before it becomes a door. Whatever is blank gets named too,
+  // so nobody assumes the sheet's measurement made it in.
+  const detalle = doors
+    .map((d, i) => {
+      const partes = [DOOR_TYPE_LABEL[d.door_type], d.color];
+      partes.push(d.design_code ? `diseno ${d.design_code}` : "sin diseno asignado");
+      if (d.width !== undefined && d.height !== undefined) {
+        partes.push(`${inchesLabel(d.width)} x ${inchesLabel(d.height)} in`);
+      } else {
+        partes.push("SIN MEDIDAS (se completan en Odoo)");
+      }
+      if (d.qty > 1) partes.push(`x${d.qty}`);
+      if (d.glass_type) partes.push(`vidrio ${d.glass_type}`);
+      return `  ${i + 1}. ${partes.join(" | ")}`;
+    })
+    .join("\n");
+
+  const contacto = [
+    `  Cliente: ${clientName}`,
+    `  Telefono: ${orderVals.client_phone ?? "(vacio)"}`,
+    `  Direccion: ${orderVals.client_address ?? "(vacio)"}`,
+    `  Email: ${orderVals.client_email ?? "(vacio)"}`,
+    `  Ref. del dealer: ${orderVals.dealer_ref ?? "(vacio)"}`,
+    `  Orden de compra: ${orderVals.customer_po ?? "(vacio)"}`,
+  ].join("\n");
+
+  const puertas = doors.reduce((n, d) => n + d.qty, 0);
+  const extra: Record<string, unknown> = { dealer: dealer.name, client: clientName, doors: puertas };
+
+  return {
+    message:
+      `crear una orden nueva para ${dealer.name}, en etapa New Order, con ${puertas} ` +
+      `puerta${puertas === 1 ? "" : "s"}:\n${contacto}\n${detalle}` +
+      `\n  Notas: ${orderVals.notes ?? "(vacias)"}` +
+      `\nRevisa cada dato contra la hoja antes de confirmar: desde aqui no se puede deshacer.`,
+    extra,
+    execute: async () => {
+      const newId = await execute<number>(id.uid, id.apiKey, "indigo.order", "create", [orderVals], {});
+      extra.order_id = newId;
+      const rows = await execute<Array<{ id: number; name: string }>>(
+        id.uid,
+        id.apiKey,
+        "indigo.order",
+        "read",
+        [[newId], ["name"]],
+        {},
+      );
+      if (rows.length) extra.order = rows[0].name;
+    },
+  };
+}
+
+async function createOrder(args: Record<string, unknown>, id: McpIdentity, now: number) {
+  return runWriteTool("create_order", args, id, () => planCreateOrder(args, id), now);
+}
+
+// ---------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------
 
@@ -2263,6 +2676,8 @@ async function dispatchTool(
       return holdOrder(args, id, now);
     case "add_note":
       return addNote(args, id, now);
+    case "create_order":
+      return createOrder(args, id, now);
     default:
       // Unreachable via the MCP transport today (route.ts only ever calls
       // this with a literal def.name from TOOL_DEFS), but runTool is

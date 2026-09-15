@@ -144,13 +144,42 @@ No hace falta que nombres las herramientas — le hablás normal y él elige.
 Las de listar existen para que el asistente **no invente**: si le preguntás por
 un diseño, mira la lista real en vez de inventarse un `ID99`.
 
-**Escribir (5)** — `advance_order`, `assign_order`, `schedule_install`,
-`hold_order`, `add_note`.
+**Escribir (7)** — `advance_order`, `assign_order`, `schedule_install`,
+`schedule_measurement`, `hold_order`, `add_note`, `create_order`.
 
 Todas piden **confirmación antes de ejecutar**: primero te muestran qué van a
 hacer, y recién si decís que sí lo hacen. Y aunque el puente se equivocara,
 **Odoo aplica tus permisos igual**: si tu rol no puede mover esa etapa, la
 escritura se frena del otro lado.
+
+### Cargar una orden desde la hoja del dealer
+
+`create_order` existe para la vía de entrada de siempre: la hoja de presupuesto
+del dealer, con los datos del cliente escritos a mano encima. Le mandás la foto
+o el escaneo, la lee, y te muestra la orden que va a crear para que la revises
+contra el papel antes de decir que sí.
+
+**Llena lo que se lee bien, y deja en blanco lo que no.** Nombre, teléfono y
+dirección salen siempre iguales, y son la mayor parte del tecleo. Las **medidas
+a mano y el código de diseño, no**: leyendo la misma hoja cuatro veces salió
+tres veces distinta la fracción (`24 7/8` una vez, `24 1/8` la otra) y tres
+veces distinto el código (una `B` se lee como `8`). Tres cuartos de pulgada de
+diferencia en un panel es una puerta perdida, así que esos dos campos quedan
+vacíos a propósito y se completan en Odoo. Lo que decía el papel te lo deja
+copiado literal en las notas de la orden.
+
+La orden nace en **New Order**, como cualquier otra, y avisa a gerencia igual
+que si la hubieras cargado a mano.
+
+Dos cosas que rechaza en vez de adivinar:
+
+- Un código que no está en el catálogo. Los de la hoja (`TD-SD-B59`) son
+  códigos **del dealer**, no de Indigo: esos van a las notas.
+- Una medida imposible. El panel más grande que hizo Indigo mide 103
+  pulgadas; cualquier cosa por encima de 120 es un error de transcripción.
+
+La hoja del dealer suele traer también **ventanas** (corredera, guillotina).
+Indigo decora puertas: esas líneas no entran.
 
 ---
 

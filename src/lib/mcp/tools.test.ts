@@ -13,6 +13,8 @@ import {
   ADVANCE_OUTCOMES,
   requireLineSqf,
   requireHoldCause,
+  parseOrderDoors,
+  inchesLabel,
 } from "./tools.ts";
 import { issueConfirmToken, CONFIRM_TOKEN_TTL_MS } from "./confirm.ts";
 import type { McpIdentity } from "./token.ts";
@@ -260,6 +262,7 @@ const WRITE_TOOL_NAMES = [
   "schedule_measurement",
   "hold_order",
   "add_note",
+  "create_order",
 ];
 
 test("every write tool is registered in TOOL_DEFS", () => {
@@ -286,8 +289,14 @@ test("every write tool's schema declares an optional 'confirm' string argument",
   }
 });
 
-test("every write tool's schema requires an 'order_id'", () => {
+test("every write tool that acts on an existing order requires an 'order_id'", () => {
   for (const name of WRITE_TOOL_NAMES) {
+    // create_order is the one write tool with no order_id: it is what MAKES
+    // the order the other six act on. Every other part of the write
+    // contract — registered in TOOL_DEFS, optional 'confirm' — still applies
+    // to it, which is why it stays in WRITE_TOOL_NAMES rather than being
+    // dropped from the list to dodge this one assertion.
+    if (name === "create_order") continue;
     const def = TOOL_DEFS.find((t) => t.name === name)!;
     const props = def.inputSchema.properties as Record<string, { type?: string }>;
     assert.equal(props.order_id?.type, "number", `${name} should take a numeric order_id`);
@@ -649,4 +658,120 @@ test("hold_order's description requires 'cause' when holding and tells the model
   assert.match(def.description, /ask/i);
   const props = def.inputSchema.properties as Record<string, { enum?: string[] }>;
   assert.deepEqual(props.cause?.enum, ["dealer", "client", "other"]);
+});
+
+// ---------------------------------------------------------------------
+// create_order — parseOrderDoors. The rules here exist because of what was
+// measured on a real dealer sheet (2026-09-15, the Sotelo sheet that is
+// already order IND/2026/00384): reading the same scan four times gave the
+// contact block identical every time, but three different handwritten
+// fractions and three different design codes. So type and color are
+// required, and measurements and design are optional on purpose — an order
+// with no dimensions is normal, an order with confident wrong ones is a
+// scrapped door.
+// ---------------------------------------------------------------------
+
+test("parseOrderDoors accepts a door with only type and color", () => {
+  const doors = parseOrderDoors({ doors: [{ door_type: "SD", color: "bronze" }] });
+  assert.equal(doors.length, 1);
+  assert.equal(doors[0].door_type, "SD");
+  assert.equal(doors[0].color, "bronze");
+  assert.equal(doors[0].qty, 1, "qty defaults to 1");
+  assert.equal(doors[0].width, undefined, "no dimensions is a valid door");
+  assert.equal(doors[0].design_code, undefined, "no design is a valid door");
+});
+
+test("parseOrderDoors rejects an empty or missing door list", () => {
+  for (const args of [{}, { doors: [] }, { doors: "SD" }]) {
+    assert.throws(() => parseOrderDoors(args as Record<string, unknown>), McpToolError);
+  }
+});
+
+test("parseOrderDoors requires an explicit color — there is no safe default", () => {
+  assert.throws(
+    () => parseOrderDoors({ doors: [{ door_type: "SD" }] }),
+    (e: unknown) => e instanceof McpToolError && /color/.test(e.message),
+  );
+});
+
+test("parseOrderDoors rejects a door type that is not one of Odoo's three", () => {
+  assert.throws(
+    () => parseOrderDoors({ doors: [{ door_type: "single", color: "white" }] }),
+    (e: unknown) => e instanceof McpToolError && /door_type/.test(e.message),
+  );
+});
+
+test("parseOrderDoors rejects a window sold as a door type", () => {
+  assert.throws(
+    () => parseOrderDoors({ doors: [{ door_type: "horizontal_roller", color: "bronze" }] }),
+    McpToolError,
+  );
+});
+
+test("parseOrderDoors rejects a transcribed measurement that is off by a digit", () => {
+  // 665.813 is really in their production data — a 65.813 that gained a 6.
+  assert.throws(
+    () => parseOrderDoors({ doors: [{ door_type: "SD", color: "white", width: 25.875, height: 665.813 }] }),
+    (e: unknown) => e instanceof McpToolError && /transcripcion/.test(e.message),
+  );
+  assert.throws(
+    () => parseOrderDoors({ doors: [{ door_type: "SD", color: "white", width: 222, height: 222 }] }),
+    McpToolError,
+  );
+});
+
+test("parseOrderDoors keeps the largest real panel Indigo has made", () => {
+  // 72 x 103 in, a double door, measured in production 2026-09-15.
+  const doors = parseOrderDoors({ doors: [{ door_type: "DD", color: "black", width: 72, height: 103 }] });
+  assert.equal(doors[0].width, 72);
+  assert.equal(doors[0].height, 103);
+});
+
+test("parseOrderDoors rejects zero and negative dimensions", () => {
+  for (const height of [0, -5]) {
+    assert.throws(
+      () => parseOrderDoors({ doors: [{ door_type: "SD", color: "white", width: 24, height }] }),
+      McpToolError,
+    );
+  }
+});
+
+test("parseOrderDoors caps how many doors one order can carry", () => {
+  const one = { door_type: "SD", color: "white" };
+  assert.equal(parseOrderDoors({ doors: Array(20).fill(one) }).length, 20);
+  assert.throws(() => parseOrderDoors({ doors: Array(21).fill(one) }), McpToolError);
+});
+
+test("parseOrderDoors validates qty as a whole positive number", () => {
+  assert.equal(parseOrderDoors({ doors: [{ door_type: "DD", color: "white", qty: 3 }] })[0].qty, 3);
+  for (const qty of [0, -1, 2.5, "2"]) {
+    assert.throws(
+      () => parseOrderDoors({ doors: [{ door_type: "DD", color: "white", qty }] }),
+      McpToolError,
+    );
+  }
+});
+
+test("create_order advertises no default color in its schema", () => {
+  // A default here would undo the requirement enforced above: the model
+  // would read one off the schema instead of asking.
+  const def = TOOL_DEFS.find((t) => t.name === "create_order");
+  assert.ok(def);
+  const doors = def!.inputSchema.properties.doors as {
+    items: { properties: Record<string, Record<string, unknown>>; required: string[] };
+  };
+  assert.equal(doors.items.properties.color.default, undefined);
+  assert.deepEqual(doors.items.required, ["door_type", "color"]);
+  assert.ok(!doors.items.required.includes("width"), "dimensions must stay optional");
+  assert.ok(!doors.items.required.includes("design_code"), "design must stay optional");
+});
+
+test("inchesLabel writes a decimal back as the fraction on the sheet", () => {
+  // The preview shows these so a wrong 24 1/8 is obvious next to the paper.
+  assert.equal(inchesLabel(24.875), "24 7/8");
+  assert.equal(inchesLabel(24.125), "24 1/8");
+  assert.equal(inchesLabel(66.0625), "66 1/16");
+  assert.equal(inchesLabel(75.125), "75 1/8");
+  assert.equal(inchesLabel(72), "72");
+  assert.equal(inchesLabel(20.5), "20 1/2");
 });
