@@ -73,6 +73,13 @@ export default function OrderDetailPage({
   const [holdOpen, setHoldOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  // Edicion directa del campo Note. El boton Note/Incident de arriba solo
+  // AGREGA una linea fechada; nada permitia corregir ni borrar lo ya
+  // escrito. Majela lo pidio el 2026-09-17 cuando create_order le dejo la
+  // transcripcion entera de una hoja de dealer dentro de la nota.
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [schedTarget, setSchedTarget] = useState<ScheduleTarget | null>(null);
   const [unscheduling, setUnscheduling] = useState(false);
@@ -724,10 +731,74 @@ export default function OrderDetailPage({
               <div className="mb-3 flex items-center gap-2 font-semibold text-slate-800">
                 <FileText size={16} className="text-indigo-700" />
                 Note
+                {canAssign && !editingNote && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNoteDraft(o.notes || "");
+                      setEditingNote(true);
+                    }}
+                    className="ml-auto rounded-lg px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                  >
+                    Edit
+                  </button>
+                )}
               </div>
-              <div className="min-h-[100px] whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
-                {o.notes || "No notes yet."}
-              </div>
+              {editingNote ? (
+                <>
+                  <textarea
+                    value={noteDraft}
+                    onChange={(e) => setNoteDraft(e.target.value)}
+                    rows={8}
+                    placeholder="Empty to clear the note."
+                    className="w-full rounded-xl border border-input bg-background p-3 text-sm text-slate-700 shadow-xs"
+                  />
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={savingNote}
+                      onClick={async () => {
+                        setSavingNote(true);
+                        try {
+                          const r = await fetch(`/api/orders/${o.id}`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            // Vacio va como false, no como "": Odoo guarda la
+                            // cadena vacia y la ficha seguiria mostrando una
+                            // nota en blanco en vez de "No notes yet.".
+                            body: JSON.stringify({ notes: noteDraft.trim() || false }),
+                          });
+                          const j = await r.json();
+                          if (!r.ok || !j.ok) throw new Error(j.error || "failed");
+                          setEditingNote(false);
+                          refetch();
+                          toast.success("Note saved");
+                        } catch (err) {
+                          toast.error(
+                            err instanceof Error ? err.message : "Could not save the note",
+                          );
+                        } finally {
+                          setSavingNote(false);
+                        }
+                      }}
+                      className="rounded-lg bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                    >
+                      {savingNote ? "Saving…" : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingNote(false)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="min-h-[100px] whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                  {o.notes || "No notes yet."}
+                </div>
+              )}
               {/* Use `value` (controlled) instead of `defaultValue` so this
                   display follows the order's computed total_sqf as it
                   updates (e.g. after the SQF wizard runs, after Edit Order

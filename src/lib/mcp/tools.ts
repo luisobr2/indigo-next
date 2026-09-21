@@ -819,7 +819,7 @@ export const TOOL_DEFS: ToolDef[] = [
         },
         notes: {
           type: "string",
-          description: "Optional, and the right home for anything you read but should not file into a typed field — handwritten measurements, a design code that isn't in the catalog, scribbles in the margin. Quote it verbatim and say it came off the sheet.",
+          description: "Optional. WHAT THE SHEET SAYS and nothing else: the handwritten measurement, a design code that is not in the catalog, a note in the margin. Quote it and keep it to one or two lines — this field is the order's running log, the office reads it on every screen, and long entries bury the notes people write later. Your own caveats do NOT go here: telling the reader that you read it off a photo, or what they should check before trusting it, belongs in your reply to the person, not inside the order. The tool date-stamps whatever you send, like every other note.",
         },
         doors: {
           type: "array",
@@ -2681,6 +2681,15 @@ async function planCreateOrder(args: Record<string, unknown>, id: McpIdentity): 
   for (const key of ["client_phone", "client_address", "client_email", "dealer_ref", "customer_po", "notes"]) {
     const v = optionalText(args, key);
     if (v !== undefined) orderVals[key] = v;
+  }
+  // La nota va fechada y con origen, igual que las de add_note: ese campo es
+  // el registro de la orden y se lee con lo que se escriba despues. La
+  // primera orden creada con esta herramienta (IND/2026/00389, 17-sep) dejo
+  // un bloque suelto de 700 caracteres que ademas incluia avisos dirigidos al
+  // operario, y Majela pidio poder borrarlo. Ahora ademas se puede editar
+  // desde la ficha de la orden.
+  if (typeof orderVals.notes === "string") {
+    orderVals.notes = `${shopDateString(new Date())} · de la hoja del dealer: ${orderVals.notes}`;
   }
 
   // The preview has to show every value about to be written, not a summary
