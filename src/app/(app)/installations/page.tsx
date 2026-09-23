@@ -1096,7 +1096,7 @@ export default function InstallationsPage() {
         <KpiTile
           label="Scheduled"
           value={fmtNum(summary?.scheduled ?? 0)}
-          hint="On calendar"
+          hint="All dates"
           icon={Calendar}
           iconBg="bg-sky-50"
           iconColor="text-sky-600"

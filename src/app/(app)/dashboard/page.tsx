@@ -17,7 +17,7 @@ import Link from "next/link";
 import { KpiCard } from "@/components/kpi-card";
 import { DashboardSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
-import { fmtMoney, fmtNum, fmtDateTime } from "@/lib/utils";
+import { fmtMoney, fmtNum, fmtDateTime, fmtAxisMoney } from "@/lib/utils";
 import { SHOP_TIME_ZONE } from "@/lib/shop-time";
 import {
   BarChart,
@@ -280,7 +280,9 @@ export default function DashboardPage() {
                 <YAxis
                   stroke="#94a3b8"
                   fontSize={11}
-                  tickFormatter={(v) => `$${Math.round(Number(v) / 1000)}k`}
+                  tickFormatter={fmtAxisMoney}
+                  allowDecimals={false}
+                  domain={[0, (max: number) => Math.max(max, 1000)]}
                 />
                 <Tooltip
                   formatter={(v) => fmtMoney(Number(v))}

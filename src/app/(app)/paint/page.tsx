@@ -555,7 +555,7 @@ export default function PaintPage() {
           mal, asi que no se sustituye, conviven. */}
       <div className="hidden overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm md:block">
         <div className="overflow-x-auto scrollbar-thin">
-          <table className="w-full min-w-[1200px] text-sm">
+          <table className="w-full min-w-[1100px] text-sm">
             <thead className="bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-3 py-3 w-10">

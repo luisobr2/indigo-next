@@ -63,6 +63,18 @@ export function fmtMoney(v: number | null | undefined): string {
   return MONEY_FMT.format(n);
 }
 
+/**
+ * Money on a chart axis: "$12k" from a thousand up, "$450" below. The old
+ * "$Math.round(v/1000)k" printed "$0k" on every tick of a chart whose values
+ * were all under $1000, which read as a broken chart.
+ */
+export function fmtAxisMoney(v: number | string): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "";
+  if (Math.abs(n) >= 1000) return `$${Math.round(n / 1000)}k`;
+  return `$${Math.round(n)}`;
+}
+
 export function fmtNum(v: number | null | undefined): string {
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";

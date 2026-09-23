@@ -358,7 +358,7 @@ export default function BillingPage() {
                     {o.client_name}
                   </div>
                   <div className="text-xs text-slate-400">
-                    {m2o(o.dealer_id)?.name} · {o.door_count} doors
+                    {m2o(o.dealer_id)?.name} · {o.door_count} {o.door_count === 1 ? "door" : "doors"}
                   </div>
                 </div>
                 <div className="sm:text-right">

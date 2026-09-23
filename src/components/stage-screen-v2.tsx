@@ -1236,12 +1236,18 @@ function Row({
         >
           {row.dealer_ref || row.name}
         </Link>
+        {/* The dealer's reference leads, because it is what the dealer quotes
+            on the phone; the IND number underneath is the one on the label,
+            the ficha and every other screen. */}
+        {row.dealer_ref && row.name && (
+          <div className="text-[11px] text-slate-400">{row.name}</div>
+        )}
       </td>
       <td className="px-3 py-3">
         <div className="font-medium text-slate-800">{row.client_name}</div>
         {row.dealer_id && Array.isArray(row.dealer_id) && (
           <div className="text-xs text-slate-500">
-            {row.dealer_id[1]} Project
+            {row.dealer_id[1]}
           </div>
         )}
         {/* Map-deeplink truncated to one line so wide rows don't wrap.

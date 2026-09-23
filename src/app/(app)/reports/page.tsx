@@ -23,7 +23,7 @@ import {
   CartesianGrid,
   Cell,
 } from "recharts";
-import { fmtMoney, fmtNum, fmtDate, fmtDateTime } from "@/lib/utils";
+import { fmtMoney, fmtNum, fmtDate, fmtDateTime, fmtAxisMoney } from "@/lib/utils";
 import { TableSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { toCsv, downloadCsv } from "@/lib/csv";
@@ -268,7 +268,9 @@ export default function ReportsPage() {
                 <YAxis
                   tick={{ fontSize: 11, fill: "#64748b" }}
                   stroke="#cbd5e1"
-                  tickFormatter={(v) => `$${Math.round(Number(v) / 1000)}k`}
+                  tickFormatter={fmtAxisMoney}
+                  allowDecimals={false}
+                  domain={[0, (max: number) => Math.max(max, 1000)]}
                 />
                 <Tooltip
                   cursor={{ fill: "rgba(31, 68, 134, 0.04)" }}
