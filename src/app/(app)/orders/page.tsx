@@ -122,6 +122,8 @@ interface OrderCol {
   print: (r: OrderRow) => string;
 }
 
+const DONE_STAGES = new Set(["installed", "invoiced", "closed"]);
+
 const ORDER_COLUMNS: OrderCol[] = [
   {
     key: "order",
@@ -163,7 +165,7 @@ const ORDER_COLUMNS: OrderCol[] = [
     key: "client",
     label: "Client",
     cell: (r) => (
-      <div className="max-w-[190px] truncate font-medium text-slate-800" title={r.client_name}>
+      <div className="max-w-[180px] truncate font-medium text-slate-800" title={r.client_name}>
         {r.client_name}
       </div>
     ),
@@ -198,25 +200,28 @@ const ORDER_COLUMNS: OrderCol[] = [
   {
     key: "stage",
     label: "Stage",
+    // Badges wrap inside a narrow column: side by side, "Installation
+    // scheduled" + "Incident" made this the widest column and pushed Total
+    // and Payment off-screen on a 1440 px laptop.
     cell: (r) => (
-      <>
+      <div className="flex max-w-[170px] flex-wrap gap-1">
         <Badge
           variant="secondary"
-          className={`text-[10px] font-bold uppercase tracking-wide ${STAGE_BADGE[r.stage_code] ?? "bg-slate-100 text-slate-700"}`}
+          className={`whitespace-normal text-left text-[10px] font-bold uppercase tracking-wide ${STAGE_BADGE[r.stage_code] ?? "bg-slate-100 text-slate-700"}`}
         >
           {m2o(r.stage_id)?.name ?? "?"}
         </Badge>
         {r.on_hold && (
-          <Badge variant="secondary" className="ml-1 bg-amber-100 text-[10px] font-bold uppercase text-amber-800">
+          <Badge variant="secondary" className="bg-amber-100 text-[10px] font-bold uppercase text-amber-800">
             On hold
           </Badge>
         )}
         {r.incidence && (
-          <Badge variant="secondary" className="ml-1 bg-rose-100 text-[10px] font-bold uppercase text-rose-700">
+          <Badge variant="secondary" className="bg-rose-100 text-[10px] font-bold uppercase text-rose-700">
             Incident
           </Badge>
         )}
-      </>
+      </div>
     ),
     print: (r) => m2o(r.stage_id)?.name ?? "",
   },
@@ -224,10 +229,14 @@ const ORDER_COLUMNS: OrderCol[] = [
     key: "days",
     label: "Days",
     thClass: "text-right",
+    // A finished order sitting in "Installed" for 30 days is not late: no
+    // colour there, or the list is a wall of red that hides the real delays.
     cell: (r) => (
       <span
         className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums ${
-          r.days_in_current_stage >= 7
+          DONE_STAGES.has(r.stage_code)
+            ? "text-slate-400"
+            : r.days_in_current_stage >= 7
             ? "bg-rose-50 text-rose-700"
             : r.days_in_current_stage >= 4
               ? "bg-amber-50 text-amber-700"
@@ -242,7 +251,11 @@ const ORDER_COLUMNS: OrderCol[] = [
   {
     key: "address",
     label: "Address",
-    cell: (r) => <div className="line-clamp-2 max-w-[260px] text-slate-500">{r.client_address}</div>,
+    cell: (r) => (
+      <div className="max-w-[220px] truncate text-slate-500" title={r.client_address}>
+        {r.client_address}
+      </div>
+    ),
     print: (r) => (r.client_address || "").replace(/\n/g, " "),
   },
   {
@@ -285,13 +298,20 @@ const ORDER_COLUMNS: OrderCol[] = [
 ];
 
 const ORDER_COL_MAP = Object.fromEntries(ORDER_COLUMNS.map((c) => [c.key, c]));
-const DEFAULT_ORDER_COLS = ["order", "client", "dealer", "stage", "days", "address", "doors", "sqf", "total", "payment"];
+// Address is off by default: with it on, a 1440 px laptop pushed Total and
+// Payment off the right edge. It is one click away in Columns, and in full on
+// the order itself.
+const DEFAULT_ORDER_COLS = ["order", "client", "dealer", "stage", "days", "doors", "sqf", "total", "payment"];
 const ORDER_COL_PRESETS: Record<string, string[]> = {
   "Call list": ["order", "code", "client", "phone", "note"],
   Production: ["order", "client", "dealer", "stage", "days", "doors"],
   Billing: ["order", "client", "dealer", "total", "payment"],
 };
 const ORDER_COLS_KEY = "indigo:order-cols";
+
+function isOn(v: string | null): boolean {
+  return v === "1" || v === "true";
+}
 
 function OrdersInner() {
   const sp = useSearchParams();
@@ -364,11 +384,13 @@ function OrdersInner() {
     return f && t ? { from: f, to: t } : null;
   });
   const [flag, setFlag] = useState<string>(
-    sp.get("overdue") === "true"
+    // "1" and "true" both count: the dashboard linked with ?overdue=1 and the
+    // list silently showed every order instead of the late ones.
+    isOn(sp.get("overdue"))
       ? "overdue"
-      : sp.get("on_hold") === "true"
+      : isOn(sp.get("on_hold"))
         ? "on_hold"
-        : sp.get("incidence") === "true"
+        : isOn(sp.get("incidence"))
           ? "incidence"
           : "",
   );
@@ -1048,7 +1070,7 @@ function OrdersInner() {
           <table className="w-full min-w-[1100px] text-sm">
           <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3 w-10">
+              <th className="px-3 py-3 w-10">
                 <Checkbox
                   checked={
                     records.length > 0 &&
@@ -1072,7 +1094,7 @@ function OrdersInner() {
                 />
               </th>
               {visibleCols.map((c) => (
-                <th key={c.key} className={`px-4 py-3 ${c.thClass ?? ""}`}>
+                <th key={c.key} className={`px-3 py-3 ${c.thClass ?? ""}`}>
                   {c.label}
                 </th>
               ))}
@@ -1103,7 +1125,7 @@ function OrdersInner() {
                     selected.has(r.id) ? "bg-indigo-50/40" : ""
                   }`}
                 >
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-3">
                     <Checkbox
                       checked={selected.has(r.id)}
                       onCheckedChange={() => toggleOne(r.id)}
