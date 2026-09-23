@@ -85,7 +85,7 @@ export default function CncProductionPage() {
             const doorType = r.first_line?.door_type ?? "";
             return (
               <div>
-                <div className="font-mono font-bold text-indigo-700">{code}</div>
+                <div className="whitespace-nowrap font-semibold text-indigo-700">{code}</div>
                 <div className="text-xs text-slate-500">
                   {DOOR_TYPE_LABEL[doorType] ?? doorType ?? "—"}
                 </div>

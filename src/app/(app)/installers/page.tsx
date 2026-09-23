@@ -47,6 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { KpiCard as KpiTile } from "@/components/kpi-card";
 
 type WorkMode = "per_door" | "daily" | "guarantee";
 
@@ -288,11 +289,11 @@ export default function InstallersPage() {
   const s = data?.summary;
 
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-6">
-      <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-auto max-w-[1500px]">
+      <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Installers</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Installers</h1>
+          <p className="mt-1 text-sm text-slate-500">
             Daily activity and payments, by the day each installer worked.
           </p>
         </div>
@@ -325,20 +326,20 @@ export default function InstallersPage() {
             </div>
           )}
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Kpi icon={Users} tone="text-indigo-600" bg="bg-indigo-50" label="Installers" value={fmtNum(s!.installers)} hint="Worked this week" />
-            <Kpi icon={DoorOpen} tone="text-emerald-600" bg="bg-emerald-50" label="Doors installed" value={fmtNum(s!.doorsInstalled)} hint={`${fmtNum(s!.daysWorked)} day${s!.daysWorked === 1 ? "" : "s"} worked`} />
-            <Kpi
+            <KpiTile icon={Users} iconColor="text-indigo-600" iconBg="bg-indigo-50" label="Installers" value={fmtNum(s!.installers)} hint="Worked this week" />
+            <KpiTile icon={DoorOpen} iconColor="text-emerald-600" iconBg="bg-emerald-50" label="Doors installed" value={fmtNum(s!.doorsInstalled)} hint={`${fmtNum(s!.daysWorked)} day${s!.daysWorked === 1 ? "" : "s"} worked`} />
+            <KpiTile
               icon={ShieldCheck}
-              tone="text-violet-600"
-              bg="bg-violet-50"
+              iconColor="text-violet-600"
+              iconBg="bg-violet-50"
               label="Days at the minimum"
               value={`${s!.daysAtMinimum} of ${s!.daysWorked}`}
               hint="Doors didn't reach the floor"
             />
-            <Kpi
+            <KpiTile
               icon={AlertTriangle}
-              tone={s!.incidents ? "text-rose-600" : "text-slate-400"}
-              bg={s!.incidents ? "bg-rose-50" : "bg-slate-50"}
+              iconColor={s!.incidents ? "text-rose-600" : "text-slate-400"}
+              iconBg={s!.incidents ? "bg-rose-50" : "bg-slate-50"}
               label="Incidents reported"
               value={fmtNum(s!.incidents)}
               hint="This week"
@@ -863,34 +864,6 @@ export default function InstallersPage() {
   );
 }
 
-function Kpi({
-  icon: Icon,
-  tone,
-  bg,
-  label,
-  value,
-  hint,
-}: {
-  icon: typeof Users;
-  tone: string;
-  bg: string;
-  label: string;
-  value: string;
-  hint: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3">
-      <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg", bg)}>
-        <Icon size={18} className={tone} />
-      </span>
-      <div className="min-w-0">
-        <div className="truncate text-xs font-medium text-slate-500">{label}</div>
-        <div className="text-xl font-semibold tabular-nums leading-tight text-slate-900">{value}</div>
-        <div className="truncate text-[11px] text-slate-500">{hint}</div>
-      </div>
-    </div>
-  );
-}
 
 function Panel({
   icon: Icon,

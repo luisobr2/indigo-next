@@ -164,7 +164,7 @@ export default function BrandEditorPage({
             <Tag size={12} />
             {isNew ? "Create a new brand" : "Brand"}
           </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             {isNew ? "New brand" : name}
           </h1>
           {!isNew && usedIn > 0 && (

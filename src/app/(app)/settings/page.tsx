@@ -233,14 +233,10 @@ export default function SettingsPage() {
   const others = visibleRates.filter(({ r }) => r.contractor_type === "other");
 
   return (
-    <div className="mx-auto max-w-[1100px] space-y-6">
+    <div className="mx-auto max-w-[1500px] space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-            <Settings size={14} />
-            Configuration
-          </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             Settings
           </h1>
           <p className="mt-1 text-sm text-slate-500">

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { DollarSign, Search, Save, Info } from "lucide-react";
+import { Search, Save, Info } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
 import { Button } from "@/components/ui/button";
@@ -158,10 +158,9 @@ export default function PricingPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1100px] space-y-6">
+    <div className="mx-auto max-w-[1500px] space-y-6">
       <div>
-        <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight text-slate-900">
-          <DollarSign className="text-indigo-700" size={26} />
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
           Pricing
         </h1>
         <p className="mt-1 text-sm text-slate-500">

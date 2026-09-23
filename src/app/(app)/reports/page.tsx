@@ -29,6 +29,7 @@ import { ErrorState } from "@/components/state-cards";
 import { toCsv, downloadCsv } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { KpiCard as KpiTile } from "@/components/kpi-card";
 
 interface ReportsData {
   topDealers: Array<{
@@ -173,15 +174,11 @@ export default function ReportsPage() {
   const monthDelta = prevMonthRev > 0 ? ((currentMonthRev - prevMonthRev) / prevMonthRev) * 100 : 0;
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-6">
+    <div className="mx-auto max-w-[1500px] space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-            <BarChart3 size={14} />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             Reports
-          </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
-            Analytics & insights
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             Last 6 months · Top dealers, designs, stage aging and contractor performance
@@ -219,7 +216,7 @@ export default function ReportsPage() {
           iconBg="bg-emerald-50"
           label="Revenue last 6 mo"
           value={fmtMoney(totalRevenue6m)}
-          sub={`Avg ${fmtMoney(totalRevenue6m / 6)}/month`}
+          hint={`Avg ${fmtMoney(totalRevenue6m / 6)}/month`}
         />
         <KpiTile
           icon={TrendingUp}
@@ -227,7 +224,7 @@ export default function ReportsPage() {
           iconBg={monthDelta >= 0 ? "bg-indigo-50" : "bg-rose-50"}
           label="Current month"
           value={fmtMoney(currentMonthRev)}
-          sub={
+          hint={
             prevMonthRev > 0
               ? `${monthDelta >= 0 ? "▲" : "▼"} ${Math.abs(monthDelta).toFixed(1)}% vs prior month`
               : "No baseline yet"
@@ -239,7 +236,7 @@ export default function ReportsPage() {
           iconBg="bg-violet-50"
           label="Active dealers"
           value={fmtNum(data?.topDealers.length ?? 0)}
-          sub="Dealers with orders in window"
+          hint="Dealers with orders in window"
         />
       </section>
 
@@ -477,36 +474,6 @@ export default function ReportsPage() {
   );
 }
 
-function KpiTile({
-  icon: Icon,
-  iconColor,
-  iconBg,
-  label,
-  value,
-  sub,
-}: {
-  icon: typeof BarChart3;
-  iconColor: string;
-  iconBg: string;
-  label: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between">
-        <div className="min-w-0">
-          <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
-          <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{value}</div>
-          {sub && <div className="mt-1 text-[11px] text-slate-500">{sub}</div>}
-        </div>
-        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconBg} ${iconColor}`}>
-          <Icon size={16} />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function Card({
   title,

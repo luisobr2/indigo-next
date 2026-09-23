@@ -77,7 +77,7 @@ export default function DigitalizationPage() {
             const doorType = r.first_line?.door_type ?? "";
             return (
               <div>
-                <div className="font-mono font-bold text-indigo-700">{code}</div>
+                <div className="whitespace-nowrap font-semibold text-indigo-700">{code}</div>
                 <div className="text-xs text-slate-500">
                   {DOOR_TYPE_LABEL[doorType] ?? doorType ?? ""}
                   {doorType ? " · " : ""}
@@ -107,6 +107,7 @@ export default function DigitalizationPage() {
         {
           key: "label",
           label: "Action",
+          inActions: true,
           align: "right",
           // The designer prints the 57x13 mm thermal label and pastes
           // it on the back of each cut piece. From this stage they

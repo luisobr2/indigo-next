@@ -68,6 +68,7 @@ import {
   PieChart as RPieChart,
   Pie,
 } from "recharts";
+import { KpiCard as KpiTile } from "@/components/kpi-card";
 
 /** Geo de planificacion que Odoo calcula desde el ZIP (pedido #4 de Majela).
  *  `distance_mi` es una estimacion por carretera; `geo_approx` avisa cuando
@@ -824,7 +825,7 @@ export default function InstallationsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1700px] space-y-4">
+    <div className="mx-auto max-w-[1500px] space-y-4">
       {/* Header */}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -2372,56 +2373,6 @@ function StatusPill({
   );
 }
 
-function KpiTile({
-  label,
-  value,
-  hint,
-  icon: Icon,
-  iconBg,
-  iconColor,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-  iconBg: string;
-  iconColor: string;
-}) {
-  return (
-    // Compacta en el telefono. Estas seis tarjetas median 230 px cada una en
-    // 390 px de ancho -- el icono de 48 px al lado del texto obligaba a que
-    // "Doors to Install" y "Pending - Client" partieran en dos lineas, y la
-    // pista de abajo en otras dos. Seiscientos y pico pixeles de scroll antes
-    // de ver una sola instalacion.
-    <div className="rounded-2xl bg-white p-2.5 shadow-sm ring-1 ring-slate-100 sm:p-4">
-      <div className="flex items-center gap-2 sm:items-start sm:gap-3">
-        <span
-          className={cn(
-            "flex h-9 w-9 flex-none items-center justify-center rounded-lg sm:h-12 sm:w-12 sm:rounded-xl",
-            iconBg,
-          )}
-        >
-          <Icon size={16} className={cn(iconColor, "sm:hidden")} />
-          <Icon size={20} className={cn(iconColor, "hidden sm:block")} />
-        </span>
-        <div className="min-w-0">
-          <div className="text-[11px] font-medium leading-tight text-slate-500 sm:text-xs">
-            {label}
-          </div>
-          <div className="text-xl font-bold leading-tight text-slate-900 sm:mt-0.5 sm:text-2xl">
-            {value}
-          </div>
-          {/* La pista ("IN QUEUE", "ON CALENDAR") repite lo que ya dice la
-              etiqueta. En un monitor decora; en un telefono cuesta dos lineas
-              por tarjeta. Se oculta, no se borra. */}
-          <div className="hidden text-[10px] uppercase tracking-wide text-slate-400 sm:block">
-            {hint}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // Section theme per hold cause — dealer = blue, client = orange, Majela's
 // own words (2026-08-15 audio). Kept distinct from the top counter chips'

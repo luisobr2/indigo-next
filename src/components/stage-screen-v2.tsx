@@ -124,6 +124,10 @@ export interface StageScreenV2Column {
   /** Off until the person turns it on in Columns. For fields the shop does
    *  not fill in yet, so they don't show a column of dashes. */
   defaultHidden?: boolean;
+  /** Rendered inside the row's Actions cell instead of as its own column.
+   *  For the stage's one-click action (Confirm, Label): a separate "Action"
+   *  column next to "Actions" read as the same thing twice. */
+  inActions?: boolean;
 }
 
 export interface StageScreenV2Props {
@@ -503,11 +507,11 @@ export function StageScreenV2({
   const toCount = Math.min((page + 1) * pageSize, total);
 
   return (
-    <div className="mx-auto max-w-[1700px] space-y-4">
+    <div className="mx-auto max-w-[1500px] space-y-4">
       {/* ---------- Header ---------- */}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             {title}
           </h1>
           <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
@@ -638,7 +642,7 @@ export function StageScreenV2({
               type="button"
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                "flex items-center gap-3 rounded-2xl bg-white p-4 text-left ring-1 transition",
+                "flex items-center gap-3 rounded-2xl bg-white p-4 text-left shadow-sm ring-1 transition",
                 activeTab === tab.key
                   ? "ring-2 ring-indigo-300"
                   : "ring-slate-100 hover:ring-indigo-200",
@@ -1072,7 +1076,7 @@ function ListBody({
             {designPreview && (
               <th className="px-3 py-2.5">Design Preview</th>
             )}
-            {columns.map((c) => (
+            {columns.filter((c) => !c.inActions).map((c) => (
               <SortableTh
                 key={c.key}
                 field={c.sortField}
@@ -1083,19 +1087,19 @@ function ListBody({
               />
             ))}
             <th className="px-3 py-2.5">Status</th>
-            <th className="px-3 py-2.5">Actions</th>
+            <th className="px-3 py-2.5 text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
           {/* Un solo punto: esta tabla la comparten CNC, Design Approval,
               Digitalization y Measurements. */}
           {loading && (
-            <TableRowsSkeleton rows={6} cols={5 + columns.length + (designPreview ? 1 : 0)} />
+            <TableRowsSkeleton rows={6} cols={5 + columns.filter((c) => !c.inActions).length + (designPreview ? 1 : 0)} />
           )}
           {!loading && records.length === 0 && (
             <tr>
               <td
-                colSpan={5 + columns.length + (designPreview ? 1 : 0)}
+                colSpan={5 + columns.filter((c) => !c.inActions).length + (designPreview ? 1 : 0)}
                 className="p-12 text-center text-sm text-slate-400"
               >
                 No orders in this view
@@ -1266,7 +1270,7 @@ function Row({
       {designPreview && (
         <td className="px-3 py-3">{designPreview(row)}</td>
       )}
-      {columns.map((c) => (
+      {columns.filter((c) => !c.inActions).map((c) => (
         <td
           key={c.key}
           className={cn(
@@ -1306,6 +1310,11 @@ function Row({
       </td>
       <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-end gap-1">
+          {columns
+            .filter((c) => c.inActions)
+            .map((c) => (
+              <span key={c.key}>{c.render(row)}</span>
+            ))}
           <Link
             href={`/orders/${row.id}`}
             className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"

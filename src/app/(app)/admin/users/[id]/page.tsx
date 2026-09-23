@@ -95,7 +95,7 @@ export default function UserFormPage({ params }: { params: Promise<{ id: string 
           <ArrowLeft size={18} className="text-slate-500" />
         </Link>
         <UserCog size={26} className="text-indigo-700" />
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
           {isNew ? "New user" : name || "Edit user"}
         </h1>
       </div>

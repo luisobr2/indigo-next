@@ -88,6 +88,7 @@ export default function DesignApprovalPage() {
         {
           key: "quick",
           label: "Action",
+          inActions: true,
           align: "right",
           // Inline 1-click confirm: design_pending → design_confirmed.
           // Only meaningful on the Pending tab — once confirmed the row

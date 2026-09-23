@@ -161,7 +161,7 @@ function CreateForm() {
           <ArrowLeft size={18} className="text-slate-500" />
         </Link>
         <Boxes size={26} className="text-indigo-700" />
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">New design</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">New design</h1>
       </header>
 
       <section className="space-y-5 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
@@ -308,7 +308,7 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
             <ArrowLeft size={18} className="text-slate-500" />
           </Link>
           <Boxes size={26} className="text-indigo-700" />
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             Design <span className="font-mono">{data.design.code}</span>
           </h1>
           <Badge variant="secondary" className="bg-indigo-50 text-[10px] text-indigo-700">
@@ -346,7 +346,7 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
           <ArrowLeft size={18} className="text-slate-500" />
         </Link>
         <Boxes size={26} className="text-indigo-700" />
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
           Design <span className="font-mono">{family}</span>
         </h1>
         <DeleteDesignButton family={family} siblings={siblings} />

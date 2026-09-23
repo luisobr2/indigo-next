@@ -178,8 +178,7 @@ export default function CalendarPage() {
     <div className="mx-auto max-w-[1500px] space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight text-slate-900">
-            <CalendarDays className="text-indigo-700" size={26} />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             Installations Calendar
           </h1>
           <p className="mt-1 text-sm text-slate-500">

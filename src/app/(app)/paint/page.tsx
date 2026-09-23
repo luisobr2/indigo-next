@@ -346,7 +346,7 @@ export default function PaintPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1700px] space-y-4">
+    <div className="mx-auto max-w-[1500px] space-y-4">
       {/* Header */}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>

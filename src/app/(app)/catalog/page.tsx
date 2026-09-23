@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { cn, fmtNum } from "@/lib/utils";
 import { NewOrderFromDesignModal } from "@/components/new-order-from-design-modal";
 import { CardGridSkeleton } from "@/components/skeleton";
+import { KpiCard as KpiTile } from "@/components/kpi-card";
 
 interface FamilyVariant {
   id: number;
@@ -381,14 +382,7 @@ export default function CatalogPage() {
       {/* Header */}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <nav className="text-xs text-slate-500">
-            <Link href="/dashboard" className="hover:text-slate-700">
-              Home
-            </Link>
-            <span className="mx-1.5">›</span>
-            <span className="font-medium text-slate-800">Catalog</span>
-          </nav>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             Catalog
           </h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -849,7 +843,7 @@ function PublishPill({ family }: { family: FamilyOut }) {
         st === "some" ? "bg-amber-100 text-amber-700" : "bg-slate-200 text-slate-600",
       )}
     >
-      {st === "some" ? "Parcial" : "Oculto"}
+      {st === "some" ? "Partial" : "Hidden"}
     </span>
   );
 }
@@ -1144,43 +1138,6 @@ function SegBtn({
   );
 }
 
-function KpiTile({
-  label,
-  value,
-  hint,
-  icon: Icon,
-  iconBg,
-  iconColor,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-  iconBg: string;
-  iconColor: string;
-}) {
-  return (
-    <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-      <div className="flex items-start gap-3">
-        <span
-          className={cn(
-            "flex h-11 w-11 flex-none items-center justify-center rounded-xl",
-            iconBg,
-          )}
-        >
-          <Icon size={18} className={iconColor} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-slate-500">{label}</div>
-          <div className="mt-0.5 text-2xl font-bold leading-tight text-slate-900">
-            {value}
-          </div>
-          <div className="truncate text-[10px] text-slate-400">{hint}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 interface PrintMenuItemProps {
   icon: React.ComponentType<{ size?: number; className?: string }>;
