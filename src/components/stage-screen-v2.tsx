@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search,
@@ -42,6 +43,7 @@ import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 import { ColumnsMenu } from "@/components/columns-menu";
 import { TableRowsSkeleton } from "@/components/skeleton";
 import { useColumnPrefs } from "@/hooks/use-table-prefs";
+import { MobileCardList, MobileRowCard } from "@/components/mobile-row-card";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                              */
@@ -632,7 +634,7 @@ export function StageScreenV2({
           {summary}
         </section>
       ) : (
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <section className="hidden grid-cols-2 gap-3 sm:grid md:grid-cols-4">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const count = statsQ.data?.[tab.key] ?? 0;
@@ -1061,7 +1063,29 @@ function ListBody({
   }
 
   return (
-    <div className="overflow-x-auto scrollbar-thin">
+    <>
+    {/* On a phone the table showed Order and Client and hid everything else,
+        including the stage's action (Confirm, Send to designer, Label), past
+        the right edge. Below md each row is a card with the action full width;
+        from md up the table, which is better for comparing rows. */}
+    <MobileCardList className="p-2">
+      {loading && <p className="p-6 text-center text-sm text-slate-400">Loading…</p>}
+      {!loading && records.length === 0 && (
+        <p className="p-6 text-center text-sm text-slate-400">No orders in this view</p>
+      )}
+      {!loading &&
+        records.map((r) => (
+          <StageMobileCard
+            key={r.id}
+            row={r}
+            columns={columns}
+            subStatusPrefix={subStatusPrefix}
+            bulkOn={bulk.has(r.id)}
+            toggleBulk={() => toggleBulk(r.id)}
+          />
+        ))}
+    </MobileCardList>
+    <div className="hidden overflow-x-auto scrollbar-thin md:block">
       <table className="w-full min-w-[1000px] text-sm">
         <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
           <tr>
@@ -1168,6 +1192,76 @@ function ListBody({
         </tbody>
       </table>
     </div>
+    </>
+  );
+}
+
+function StageMobileCard({
+  row,
+  columns,
+  subStatusPrefix,
+  bulkOn,
+  toggleBulk,
+}: {
+  row: StageOrderV2;
+  columns: StageScreenV2Column[];
+  subStatusPrefix: "digi" | "cnc" | "paint" | undefined;
+  bulkOn: boolean;
+  toggleBulk: () => void;
+}) {
+  const router = useRouter();
+  const pill = STATUS_PILLS[deriveSubStatus(row, subStatusPrefix)];
+  const actions = columns.filter((c) => c.inActions);
+  return (
+    <MobileRowCard
+      title={
+        <span className="text-indigo-700">
+          {row.dealer_ref || row.name}
+          {row.dealer_ref && row.name && (
+            <span className="ml-1.5 text-xs font-normal text-slate-400">{row.name}</span>
+          )}
+        </span>
+      }
+      subtitle={
+        <>
+          {row.client_name}
+          {Array.isArray(row.dealer_id) ? ` · ${row.dealer_id[1]}` : ""}
+        </>
+      }
+      badge={
+        <Badge
+          variant="secondary"
+          className={cn("shrink-0 text-[10px] font-bold uppercase tracking-wide", pill.bg, pill.text)}
+        >
+          {pill.label}
+        </Badge>
+      }
+      fields={[
+        ...columns
+          .filter((c) => !c.inActions)
+          .map((c) => ({ label: c.label, value: c.render(row), wide: c.key === "designer" })),
+        {
+          label: "Address",
+          value: row.client_address ? <AddressLink address={row.client_address} variant="compact" /> : null,
+          wide: true,
+        },
+      ]}
+      action={
+        actions.length ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {actions.map((c) => (
+              <span key={c.key}>{c.render(row)}</span>
+            ))}
+          </div>
+        ) : undefined
+      }
+      selected={bulkOn}
+      onSelect={toggleBulk}
+      selectLabel={`Select ${row.name}`}
+      // The side panel opens below the whole list on a phone, out of sight:
+      // go straight to the order instead.
+      onOpen={() => router.push(`/orders/${row.id}`)}
+    />
   );
 }
 

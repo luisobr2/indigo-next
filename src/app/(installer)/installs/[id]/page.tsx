@@ -3,13 +3,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState, use } from "react";
 import Link from "next/link";
-import { ArrowLeft, Camera, CheckCircle2, LogOut } from "lucide-react";
+import { ArrowLeft, Calendar, Camera, CheckCircle2, LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { m2o } from "@/lib/utils";
+import { m2o, fmtDate } from "@/lib/utils";
+import { AddressLink } from "@/components/address-link";
 
 export default function InstallDetailPage({
   params,
@@ -104,6 +105,7 @@ export default function InstallDetailPage({
     client_phone: string;
     client_address: string;
     door_count: number;
+    installation_date: string | false;
     stage_code: string;
     stage_id: [number, string] | false;
   };
@@ -143,12 +145,18 @@ export default function InstallDetailPage({
             </div>
           )}
           {o.client_address && (
-            <div className="mt-2 whitespace-pre-line text-sm text-slate-700">
-              {o.client_address}
+            <div className="mt-2 text-sm text-slate-700">
+              <AddressLink address={o.client_address} />
+            </div>
+          )}
+          {o.installation_date && (
+            <div className="mt-2 flex items-center gap-1.5 text-sm text-slate-700">
+              <Calendar size={14} className="text-slate-400" />
+              {fmtDate(o.installation_date)}
             </div>
           )}
           <div className="mt-3 flex items-center gap-3 text-xs text-slate-500">
-            <span>{o.door_count} doors</span>
+            <span>{o.door_count} {o.door_count === 1 ? "door" : "doors"}</span>
             <Badge variant="secondary" className="bg-indigo-50 font-bold uppercase text-indigo-700">
               {m2o(o.stage_id)?.name ?? o.stage_code}
             </Badge>

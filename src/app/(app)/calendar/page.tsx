@@ -188,7 +188,7 @@ export default function CalendarPage() {
         </div>
         <div className="flex items-center gap-2">
           {pendingCount > 0 && (
-            <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">
+            <span className="whitespace-nowrap rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">
               {pendingCount} pending to schedule
             </span>
           )}

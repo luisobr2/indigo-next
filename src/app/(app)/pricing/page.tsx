@@ -276,15 +276,15 @@ export default function PricingPage() {
                 return (
                   <div key={d.id} className="flex flex-wrap items-center gap-3 py-2.5">
                     <div className="min-w-0 flex-1">
-                      <span className="font-semibold text-slate-800">{d.code}</span>
+                      <span className="whitespace-nowrap font-semibold text-slate-800">{d.code}</span>
                       {d.name && (
-                        <span className="ml-2 text-sm text-slate-400">{d.name}</span>
+                        <span className="ml-2 hidden text-sm text-slate-400 sm:inline">{d.name}</span>
                       )}
-                      <span className="ml-2 text-xs text-slate-400">
+                      <span className="ml-2 whitespace-nowrap text-xs text-slate-400">
                         {d.door_type ? DOOR_LABEL[d.door_type] ?? d.door_type : "—"}
                       </span>
                     </div>
-                    <div className="w-28 text-right text-xs text-slate-400">
+                    <div className="w-20 text-right text-xs text-slate-400 sm:w-28">
                       base {base != null ? `$${base.toLocaleString()}` : "—"}
                     </div>
                     <div

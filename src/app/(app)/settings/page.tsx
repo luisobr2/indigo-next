@@ -628,9 +628,9 @@ function RateGroup({
                 value={r.name}
                 onChange={(e) => onUpdate(i, { name: e.target.value })}
                 placeholder="Name"
-                className="min-w-0 flex-1 border-0 bg-transparent text-sm font-medium text-slate-800 shadow-none focus-visible:ring-0"
+                className="min-w-0 basis-full border-0 bg-transparent text-sm font-medium text-slate-800 shadow-none focus-visible:ring-0 sm:basis-auto sm:flex-1"
               />
-              <span className="text-slate-400">·</span>
+              <span className="hidden text-slate-400 sm:inline">·</span>
               <span className="text-xs text-slate-500">$</span>
               <Input
                 type="number"
