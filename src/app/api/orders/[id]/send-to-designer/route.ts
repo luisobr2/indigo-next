@@ -74,7 +74,7 @@ export async function POST(
     // "Asigna un disenador antes de enviar la orden a digitalizar." --
     // plain Spanish, safe to show directly, no JSON for her to read.
     const msg =
-      e instanceof Error ? e.message : "Error al enviar la orden al diseñador";
+      e instanceof Error ? e.message : "Could not send the order to the designer";
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 }

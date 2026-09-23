@@ -96,6 +96,9 @@ export default function CncProductionPage() {
         {
           key: "material",
           label: "Material",
+          // Nobody records material or thickness on the lines yet, so these
+          // were two columns of dashes. Still one click away in Columns.
+          defaultHidden: true,
           render: (r) => (
             <span className="text-sm text-slate-700">
               {MATERIAL_LABEL[r.first_line?.material ?? ""] ?? "—"}
@@ -105,6 +108,7 @@ export default function CncProductionPage() {
         {
           key: "thickness",
           label: "Thickness",
+          defaultHidden: true,
           render: (r) => (
             <span className="font-mono text-sm text-slate-700">
               {THICKNESS_LABEL[r.first_line?.thickness ?? ""] ?? "—"}

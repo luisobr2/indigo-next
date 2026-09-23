@@ -55,7 +55,7 @@ export async function POST(
       // request takes, Majela sees the same readable sentence -- never a
       // raw Odoo traceback.
       return NextResponse.json(
-        { error: "Selecciona una causa (Dealer / Cliente / Otro) antes de poner la orden en espera." },
+        { error: "Pick a cause (Dealer / Client / Other) before putting the order on hold." },
         { status: 400 },
       );
     }

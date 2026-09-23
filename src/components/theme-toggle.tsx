@@ -35,7 +35,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   return (
     <div
       role="radiogroup"
-      aria-label="Tema de la interfaz"
+      aria-label="Interface theme"
       className={cn(
         "flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5",
         className,

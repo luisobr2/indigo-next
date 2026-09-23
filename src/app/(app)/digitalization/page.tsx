@@ -25,25 +25,25 @@ function DigitalizationProgress() {
     refetchInterval: 60_000,
   });
   if (!data) {
-    return <p className="text-sm text-slate-400">Cargando progreso del día…</p>;
+    return <p className="text-sm text-slate-400">Loading today&apos;s progress…</p>;
   }
   return (
     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
       <span className="text-2xl font-bold tabular-nums text-slate-900">
         {data.total}
       </span>
-      <span className="text-slate-500">en total</span>
+      <span className="text-slate-500">total</span>
       <span className="text-slate-300">·</span>
       <span className="text-lg font-bold tabular-nums text-emerald-600">
         {data.sent}
       </span>
-      <span className="text-slate-500">enviadas</span>
+      <span className="text-slate-500">sent</span>
       <span className="text-slate-300">·</span>
       <span className="text-lg font-bold tabular-nums text-amber-600">
         {data.remaining}
       </span>
-      <span className="text-slate-500">faltan</span>
-      <span className="ml-1 text-xs text-slate-400">(hoy)</span>
+      <span className="text-slate-500">to go</span>
+      <span className="ml-1 text-xs text-slate-400">(today)</span>
     </div>
   );
 }
@@ -60,7 +60,7 @@ export default function DigitalizationPage() {
   return (
     <StageScreenV2
       title="Digitalization"
-      subtitle="Orders waiting on the Ficha de orden — send it to the designer to route them to CNC."
+      subtitle="Orders waiting on their order sheet — send it to the designer to move them to CNC."
       stageCode="ready_digitalization"
       includeLines
       tabs={[]}

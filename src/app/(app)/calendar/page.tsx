@@ -374,9 +374,9 @@ export default function CalendarPage() {
             </DialogTitle>
             <DialogDescription>
               {expandedDayEvents.length === 1
-                ? "1 instalación programada."
-                : `${expandedDayEvents.length} instalaciones programadas.`}{" "}
-              Toca una para abrir la orden.
+                ? "1 installation scheduled."
+                : `${expandedDayEvents.length} installations scheduled.`}{" "}
+              Tap one to open the order.
             </DialogDescription>
           </DialogHeader>
 
@@ -403,7 +403,7 @@ export default function CalendarPage() {
                       {e.client_name}
                     </span>
                     <span className="shrink-0 text-[11px] font-medium text-slate-400">
-                      {e.door_count} {e.door_count === 1 ? "puerta" : "puertas"}
+                      {e.door_count} {e.door_count === 1 ? "door" : "doors"}
                     </span>
                   </span>
                   <span className="mt-0.5 block truncate text-xs text-slate-500">
@@ -431,7 +431,7 @@ export default function CalendarPage() {
             }}
           >
             <Plus size={14} className="mr-1.5" />
-            Programar otra en este día
+            Schedule another on this day
           </Button>
         </DialogContent>
       </Dialog>

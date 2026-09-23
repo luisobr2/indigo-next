@@ -157,8 +157,8 @@ async function legacyCascade(
       all.some((d) => d.code.trim().toUpperCase() === c && d.active === false),
     );
     const error = archived.length
-      ? `${plan.error} Ojo: ${archived.join(", ")} pertenece a un diseño archivado ` +
-        `(no aparece en el catálogo, pero el código sigue ocupado).`
+      ? `${plan.error} Note: ${archived.join(", ")} belongs to an archived design ` +
+        `(it is not in the catalog, but the code is still taken).`
       : plan.error;
     return NextResponse.json(
       { error, conflicts: plan.conflicts },
@@ -211,9 +211,9 @@ async function legacyCascade(
       return NextResponse.json(
         {
           error:
-            `El cambio de código falló a mitad y NO se pudo revertir del todo. ` +
-            `Quedaron con el código nuevo: ${stuck.join(", ")}. ` +
-            `Corregilos a mano antes de seguir usando el catálogo. (Causa: ${msg})`,
+            `The code change failed halfway and could NOT be fully undone. ` +
+            `These kept the new code: ${stuck.join(", ")}. ` +
+            `Fix them by hand before using the catalog again. (Cause: ${msg})`,
           stuck,
         },
         { status: 500 },
@@ -222,8 +222,8 @@ async function legacyCascade(
     return NextResponse.json(
       {
         error: /unique|duplicate|already exists/i.test(msg)
-          ? "Otro diseño tomó ese código mientras guardábamos. No se cambió nada."
-          : `No se pudo renombrar: ${msg}. No se cambió nada.`,
+          ? "Another design took that code while saving. Nothing was changed."
+          : `Could not rename: ${msg}. Nothing was changed.`,
       },
       { status: 409 },
     );

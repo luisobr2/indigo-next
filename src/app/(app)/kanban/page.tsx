@@ -290,6 +290,27 @@ function KanbanColumn({
   const { setNodeRef } = useDroppable({ id: `stage-${stage.id}` });
   const doors = cards.reduce((s, c) => s + (c.door_count || 0), 0);
   const value = cards.reduce((s, c) => s + (c.total_dealer_charge || 0), 0);
+
+  // An empty stage folds into a thin strip: with thirteen columns at full
+  // width only four fit on a laptop, and most of the scrolling was past empty
+  // ones. It is still a drop target, and opens up while a card hovers it.
+  if (cards.length === 0 && !isOver) {
+    return (
+      <div
+        ref={setNodeRef}
+        title={`${stage.name} · empty`}
+        className="flex w-11 shrink-0 flex-col items-center gap-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50/40 py-3"
+      >
+        <Badge variant="secondary" className="bg-white px-1.5 text-[10px] text-slate-400">
+          0
+        </Badge>
+        <span className="text-xs font-medium text-slate-400 [writing-mode:vertical-rl]">
+          {stage.name}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={setNodeRef}

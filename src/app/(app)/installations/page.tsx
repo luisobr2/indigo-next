@@ -298,7 +298,7 @@ const PEND_COLUMNS: PendCol[] = [
     // Las dos columnas del pedido #4. Van juntas y justo despues de la
     // direccion porque se leen como una sola idea: "donde queda esto".
     key: "distance",
-    label: "Distancia",
+    label: "Distance",
     thClass: "text-right",
     cell: (o) => {
       const d = o.geo?.distance_mi;
@@ -307,7 +307,7 @@ const PEND_COLUMNS: PendCol[] = [
         <span
           className="whitespace-nowrap text-right font-mono text-xs text-slate-600"
           title={o.geo.geo_approx
-            ? "Aproximada: el código postal exacto no está en la tabla, se ubicó por el prefijo del condado."
+            ? "Approximate: the exact ZIP is not in the table, so it was placed by the county prefix."
             : undefined}
         >
           {fmtNum(d)} mi{o.geo.geo_approx ? "*" : ""}
@@ -321,10 +321,10 @@ const PEND_COLUMNS: PendCol[] = [
   },
   {
     key: "zone",
-    label: "Zona",
+    label: "Zone",
     cell: (o) => {
       if (!o.geo?.range_name) {
-        return <span className="text-xs text-slate-400">Sin ubicar</span>;
+        return <span className="text-xs text-slate-400">Not located</span>;
       }
       return (
         <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-700">
@@ -340,7 +340,7 @@ const PEND_COLUMNS: PendCol[] = [
     print: (o) =>
       o.geo?.range_name
         ? `${o.geo.range_name}${o.geo.corridor ? ` (${CORRIDOR_LABEL[o.geo.corridor] ?? o.geo.corridor})` : ""}`
-        : "Sin ubicar",
+        : "Not located",
     sortVal: (o) => o.geo?.distance_mi ?? Number.MAX_SAFE_INTEGER,
   },
   {
@@ -388,11 +388,11 @@ const PEND_COLS_KEY = "indigo:install-pending-cols";
 // esta decidiendo con el.
 const INSTALL_VIEW_KEY = "indigo:install-view";
 const INSTALL_VIEWS = [
-  { key: "board", label: "Tablero" },
-  { key: "pending", label: "Por agendar" },
-  { key: "zones", label: "Zonas" },
-  { key: "calendar", label: "Calendario" },
-  { key: "installers", label: "Instaladores" },
+  { key: "board", label: "Board" },
+  { key: "pending", label: "To schedule" },
+  { key: "zones", label: "Zones" },
+  { key: "calendar", label: "Calendar" },
+  { key: "installers", label: "Installers" },
 ] as const;
 type InstallView = (typeof INSTALL_VIEWS)[number]["key"];
 
@@ -1144,7 +1144,7 @@ export default function InstallationsPage() {
         <HoldSummaryCard
           icon={UserRound}
           title="PENDING – CLIENT"
-          subtitle="Esperando al cliente"
+          subtitle="Waiting on the client"
           theme={HOLD_SECTION_THEME.client}
           rows={holdClient}
           doorCount={data?.onHold.client.doorCount ?? 0}
@@ -1154,7 +1154,7 @@ export default function InstallationsPage() {
         <HoldSummaryCard
           icon={Building2}
           title="ON HOLD – DEALER"
-          subtitle="Trabada por el dealer"
+          subtitle="Blocked by the dealer"
           theme={HOLD_SECTION_THEME.dealer}
           rows={holdDealer}
           doorCount={data?.onHold.dealer.doorCount ?? 0}
@@ -1394,28 +1394,28 @@ export default function InstallationsPage() {
               {/* Filtros de ruta (pedido #4). Van aca y no arriba porque
                   acotan esta tabla, no el tablero entero. */}
               <select
-                aria-label="Filtrar por zona"
+                aria-label="Filter by zone"
                 value={zoneFilter}
                 onChange={(e) => setZoneFilter(e.target.value)}
                 className="h-8 rounded-lg border border-amber-300 bg-white px-2 text-xs font-medium text-amber-800 focus-visible:outline-none"
               >
-                <option value="all">Todas las zonas</option>
+                <option value="all">All zones</option>
                 {(data?.zones ?? []).map((z) => (
                   <option key={z.id} value={String(z.id)}>
                     {z.name}
                   </option>
                 ))}
                 {!!data?.zonesUnlocated?.orders && (
-                  <option value="unlocated">Sin ubicar</option>
+                  <option value="unlocated">Not located</option>
                 )}
               </select>
               <select
-                aria-label="Filtrar por corredor"
+                aria-label="Filter by corridor"
                 value={dirFilter}
                 onChange={(e) => setDirFilter(e.target.value)}
                 className="h-8 rounded-lg border border-amber-300 bg-white px-2 text-xs font-medium text-amber-800 focus-visible:outline-none"
               >
-                <option value="all">Todos los corredores</option>
+                <option value="all">All corridors</option>
                 {Object.entries(CORRIDOR_LABEL).map(([k, label]) => (
                   <option key={k} value={k}>{label}</option>
                 ))}
@@ -1499,7 +1499,7 @@ export default function InstallationsPage() {
             ))}
             {sortedPending.length === 0 && (
               <p className="rounded-2xl border border-amber-200 bg-white p-6 text-center text-sm text-amber-800">
-                Ninguna orden pendiente cae en ese filtro.
+                No pending order matches that filter.
               </p>
             )}
           </MobileCardList>
@@ -1596,7 +1596,7 @@ export default function InstallationsPage() {
                       colSpan={visiblePendCols.length + 2}
                       className="px-4 py-8 text-center text-sm text-amber-800"
                     >
-                      Ninguna orden pendiente cae en ese filtro.{" "}
+                      No pending order matches that filter.{" "}
                       <button
                         type="button"
                         onClick={() => {
@@ -1605,7 +1605,7 @@ export default function InstallationsPage() {
                         }}
                         className="font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-950"
                       >
-                        Ver todas
+                        Show all
                       </button>
                     </td>
                   </tr>
@@ -2072,11 +2072,11 @@ const CORRIDOR_LABEL: Record<string, string> = {
 /** Como se llega, en una linea. Es lo que hace util la etiqueta para quien
  *  arma la ruta y todavia no se sabe los codigos de memoria. */
 const CORRIDOR_HINT: Record<string, string> = {
-  S: "South Miami-Dade y los Cayos",
-  C: "Miami y el área inmediata al taller",
+  S: "South Miami-Dade and the Keys",
+  C: "Miami and the area right around the shop",
   W: "Doral, Sweetwater, Tamiami, Weston",
-  N: "I-95 / Turnpike hacia Broward y Palm Beach",
-  SW: "Costa oeste: Naples, Fort Myers",
+  N: "I-95 / Turnpike toward Broward and Palm Beach",
+  SW: "West coast: Naples, Fort Myers",
 };
 
 /**
@@ -2112,12 +2112,12 @@ function ZonesPanel({
           <div>
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
               <MapPin size={14} className="text-indigo-700" />
-              ZONAS DE INSTALACIÓN
+              INSTALLATION ZONES
             </h3>
-            <p className="mt-0.5 text-xs text-slate-500">Distancia desde el taller</p>
+            <p className="mt-0.5 text-xs text-slate-500">Distance from the shop</p>
           </div>
           <Badge variant="secondary" className="shrink-0 bg-slate-100 text-[10px] font-bold text-slate-600">
-            {totalDoors} {totalDoors === 1 ? "puerta" : "puertas"}
+            {totalDoors} {totalDoors === 1 ? "door" : "doors"}
           </Badge>
         </div>
         <div className="flex-1">
@@ -2144,7 +2144,7 @@ function ZonesPanel({
                   <td className="px-4 py-2">
                     <span className="flex items-center gap-2">
                       <span className="h-2 w-2 shrink-0 rounded-full bg-slate-300" />
-                      <span className="truncate text-xs font-medium text-slate-500">Sin ubicar</span>
+                      <span className="truncate text-xs font-medium text-slate-500">Not located</span>
                     </span>
                   </td>
                   <td className="px-4 py-2 text-right font-mono text-xs font-semibold text-slate-600">
@@ -2161,7 +2161,7 @@ function ZonesPanel({
             onClick={onViewAll}
             className="flex items-center justify-center gap-1.5 border-t border-slate-200 px-4 py-2.5 text-xs font-semibold text-indigo-700 transition hover:opacity-75"
           >
-            Ver detalle de zonas
+            Zone details
             <ArrowRight size={13} />
           </button>
         )}
@@ -2174,23 +2174,22 @@ function ZonesPanel({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3">
         <h3 className="flex items-center gap-1.5 font-semibold text-slate-800">
           <MapPin size={15} className="text-indigo-700" />
-          Zonas de instalación
+          Installation zones
         </h3>
         <span className="text-xs text-slate-500">
-          {totalDoors} puerta{totalDoors === 1 ? "" : "s"} pendiente
-          {totalDoors === 1 ? "" : "s"} · cada corredor es una tanda aparte: 35 millas
-          al norte y 35 al sur no son el mismo viaje
+          {totalDoors} door{totalDoors === 1 ? "" : "s"} pending · each corridor
+          is its own run: 35 miles north and 35 miles south are not the same trip
         </span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-2.5">Zona / rango</th>
-              <th className="px-4 py-2.5">Distancia</th>
-              <th className="px-4 py-2.5">Corredor</th>
-              <th className="px-4 py-2.5 text-right">Órdenes</th>
-              <th className="px-4 py-2.5 text-right">Puertas</th>
+              <th className="px-4 py-2.5">Zone / range</th>
+              <th className="px-4 py-2.5">Distance</th>
+              <th className="px-4 py-2.5">Corridor</th>
+              <th className="px-4 py-2.5 text-right">Orders</th>
+              <th className="px-4 py-2.5 text-right">Doors</th>
             </tr>
           </thead>
           <tbody>
@@ -2222,9 +2221,9 @@ function ZonesPanel({
                   </td>
                   <td className="px-4 py-2.5 text-xs text-slate-400">
                     {z.directions.length > 1
-                      ? `${z.directions.length} corredores`
+                      ? `${z.directions.length} corridors`
                       : z.directions.length === 1
-                        ? "1 corredor"
+                        ? "1 corridor"
                         : "—"}
                   </td>
                   <td className="px-4 py-2.5 text-right font-mono text-xs text-slate-500">
@@ -2265,9 +2264,9 @@ function ZonesPanel({
                   <span className="flex items-center gap-2">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-slate-300" />
                     <span>
-                      <span className="font-semibold text-slate-600">Sin ubicar</span>
+                      <span className="font-semibold text-slate-600">Not located</span>
                       <span className="block text-[10px] text-slate-400">
-                        Falta el código postal en la dirección
+                        The address has no ZIP code
                       </span>
                     </span>
                   </span>
@@ -2529,7 +2528,7 @@ function HoldSummaryCard({
           variant="secondary"
           className={cn("shrink-0 text-[10px] font-bold", theme.badgeBg, theme.badgeText)}
         >
-          {doorCount} {doorCount === 1 ? "puerta" : "puertas"}
+          {doorCount} {doorCount === 1 ? "door" : "doors"}
         </Badge>
       </div>
 
@@ -2537,7 +2536,7 @@ function HoldSummaryCard({
         // Un vacio explicito, no una tarjeta en blanco: "no hay ninguna" es
         // una respuesta util cuando la pregunta es "a quien tengo que llamar".
         <div className="flex flex-1 items-center justify-center px-4 py-8 text-center text-xs text-slate-400">
-          Ninguna orden trabada por esta causa.
+          No order is blocked for this reason.
         </div>
       ) : (
         <div className="flex-1">
@@ -2573,7 +2572,7 @@ function HoldSummaryCard({
                         {o.hold_reason}
                       </span>
                     ) : (
-                      <span className="text-[10px] text-slate-400">sin motivo</span>
+                      <span className="text-[10px] text-slate-400">no reason given</span>
                     )}
                   </td>
                 </tr>
@@ -2595,7 +2594,7 @@ function HoldSummaryCard({
             : cn(theme.headerText, "hover:opacity-75"),
         )}
       >
-        {expanded ? "Ocultar el detalle" : `Ver todas (${rows.length})`}
+        {expanded ? "Hide details" : `Show all (${rows.length})`}
         <ArrowRight size={13} className={cn("transition", expanded && "rotate-90")} />
       </button>
     </section>

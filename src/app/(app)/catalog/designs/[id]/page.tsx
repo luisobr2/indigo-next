@@ -105,11 +105,11 @@ function CreateForm() {
 
   async function create() {
     if (!prefix) {
-      toast.error("Poné un código (ej. ID93).");
+      toast.error("Enter a code (e.g. ID93).");
       return;
     }
     if (types.length === 0) {
-      toast.error("Elegí al menos un tipo de puerta.");
+      toast.error("Pick at least one door type.");
       return;
     }
     setSaving(true);
@@ -145,11 +145,11 @@ function CreateForm() {
     setSaving(false);
     qc.invalidateQueries({ queryKey: ["catalog-families"] });
     if (createdIds.length) {
-      toast.success(`Creado${createdIds.length > 1 ? "s" : ""}: ${createdCodes.join(", ")}.`);
-      if (failed.length) toast.warning(`No se pudo crear: ${failed.join("; ")}`);
+      toast.success(`Created: ${createdCodes.join(", ")}.`);
+      if (failed.length) toast.warning(`Could not create: ${failed.join("; ")}`);
       router.replace(`/catalog/designs/${createdIds[0]}`);
     } else {
-      toast.error(`No se pudo crear ningún diseño: ${failed.join("; ")}`);
+      toast.error(`No design could be created: ${failed.join("; ")}`);
     }
   }
 
@@ -161,14 +161,14 @@ function CreateForm() {
           <ArrowLeft size={18} className="text-slate-500" />
         </Link>
         <Boxes size={26} className="text-indigo-700" />
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Nuevo diseño</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">New design</h1>
       </header>
 
       <section className="space-y-5 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="code">
-              <Hash size={12} className="inline" /> Código
+              <Hash size={12} className="inline" /> Code
             </Label>
             <Input
               id="code"
@@ -178,11 +178,11 @@ function CreateForm() {
               className="h-10 font-mono uppercase"
             />
             <p className="text-[11px] text-slate-400">
-              Solo el prefijo — el tipo se agrega solo (ID93 → ID93-SD, ID93-DD).
+              Prefix only — the type is added for you (ID93 → ID93-SD, ID93-DD).
             </p>
           </div>
           <div className="space-y-1.5">
-            <Label>Tipos de puerta</Label>
+            <Label>Door types</Label>
             <div className="flex flex-wrap gap-2">
               {TYPE_OPTIONS.map((t) => {
                 const on = types.includes(t.value);
@@ -209,7 +209,7 @@ function CreateForm() {
                 ? TYPE_OPTIONS.filter((o) => types.includes(o.value))
                     .map((o) => `${prefix}-${o.suffix}`)
                     .join(", ")
-                : "Elegí uno o varios."}
+                : "Pick one or more."}
             </p>
           </div>
         </div>
@@ -217,25 +217,25 @@ function CreateForm() {
         <ColorsField value={colors} onToggle={toggleColor} />
 
         <div className="space-y-1.5">
-          <Label htmlFor="desc">Descripción (opcional)</Label>
+          <Label htmlFor="desc">Description (optional)</Label>
           <Textarea
             id="desc"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
-            placeholder="Algún detalle del modelo…"
+            placeholder="Any detail about the model…"
           />
         </div>
 
         <div className="flex justify-end">
           <Button size="lg" onClick={create} disabled={saving || types.length === 0}>
             <Save size={14} />
-            {saving ? "Creando…" : `Crear diseño${types.length > 1 ? "s" : ""}`}
+            {saving ? "Creating…" : `Create design${types.length > 1 ? "s" : ""}`}
           </Button>
         </div>
       </section>
       <p className="text-center text-xs text-slate-400">
-        Después de crear, cargás la imagen de cada tipo en la ficha del diseño.
+        After creating it, upload the image for each type on the design page.
       </p>
     </div>
   );
@@ -282,11 +282,11 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
     const notFound = status === 404;
     return (
       <ErrorState
-        title={notFound ? "Diseño no encontrado" : "No se pudo cargar el diseño"}
+        title={notFound ? "Design not found" : "Could not load the design"}
         message={
           notFound
-            ? `El diseño #${idStr} no existe o fue removido.`
-            : "Algo salió mal. Revisá la conexión y reintentá."
+            ? `Design #${idStr} does not exist or was removed.`
+            : "Something went wrong. Check the connection and try again."
         }
         backHref="/catalog"
         onRetry={notFound ? undefined : () => refetch()}
@@ -294,7 +294,7 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
     );
   }
   if (isLoading || !data) {
-    return <div className="p-12 text-center text-slate-400">Cargando…</div>;
+    return <div className="p-12 text-center text-slate-400">Loading…</div>;
   }
 
   // Flexible / CUSTOM design (no fixed type): the door type is chosen per
@@ -309,10 +309,10 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
           </Link>
           <Boxes size={26} className="text-indigo-700" />
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Diseño <span className="font-mono">{data.design.code}</span>
+            Design <span className="font-mono">{data.design.code}</span>
           </h1>
           <Badge variant="secondary" className="bg-indigo-50 text-[10px] text-indigo-700">
-            Flexible · el tipo se elige al pedir
+            Flexible · the type is picked when ordering
           </Badge>
           <DeleteDesignButton
             family={data.design.code}
@@ -331,7 +331,7 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
           }}
         />
         <div className="max-w-md">
-          <TypePanel designId={designId} label="Imágenes del diseño" highlight />
+          <TypePanel designId={designId} label="Design images" highlight />
         </div>
       </div>
     );
@@ -347,7 +347,7 @@ function FamilyEditor({ designId, idStr }: { designId: number; idStr: string }) 
         </Link>
         <Boxes size={26} className="text-indigo-700" />
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-          Diseño <span className="font-mono">{family}</span>
+          Design <span className="font-mono">{family}</span>
         </h1>
         <DeleteDesignButton family={family} siblings={siblings} />
       </header>
@@ -485,10 +485,10 @@ function CommonInfoCard({
     if (!codeChanged || renaming) return;
     if (
       !confirm(
-        `¿Renombrar ${family} → ${nextFamily}?\n\n` +
-          `Se actualiza el código en todas sus versiones (Single / Double / Sidelite), ` +
-          `incluidas las archivadas, y en su producto de la tienda. ` +
-          `Las órdenes que ya lo usan quedan apuntando al mismo diseño.`,
+        `Rename ${family} → ${nextFamily}?\n\n` +
+          `The code changes on every version (Single / Double / Sidelite), ` +
+          `archived ones included, and on its store product. ` +
+          `Orders that already use it keep pointing to the same design.`,
       )
     )
       return;
@@ -505,7 +505,7 @@ function CommonInfoCard({
         renamed?: number;
         error?: string;
       };
-      if (!r.ok || !j.ok) throw new Error(j.error || "No se pudo renombrar");
+      if (!r.ok || !j.ok) throw new Error(j.error || "Could not rename");
       const applied = j.nextFamily || nextFamily;
       setCode(applied);
       // Report the count the SERVER actually wrote — it owns the sibling list,
@@ -513,13 +513,13 @@ function CommonInfoCard({
       const n = j.renamed ?? 0;
       toast.success(
         n === 0
-          ? `El código ya era ${applied}.`
-          : `Código cambiado a ${applied} (${n} versión${n === 1 ? "" : "es"}).`,
+          ? `The code was already ${applied}.`
+          : `Code changed to ${applied} (${n} version${n === 1 ? "" : "s"}).`,
       );
       onRenamed(applied);
     } catch (e) {
       // Keep what they typed so they can correct it without retyping.
-      toast.error(e instanceof Error ? e.message : "Falló");
+      toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
       setRenaming(false);
     }
@@ -553,7 +553,7 @@ function CommonInfoCard({
     }
     if (Object.keys(body).length === 0) {
       setDirty(false);
-      toast("Sin cambios para guardar.");
+      toast("Nothing to save.");
       return;
     }
     setSaving(true);
@@ -573,11 +573,11 @@ function CommonInfoCard({
     setSaving(false);
     const failed = results.filter((r) => r.status === "rejected").length;
     if (failed === 0) {
-      toast.success("Info del diseño guardada (aplica a todos los tipos).");
+      toast.success("Design info saved (applies to every type).");
       setDirty(false);
       onSaved();
     } else {
-      toast.error(`No se pudo guardar en ${failed} de ${siblingIds.length} tipos.`);
+      toast.error(`Could not save ${failed} of ${siblingIds.length} types.`);
     }
   }
 
@@ -585,15 +585,15 @@ function CommonInfoCard({
     <section className="space-y-4 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-          Info del diseño
+          Design info
         </h2>
-        <span className="text-[11px] text-slate-400">Aplica a Single, Double y Sidelite</span>
+        <span className="text-[11px] text-slate-400">Applies to Single, Double and Sidelite</span>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="code">
-            <Hash size={12} className="inline" /> Código
+            <Hash size={12} className="inline" /> Code
           </Label>
           <div className="flex items-center gap-2">
             <Input
@@ -614,23 +614,23 @@ function CommonInfoCard({
                 onClick={rename}
                 disabled={renaming}
               >
-                {renaming ? "Renombrando…" : `Renombrar a ${nextFamily}`}
+                {renaming ? "Renaming…" : `Rename to ${nextFamily}`}
               </Button>
             )}
           </div>
           <p className="text-[11px] text-slate-400">
             {codeChanged
-              ? "Se renombran todas sus versiones y el producto de la tienda."
-              : "Solo el prefijo — el tipo se agrega solo (SD / DD / SDL)."}
+              ? "Every version and the store product get renamed."
+              : "Prefix only — the type is added for you (SD / DD / SDL)."}
           </p>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="desc">Descripción</Label>
+          <Label htmlFor="desc">Description</Label>
           <Input
             id="desc"
             value={description}
             onChange={(e) => mark(setDescription)(e.target.value)}
-            placeholder="Detalle del modelo…"
+            placeholder="Model detail…"
             className="h-10"
           />
         </div>
@@ -645,13 +645,13 @@ function CommonInfoCard({
           className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700"
         >
           <ChevronDown size={13} className={advanced ? "rotate-180 transition" : "transition"} />
-          Opcional: vidrios y marcas
+          Optional: glass and brands
         </button>
         {advanced && (
           <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="glass" className="text-xs">
-                Tipos de vidrio
+                Glass types
               </Label>
               <Input
                 id="glass"
@@ -662,7 +662,7 @@ function CommonInfoCard({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Marcas compatibles</Label>
+              <Label className="text-xs">Compatible brands</Label>
               <div className="grid max-h-32 grid-cols-2 gap-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/40 p-2">
                 {(brandsQ.data?.records ?? []).map((b) => (
                   <label
@@ -678,7 +678,7 @@ function CommonInfoCard({
                   </label>
                 ))}
                 {(brandsQ.data?.records ?? []).length === 0 && (
-                  <span className="text-[11px] italic text-slate-400">Cargando…</span>
+                  <span className="text-[11px] italic text-slate-400">Loading…</span>
                 )}
               </div>
             </div>
@@ -689,7 +689,7 @@ function CommonInfoCard({
       <div className="flex justify-end">
         <Button size="sm" onClick={save} disabled={!dirty || saving || !siblingIds.length}>
           <Save size={13} />
-          {saving ? "Guardando…" : "Guardar info"}
+          {saving ? "Saving…" : "Save info"}
         </Button>
       </div>
     </section>
@@ -740,9 +740,9 @@ function TypePanel({
       })
       .finally(() => setUploading(false));
     toast.promise(promise, {
-      loading: "Subiendo…",
-      success: color ? `Agregada variante ${color}` : "Imagen agregada",
-      error: (e) => (e instanceof Error ? e.message : "Falló"),
+      loading: "Uploading…",
+      success: color ? `Added ${color} variant` : "Image added",
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }
 
@@ -760,13 +760,13 @@ function TypePanel({
     });
     toast.promise(promise, {
       loading: "Actualizando…",
-      success: makeCover ? "Portada actualizada" : "Etiqueta actualizada",
-      error: (e) => (e instanceof Error ? e.message : "Falló"),
+      success: makeCover ? "Cover updated" : "Tag updated",
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }
 
   function deleteOneImage(attId: number) {
-    if (!confirm("¿Borrar esta imagen?")) return;
+    if (!confirm("Delete this image?")) return;
     const promise = fetch(`/api/catalog/designs/${designId}/image?att=${attId}`, {
       method: "DELETE",
     }).then(async (r) => {
@@ -778,8 +778,8 @@ function TypePanel({
     });
     toast.promise(promise, {
       loading: "Quitando…",
-      success: "Imagen quitada",
-      error: (e) => (e instanceof Error ? e.message : "Falló"),
+      success: "Image removed",
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }
 
@@ -796,9 +796,9 @@ function TypePanel({
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
       qc.invalidateQueries({ queryKey: ["design", idStr] });
-      toast.success(next ? "Visible en la web" : "Oculto de la web");
+      toast.success(next ? "Visible on the website" : "Hidden from the website");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Falló");
+      toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
       setPubBusy(false);
     }
@@ -818,21 +818,21 @@ function TypePanel({
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.ok) {
-      toast.error(j.error || "No se pudo actualizar");
+      toast.error(j.error || "Could not update");
       return;
     }
     qc.invalidateQueries({ queryKey: ["design", idStr] });
     qc.invalidateQueries({ queryKey: ["catalog-families"] });
     onChanged?.();
-    toast.success(active ? `${label} restaurada` : `${label} oculta del catálogo`);
+    toast.success(active ? `${label} restored` : `${label} hidden from the catalog`);
   }
 
   async function destroy() {
     if (
       !confirm(
         usedIn > 0
-          ? `¿Borrar la versión ${label}? Se usó en ${usedIn} orden(es); si no se puede borrar, te ofrezco ocultarla.`
-          : `¿Borrar la versión ${label}?`,
+          ? `Delete the ${label} version? It is used in ${usedIn} order(s); if it can't be deleted, you'll be offered to hide it.`
+          : `Delete the ${label} version?`,
       )
     )
       return;
@@ -840,7 +840,7 @@ function TypePanel({
       const r = await fetch(`/api/catalog/designs/${designId}`, { method: "DELETE" });
       if (r.status === 409) {
         // In use — can't delete. Offer to archive (hide from catalog) instead.
-        if (confirm(`No se puede borrar ${label} porque está en uso. ¿Ocultarla del catálogo?`))
+        if (confirm(`${label} can't be deleted because it is in use. Hide it from the catalog?`))
           await setActive(false);
         return;
       }
@@ -849,7 +849,7 @@ function TypePanel({
       toast.success(`${label} borrada`);
       await afterRemoved();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Falló");
+      toast.error(e instanceof Error ? e.message : "Failed");
     }
   }
 
@@ -863,15 +863,15 @@ function TypePanel({
         <h3 className="text-sm font-bold text-slate-800">{label}</h3>
         {archived ? (
           <Badge variant="secondary" className="bg-amber-50 text-[10px] text-amber-700">
-            Archivado
+            Archived
           </Badge>
         ) : product?.is_published ? (
           <Badge variant="secondary" className="bg-emerald-50 text-[10px] text-emerald-700">
-            En la web
+            On website
           </Badge>
         ) : (
           <Badge variant="secondary" className="bg-slate-100 text-[10px] text-slate-500">
-            Oculto
+            Hidden
           </Badge>
         )}
       </div>
@@ -902,7 +902,7 @@ function TypePanel({
               className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
             >
               {product?.is_published ? <EyeOff size={12} /> : <Eye size={12} />}
-              {product?.is_published ? "Ocultar" : "Publicar"}
+              {product?.is_published ? "Hide" : "Publish"}
             </button>
             {product?.is_published && product.website_url && (
               <a
@@ -973,12 +973,12 @@ function AddTypeCard({
         }),
       });
       const j = await r.json();
-      if (!r.ok || !j.id) throw new Error(j.error || "No se pudo crear");
+      if (!r.ok || !j.id) throw new Error(j.error || "Could not create");
       qc.invalidateQueries({ queryKey: ["catalog-families"] });
-      toast.success(`Agregado ${label}. Subile una imagen.`);
+      toast.success(`${label} added. Upload an image for it.`);
       onAdded();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Falló");
+      toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
       setBusy(false);
     }
@@ -987,10 +987,10 @@ function AddTypeCard({
   return (
     <section className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-6 text-center">
       <h3 className="text-sm font-semibold text-slate-500">{label}</h3>
-      <p className="text-[11px] text-slate-400">Esta versión todavía no existe.</p>
+      <p className="text-[11px] text-slate-400">This version doesn&apos;t exist yet.</p>
       <Button size="sm" variant="outline" onClick={add} disabled={busy}>
         <Plus size={13} />
-        {busy ? "Agregando…" : `Agregar ${label}`}
+        {busy ? "Adding…" : `Add ${label}`}
       </Button>
     </section>
   );
@@ -1012,8 +1012,8 @@ function DeleteDesignButton({
     if (busy || !siblings.length) return;
     if (
       !confirm(
-        `¿Borrar el diseño ${family} completo?\n\n` +
-          `Se eliminan sus ${siblings.length} versión(es): ${siblings
+        `Delete the whole ${family} design?\n\n` +
+          `Its ${siblings.length} version(s) will be deleted: ${siblings
             .map((s) => s.code)
             .join(", ")}.`,
       )
@@ -1037,19 +1037,19 @@ function DeleteDesignButton({
           // Deletes already applied can't be undone — say what got removed
           // instead of leaving the operator thinking nothing happened.
           throw new Error(
-            `${j.error || `No se pudo borrar ${s.code}`}.` +
-              (deleted.length ? ` Ya se habían borrado: ${deleted.join(", ")}.` : ""),
+            `${j.error || `Could not delete ${s.code}`}.` +
+              (deleted.length ? ` Already deleted: ${deleted.join(", ")}.` : ""),
           );
         }
         deleted.push(s.code);
       }
 
       if (!blocked.length) {
-        toast.success(`Diseño ${family} borrado.`);
+        toast.success(`Design ${family} deleted.`);
       } else if (
         confirm(
-          `${blocked.length} versión(es) se usan en órdenes y no se pueden borrar ` +
-            `(${blocked.map((b) => b.code).join(", ")}).\n\n¿Ocultarlas del catálogo?`,
+          `${blocked.length} version(s) are used in orders and can't be deleted ` +
+            `(${blocked.map((b) => b.code).join(", ")}).\n\nHide them from the catalog?`,
         )
       ) {
         const notHidden: string[] = [];
@@ -1063,20 +1063,20 @@ function DeleteDesignButton({
           if (!r.ok || !j.ok) notHidden.push(b.code);
         }
         if (notHidden.length) {
-          toast.error(`No se pudieron ocultar: ${notHidden.join(", ")}.`);
+          toast.error(`Could not hide: ${notHidden.join(", ")}.`);
         } else {
-          toast.success("Versiones en uso ocultas del catálogo.");
+          toast.success("Versions in use are now hidden from the catalog.");
         }
       } else {
         toast.message(
           deleted.length
-            ? `Se borraron las versiones que no estaban en uso: ${deleted.join(", ")}.`
-            : "No se borró ninguna versión.",
+            ? `Deleted the versions that were not in use: ${deleted.join(", ")}.`
+            : "No version was deleted.",
         );
       }
       router.push("/catalog");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Falló");
+      toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
       setBusy(false);
       qc.invalidateQueries({ queryKey: ["catalog-families"] });
@@ -1092,7 +1092,7 @@ function DeleteDesignButton({
       disabled={busy || !siblings.length}
     >
       <Trash2 size={13} />
-      {busy ? "Borrando…" : "Borrar diseño"}
+      {busy ? "Deleting…" : "Delete design"}
     </Button>
   );
 }
@@ -1122,7 +1122,7 @@ function ColorsField({
   return (
     <div>
       <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-        Colores disponibles
+        Available colors
       </Label>
       <div className="flex flex-wrap gap-2">
         {COLOR_OPTIONS.map((c) => {
@@ -1194,7 +1194,7 @@ function ImageGallery({
   if (isLoading && records.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-5 text-center text-xs text-slate-400">
-        Cargando imágenes…
+        Loading images…
       </div>
     );
   }
@@ -1202,7 +1202,7 @@ function ImageGallery({
     return (
       <div className="flex h-32 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-slate-400">
         <ImageIcon size={22} />
-        <p className="text-[11px]">Sin imágenes — subí una por color.</p>
+        <p className="text-[11px]">No images — upload one per color.</p>
       </div>
     );
   }
@@ -1230,8 +1230,8 @@ function ImageGallery({
                 type="button"
                 onClick={() => onDelete(img.id)}
                 className="absolute top-1.5 right-1.5 rounded-md bg-white/95 p-1 text-rose-600 opacity-0 shadow ring-1 ring-slate-200 transition group-hover:opacity-100 hover:bg-rose-50"
-                aria-label="Borrar imagen"
-                title="Borrar imagen"
+                aria-label="Delete image"
+                title="Delete image"
               >
                 <Trash2 size={12} />
               </button>
@@ -1251,14 +1251,14 @@ function ImageGallery({
                   </Badge>
                 ) : (
                   <Badge variant="secondary" className="text-[10px] font-medium text-slate-500">
-                    Sin color
+                    No color
                   </Badge>
                 )}
                 <select
                   value={detected}
                   onChange={(e) => onRetag(img.id, e.target.value)}
                   className="ml-auto h-6 rounded-md border border-slate-200 bg-white text-[10px] text-slate-700 focus:border-indigo-400 focus:outline-none"
-                  title="Cambiar color"
+                  title="Change color"
                 >
                   <option value="">Color…</option>
                   {Object.entries(COLOR_PILL_STYLE).map(([k, v]) => (
@@ -1272,9 +1272,9 @@ function ImageGallery({
                 type="button"
                 onClick={() => onRetag(img.id, detected, true)}
                 className="block w-full rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 transition hover:bg-indigo-100"
-                title="Usar como portada (también la imagen pública)"
+                title="Use as cover (also the public image)"
               >
-                ★ Portada
+                ★ Cover
               </button>
             </div>
           </div>
@@ -1318,7 +1318,7 @@ function ImageUploader({
           onChange={(e) => setColor(e.target.value)}
           className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
         >
-          <option value="">Color: cualquiera</option>
+          <option value="">Color: any</option>
           {Object.entries(COLOR_PILL_STYLE).map(([k, v]) => (
             <option key={k} value={k}>
               {v.label}
@@ -1332,7 +1332,7 @@ function ImageUploader({
             onChange={(e) => setMakeCover(e.target.checked)}
             className="accent-indigo-600"
           />
-          Portada
+          Cover
         </label>
         <button
           type="button"
@@ -1341,7 +1341,7 @@ function ImageUploader({
           className="inline-flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-indigo-700 px-2 text-xs font-semibold text-white transition hover:bg-indigo-800 disabled:opacity-60"
         >
           <Camera size={13} />
-          {uploading ? "Subiendo…" : "Subir imagen"}
+          {uploading ? "Uploading…" : "Upload image"}
         </button>
       </div>
     </div>

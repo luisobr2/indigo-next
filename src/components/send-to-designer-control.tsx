@@ -57,7 +57,7 @@ export function SendToDesignerControl({
 
   async function send() {
     if (!designerId) {
-      toast.warning("Elegí un diseñador primero");
+      toast.warning("Pick a designer first");
       return;
     }
     setBusy(true);
@@ -74,9 +74,9 @@ export function SendToDesignerControl({
       .finally(() => setBusy(false));
 
     toast.promise(promise, {
-      loading: "Enviando al diseñador…",
-      success: "Ficha enviada — orden movida a CNC",
-      error: (e) => (e instanceof Error ? e.message : "No se pudo enviar"),
+      loading: "Sending to the designer…",
+      success: "Order sheet sent — order moved to CNC",
+      error: (e) => (e instanceof Error ? e.message : "Could not send"),
     });
   }
 
@@ -102,7 +102,7 @@ export function SendToDesignerControl({
           stacked ? "h-10 w-full text-sm" : "w-32",
         )}
       >
-        <option value="">Elegir diseñador…</option>
+        <option value="">Pick a designer…</option>
         {designers.map((d) => (
           <option key={d.id} value={d.id}>
             {d.name}
@@ -113,14 +113,14 @@ export function SendToDesignerControl({
         type="button"
         onClick={send}
         disabled={busy || !designerId}
-        title="Genera la Ficha, la manda al diseñador y mueve la orden a CNC"
+        title="Builds the order sheet, emails it to the designer and moves the order to CNC"
         className={cn(
-          "inline-flex items-center justify-center gap-1.5 rounded-md bg-indigo-700 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-40",
+          "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-indigo-700 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-40",
           stacked && "h-10 text-sm",
         )}
       >
         <Send size={12} />
-        {busy ? "Enviando…" : "Enviar al diseñador"}
+        {busy ? "Sending…" : "Send to designer"}
       </button>
     </div>
   );

@@ -41,13 +41,13 @@ test("every cause is always present in the result, even with zero orders", () =>
   assert.equal(groups.other.doorCount, 0);
 });
 
-test("holdCounterLabel matches Majela's own phrasing: 'Problema del dealer · 7 puertas'", () => {
-  assert.equal(holdCounterLabel("dealer", 7), "Problema del dealer · 7 puertas");
-  assert.equal(holdCounterLabel("client", 3), "Problema del cliente · 3 puertas");
+test("holdCounterLabel reads as '<cause> · N doors'", () => {
+  assert.equal(holdCounterLabel("dealer", 7), "Dealer issue · 7 doors");
+  assert.equal(holdCounterLabel("client", 3), "Client issue · 3 doors");
 });
 
 test("holdCounterLabel singularizes 'puerta' for a count of exactly 1", () => {
-  assert.equal(holdCounterLabel("client", 1), "Problema del cliente · 1 puerta");
+  assert.equal(holdCounterLabel("client", 1), "Client issue · 1 door");
 });
 
 test("dealer is blue and client is orange, per Majela's own words -- not swapped, not some other palette", () => {

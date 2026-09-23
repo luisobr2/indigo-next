@@ -62,15 +62,15 @@ export function planFamilyRename(input: RenamePlanInput): RenamePlan {
   const nextFamily = familyOf(String(input.nextFamily ?? "").trim().toUpperCase());
 
   if (!nextFamily) {
-    return { ok: false, error: "Poné un código." };
+    return { ok: false, error: "Enter a code." };
   }
   if (nextFamily.length < 2) {
-    return { ok: false, error: "El código necesita al menos 2 caracteres." };
+    return { ok: false, error: "The code needs at least 2 characters." };
   }
   if (!VALID_FAMILY_RE.test(nextFamily)) {
     return {
       ok: false,
-      error: "Usá solo letras, números, guion o guion bajo — sin espacios ni barras.",
+      error: "Use only letters, numbers, hyphen or underscore — no spaces or slashes.",
     };
   }
 
@@ -94,7 +94,7 @@ export function planFamilyRename(input: RenamePlanInput): RenamePlan {
   }
 
   if (renames.length === 0) {
-    return { ok: false, error: "No encontré versiones de este diseño para renombrar." };
+    return { ok: false, error: "No versions of this design were found to rename." };
   }
 
   // Refuse the whole rename if the target FAMILY is occupied — checking for a
@@ -115,8 +115,8 @@ export function planFamilyRename(input: RenamePlanInput): RenamePlan {
     return {
       ok: false,
       error:
-        `Ya hay un diseño usando ${nextFamily} (${conflicts.join(", ")}). ` +
-        `Elegí otro código.`,
+        `Another design already uses ${nextFamily} (${conflicts.join(", ")}). ` +
+        `Pick another code.`,
       conflicts,
     };
   }

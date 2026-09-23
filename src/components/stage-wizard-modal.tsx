@@ -218,7 +218,7 @@ export function StageWizardModal({
           body: JSON.stringify({ photos: datas, names: photoFiles.map((f) => f.name) }),
         });
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error || "No se pudieron subir las fotos");
+        if (!r.ok) throw new Error(d.error || "The photos could not be uploaded");
         payload.photo_ids = [[6, 0, d.ids]];
       }
       if (config.withSqfTable && sqfLines.length) {

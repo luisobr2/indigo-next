@@ -79,7 +79,7 @@ const RECIPES: Record<string, Recipe> = {
   ready_digitalization: {
     icon: Wand2,
     tone: "warn",
-    title: "Send the Ficha de orden to the designer",
+    title: "Send the order sheet to the designer",
     hint: "Assign a designer and send — the PDF is attached, emailed, and the order moves to CNC automatically. Use the Digitalization screen.",
   },
   cnc: {

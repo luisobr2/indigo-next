@@ -57,9 +57,9 @@ export function groupOrdersByHoldCause<T extends HoldOrderInput>(
 /** Spanish labels she'd recognize — mirrors indigo.order's hold_cause
  *  selection labels in the Odoo backend (models/indigo_order.py). */
 export const HOLD_CAUSE_LABEL: Record<HoldCause, string> = {
-  dealer: "Problema del dealer",
-  client: "Problema del cliente",
-  other: "Sin clasificar",
+  dealer: "Dealer issue",
+  client: "Client issue",
+  other: "Unclassified",
 };
 
 /** Blue for a dealer-caused hold, orange for a client-caused one — her own
@@ -79,5 +79,5 @@ export const HOLD_CAUSE_COLOR: Record<HoldCause, string> = {
  * has to carry the meaning on its own.
  */
 export function holdCounterLabel(cause: HoldCause, doorCount: number): string {
-  return `${HOLD_CAUSE_LABEL[cause]} · ${doorCount} puerta${doorCount === 1 ? "" : "s"}`;
+  return `${HOLD_CAUSE_LABEL[cause]} · ${doorCount} door${doorCount === 1 ? "" : "s"}`;
 }

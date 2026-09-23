@@ -78,7 +78,7 @@ export default function DealerDetailPage({
   async function setDealerPassword() {
     const pw = portalPw.trim();
     if (pw.length < 6) {
-      toast.error("La contraseña debe tener al menos 6 caracteres");
+      toast.error("The password needs at least 6 characters");
       return;
     }
     setPortalBusy(true);
@@ -94,7 +94,7 @@ export default function DealerDetailPage({
           created?: boolean;
           error?: string;
         };
-        if (!r.ok || !j.ok) throw new Error(j.error || "No se pudo fijar la contraseña");
+        if (!r.ok || !j.ok) throw new Error(j.error || "Could not set the password");
         setPortalPw("");
         qc.invalidateQueries({ queryKey: ["dealer", idStr] });
         return j;
@@ -102,12 +102,12 @@ export default function DealerDetailPage({
       .finally(() => setPortalBusy(false));
 
     toast.promise(promise, {
-      loading: "Fijando contraseña…",
+      loading: "Setting password…",
       success: (j) =>
         j.created
-          ? `Acceso creado — login: ${j.login}`
-          : `Contraseña fijada — login: ${j.login}`,
-      error: (e) => (e instanceof Error ? e.message : "Falló"),
+          ? `Access created — login: ${j.login}`
+          : `Password set — login: ${j.login}`,
+      error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }
 
@@ -133,11 +133,11 @@ export default function DealerDetailPage({
     const pw = portalPw.trim();
     if (isNew && pw) {
       if (!email) {
-        toast.error("Agregá un email para poder fijar la contraseña del portal");
+        toast.error("Add an email to set the portal password");
         return;
       }
       if (pw.length < 6) {
-        toast.error("La contraseña debe tener al menos 6 caracteres");
+        toast.error("The password needs at least 6 characters");
         return;
       }
     }
@@ -175,7 +175,7 @@ export default function DealerDetailPage({
               };
               if (!pr.ok || !pj.ok) {
                 toast.warning(
-                  `Dealer creado, pero no se pudo fijar la contraseña (${pj.error || "error"}). Fijala en la ficha.`,
+                  `Dealer created, but the password could not be set (${pj.error || "error"}). Set it on the dealer page.`,
                 );
               }
             }
@@ -198,7 +198,7 @@ export default function DealerDetailPage({
 
     toast.promise(promise, {
       loading: isNew ? "Creating dealer..." : "Saving dealer...",
-      success: isNew ? (pw ? `${name} creado con acceso portal` : `${name} created`) : `${name} saved`,
+      success: isNew ? (pw ? `${name} created with portal access` : `${name} created`) : `${name} saved`,
       error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
   }
@@ -317,7 +317,7 @@ export default function DealerDetailPage({
                     type={showPortalPw ? "text" : "password"}
                     value={portalPw}
                     onChange={(e) => setPortalPw(e.target.value)}
-                    placeholder="Mín. 6 — el dealer entra con su email"
+                    placeholder="Min. 6 — the dealer signs in with their email"
                     autoComplete="new-password"
                     disabled={!email}
                     className="h-10 pr-10"
@@ -325,7 +325,7 @@ export default function DealerDetailPage({
                   <button
                     type="button"
                     onClick={() => setShowPortalPw((v) => !v)}
-                    aria-label={showPortalPw ? "Ocultar" : "Ver"}
+                    aria-label={showPortalPw ? "Hide" : "Show"}
                     tabIndex={-1}
                     className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                   >
@@ -334,7 +334,7 @@ export default function DealerDetailPage({
                 </div>
                 {!email && (
                   <span className="mt-1 block text-[11px] text-amber-700">
-                    Agregá un email para habilitar la contraseña.
+                    Add an email to enable the password.
                   </span>
                 )}
               </Field>
@@ -403,40 +403,40 @@ export default function DealerDetailPage({
             so this also hides the card from viewers who can't set the password. */}
         {!isNew && data?.portal && (
           <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
-            <h2 className="mb-1 font-semibold text-slate-800">Acceso portal</h2>
+            <h2 className="mb-1 font-semibold text-slate-800">Portal access</h2>
             <p className="mb-4 text-xs text-slate-500">
               {data.portal?.has_user ? (
                 <>
-                  Acceso {data.portal.active ? "activo" : "inactivo"} · login:{" "}
+                  Access {data.portal.active ? "active" : "inactive"} · login:{" "}
                   <span className="font-mono">{data.portal.login}</span>
                 </>
               ) : data.dealer.email ? (
                 <>
-                  Sin acceso — al fijar la clave se creará con login{" "}
+                  No access yet — setting a password creates it with login{" "}
                   <span className="font-mono">{data.dealer.email as string}</span>
                 </>
               ) : (
-                "Sin acceso — agregá un email y guardá antes de fijar la clave."
+                "No access — add an email and save before setting a password."
               )}
             </p>
             <div className="flex flex-wrap items-end gap-3">
               <label className="block text-sm">
                 <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-                  <KeyRound size={12} /> Nueva contraseña
+                  <KeyRound size={12} /> New password
                 </span>
                 <div className="relative">
                   <Input
                     type={showPortalPw ? "text" : "password"}
                     value={portalPw}
                     onChange={(e) => setPortalPw(e.target.value)}
-                    placeholder="Mínimo 6 caracteres"
+                    placeholder="At least 6 characters"
                     disabled={!data.dealer.email}
                     className="h-10 w-64 pr-10"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPortalPw((v) => !v)}
-                    aria-label={showPortalPw ? "Ocultar" : "Ver"}
+                    aria-label={showPortalPw ? "Hide" : "Show"}
                     tabIndex={-1}
                     className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                   >
@@ -450,12 +450,12 @@ export default function DealerDetailPage({
                 disabled={portalBusy || !data.dealer.email || portalPw.trim().length < 6}
               >
                 <KeyRound size={14} />
-                {portalBusy ? "Guardando…" : "Fijar contraseña"}
+                {portalBusy ? "Saving…" : "Set password"}
               </Button>
             </div>
             {!data.dealer.email && (
               <p className="mt-2 text-xs text-amber-700">
-                Agregá un email primero y guardá.
+                Add an email first and save.
               </p>
             )}
           </section>

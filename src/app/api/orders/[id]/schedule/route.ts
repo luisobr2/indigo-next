@@ -110,8 +110,8 @@ export async function POST(
         : {
             ok: true,
             warning:
-              "Se guardo la fecha y el instalador, pero la etapa \"Installation Scheduled\" no existe, " +
-              "asi que la orden sigue en pendientes. Avisa a soporte.",
+              "The date and installer were saved, but the \"Installation Scheduled\" stage does not exist, " +
+              "so the order stays in the pending list. Tell support.",
           },
     );
   } catch (e) {

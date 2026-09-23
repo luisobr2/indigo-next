@@ -121,6 +121,9 @@ export interface StageScreenV2Column {
   render: (row: StageOrderV2) => React.ReactNode;
   /** Odoo field name to sort by server-side when this header is clicked. */
   sortField?: string;
+  /** Off until the person turns it on in Columns. For fields the shop does
+   *  not fill in yet, so they don't show a column of dashes. */
+  defaultHidden?: boolean;
 }
 
 export interface StageScreenV2Props {
@@ -247,10 +250,14 @@ export function StageScreenV2({
 
   // Configurable columns (per stage, saved per user) + server-side sort.
   const allColKeys = useMemo(() => columns.map((c) => c.key), [columns]);
+  const defaultColKeys = useMemo(
+    () => columns.filter((c) => !c.defaultHidden).map((c) => c.key),
+    [columns],
+  );
   const { colKeys, toggle: toggleCol } = useColumnPrefs(
     `indigo:stagecols:${stageParam}`,
     allColKeys,
-    allColKeys,
+    defaultColKeys,
   );
   const visibleColumns = useMemo(
     () => columns.filter((c) => colKeys.includes(c.key)),
@@ -1231,7 +1238,7 @@ function Row({
         <Link
           href={`/orders/${row.id}`}
           onClick={(e) => e.stopPropagation()}
-          className="font-medium text-indigo-700 hover:underline"
+          className="whitespace-nowrap font-medium text-indigo-700 hover:underline"
           title={row.name}
         >
           {row.dealer_ref || row.name}
