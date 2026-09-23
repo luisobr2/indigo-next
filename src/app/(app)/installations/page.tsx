@@ -277,7 +277,11 @@ const PEND_COLUMNS: PendCol[] = [
   {
     key: "client",
     label: "Client Name",
-    cell: (o) => <span className="text-slate-700">{o.client_name}</span>,
+    cell: (o) => (
+      <Link href={`/orders/${o.id}`} className="text-slate-700 hover:text-indigo-700 hover:underline">
+        {o.client_name}
+      </Link>
+    ),
     print: (o) => o.client_name,
     sortVal: (o) => (o.client_name || "").toLowerCase(),
   },
@@ -1308,7 +1312,9 @@ export default function InstallationsPage() {
                         {o.dealer_ref || o.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-2.5 text-slate-700">{o.client_name}</td>
+                    <td className="px-4 py-2.5 text-slate-700">
+                  <Link href={`/orders/${o.id}`} className="hover:text-indigo-700 hover:underline">{o.client_name}</Link>
+                </td>
                     <td className="px-4 py-2.5 text-xs text-slate-600">
                       {o.client_address || "—"}
                     </td>
@@ -1793,7 +1799,9 @@ export default function InstallationsPage() {
                               </Link>
                             </td>
                             <td className="px-4 py-2.5 text-slate-700">
-                              {o.client_name}
+                              <Link href={`/orders/${o.id}`} className="hover:text-indigo-700 hover:underline">
+                                {o.client_name}
+                              </Link>
                             </td>
                             <td className="px-4 py-2.5 text-xs text-slate-600">
                               {o.client_address}
@@ -2503,9 +2511,12 @@ function HoldSummaryCard({
                     >
                       {o.dealer_ref || o.name}
                     </Link>
-                    <span className="mt-0.5 block truncate text-xs font-medium text-slate-700">
+                    <Link
+                      href={`/orders/${o.id}`}
+                      className="mt-0.5 block truncate text-xs font-medium text-slate-700 hover:text-indigo-700 hover:underline"
+                    >
                       {o.client_name}
-                    </span>
+                    </Link>
                     <span className="block truncate text-[11px] text-slate-500">
                       {o.client_address || "—"}
                     </span>
@@ -2606,7 +2617,9 @@ function HoldSection({
                     {o.dealer_ref || o.name}
                   </Link>
                 </td>
-                <td className="px-4 py-2.5 text-slate-700">{o.client_name}</td>
+                <td className="px-4 py-2.5 text-slate-700">
+                  <Link href={`/orders/${o.id}`} className="hover:text-indigo-700 hover:underline">{o.client_name}</Link>
+                </td>
                 <td className="px-4 py-2.5 text-xs text-slate-600">{o.client_address || "—"}</td>
                 <td className="px-4 py-2.5 text-xs text-slate-600">{o.hold_reason || "—"}</td>
                 <td className="px-4 py-2.5 text-xs text-slate-700">

@@ -885,7 +885,13 @@ function DesignCard({
               isCustom ? "text-indigo-800" : "text-slate-800",
             )}
           >
-            {family.family}
+            {family.variants[0]?.id ? (
+              <Link href={`/catalog/designs/${family.variants[0].id}`} className="hover:text-indigo-700 hover:underline">
+                {family.family}
+              </Link>
+            ) : (
+              family.family
+            )}
           </h3>
         </div>
         <span
@@ -1043,7 +1049,9 @@ function DesignRow({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 font-mono text-sm font-bold text-slate-800">
-          {family.family}
+          <Link href={`/catalog/designs/${family.variants[0]?.id}`} className="hover:text-indigo-700 hover:underline">
+            {family.family}
+          </Link>
           <PublishPill family={family} />
         </div>
         <div className="flex flex-wrap gap-1 text-[10px] text-slate-500">

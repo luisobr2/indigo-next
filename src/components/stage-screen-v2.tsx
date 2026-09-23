@@ -1349,7 +1349,13 @@ function Row({
         )}
       </td>
       <td className="px-3 py-3">
-        <div className="font-medium text-slate-800">{row.client_name}</div>
+        <Link
+          href={`/orders/${row.id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="font-medium text-slate-800 hover:text-indigo-700 hover:underline"
+        >
+          {row.client_name}
+        </Link>
         {row.dealer_id && Array.isArray(row.dealer_id) && (
           <div className="text-xs text-slate-500">
             {row.dealer_id[1]}

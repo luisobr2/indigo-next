@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
@@ -319,7 +320,7 @@ export default function ReportsPage() {
                           <span className="flex h-5 w-5 items-center justify-center rounded bg-slate-100 text-[10px] font-bold text-slate-600">
                             {i + 1}
                           </span>
-                          <span className="font-medium text-slate-800">{d.name}</span>
+                          <Link href={`/catalog/dealers/${d.id}`} className="font-medium text-slate-800 hover:text-indigo-700 hover:underline">{d.name}</Link>
                         </div>
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums">{d.orderCount}</td>
@@ -362,7 +363,7 @@ export default function ReportsPage() {
                           <span className="flex h-5 w-5 items-center justify-center rounded bg-slate-100 text-[10px] font-bold text-slate-600">
                             {i + 1}
                           </span>
-                          <span className="font-medium text-slate-800">{d.name}</span>
+                          <Link href={`/catalog/designs/${d.id}`} className="font-medium text-slate-800 hover:text-indigo-700 hover:underline">{d.name}</Link>
                         </div>
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums">{d.orderCount}</td>
@@ -434,7 +435,9 @@ export default function ReportsPage() {
                 <tbody>
                   {data?.contractorPerformance.map((c) => (
                     <tr key={c.id} className="border-b border-slate-50 last:border-0">
-                      <td className="px-2 py-2 font-medium text-slate-800">{c.name}</td>
+                      <td className="px-2 py-2 font-medium text-slate-800">
+                        <Link href="/settings" className="hover:text-indigo-700 hover:underline" title="Rates are edited in Settings">{c.name}</Link>
+                      </td>
                       <td className="px-2 py-2">
                         <Badge
                           variant="secondary"

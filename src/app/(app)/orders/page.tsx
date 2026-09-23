@@ -165,9 +165,13 @@ const ORDER_COLUMNS: OrderCol[] = [
     key: "client",
     label: "Client",
     cell: (r) => (
-      <div className="max-w-[180px] truncate font-medium text-slate-800" title={r.client_name}>
+      <Link
+        href={`/orders/${r.id}`}
+        className="block max-w-[180px] truncate font-medium text-slate-800 hover:text-indigo-700 hover:underline"
+        title={r.client_name}
+      >
         {r.client_name}
-      </div>
+      </Link>
     ),
     print: (r) => r.client_name,
   },

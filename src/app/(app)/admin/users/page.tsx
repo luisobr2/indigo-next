@@ -154,7 +154,9 @@ export default function UsersAdminPage() {
             <tbody>
               {sortedUsers.map((u) => (
                 <tr key={u.id} className={`border-b border-slate-50 last:border-0 ${u.active ? "" : "opacity-50"}`}>
-                  <td className="px-4 py-3 font-medium text-slate-800">{u.name}</td>
+                  <td className="px-4 py-3 font-medium text-slate-800">
+                    <Link href={`/admin/users/${u.id}`} className="hover:text-indigo-700 hover:underline">{u.name}</Link>
+                  </td>
                   <td className="px-4 py-3 text-slate-600">{u.email}</td>
                   <td className="px-4 py-3">
                     <Badge variant="secondary" className={ROLE_BADGE[u.role] ?? "bg-slate-100 text-slate-600"}>

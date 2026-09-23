@@ -446,7 +446,9 @@ export default function InstallersPage() {
                           <td colSpan={4} className="px-4 py-2">
                             <div className="flex items-center gap-2">
                               <UserRound size={14} className="text-slate-400" aria-hidden />
-                              <span className="font-semibold text-slate-800">{inst.name}</span>
+                              <Link href="/settings" className="font-semibold text-slate-800 hover:text-indigo-700 hover:underline" title="Pay rules are edited in Settings">
+                                {inst.name}
+                              </Link>
                               {inst.rule && !inst.rule.isOwn && (
                                 <span
                                   className="rounded bg-slate-200/70 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"

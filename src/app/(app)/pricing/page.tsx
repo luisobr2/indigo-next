@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, Save, Info } from "lucide-react";
@@ -276,7 +277,9 @@ export default function PricingPage() {
                 return (
                   <div key={d.id} className="flex flex-wrap items-center gap-3 py-2.5">
                     <div className="min-w-0 flex-1">
-                      <span className="whitespace-nowrap font-semibold text-slate-800">{d.code}</span>
+                      <Link href={`/catalog/designs/${d.id}`} className="whitespace-nowrap font-semibold text-slate-800 hover:text-indigo-700 hover:underline">
+                        {d.code}
+                      </Link>
                       {d.name && (
                         <span className="ml-2 hidden text-sm text-slate-400 sm:inline">{d.name}</span>
                       )}
