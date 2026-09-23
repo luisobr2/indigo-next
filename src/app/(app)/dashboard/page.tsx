@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ShoppingBag,
@@ -12,7 +11,6 @@ import {
   AlertTriangle,
   Building2,
   ChevronRight,
-  Calendar,
   MessageSquare,
 } from "lucide-react";
 import Link from "next/link";
@@ -20,7 +18,7 @@ import { KpiCard } from "@/components/kpi-card";
 import { DashboardSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { fmtMoney, fmtNum, fmtDateTime } from "@/lib/utils";
-import { cn } from "@/lib/utils";
+import { SHOP_TIME_ZONE } from "@/lib/shop-time";
 import {
   BarChart,
   Bar,
@@ -83,10 +81,26 @@ interface DashboardData {
     };
     generated_at: string;
     openIncidences?: number;
+    paintingSqf?: number;
   };
 }
 
-const DEALER_COLORS = ["#1f4486", "#5a7cc8", "#8da6e5", "#b6c4f1"];
+// Top dealers get their own colour; the rest are grouped as "Others". With
+// four colours and eleven dealers the old palette repeated, and two dealers
+// shared a colour in the chart.
+const DEALER_COLORS = ["#1f4486", "#3f63ad", "#6f8fd0", "#a3b8e8", "#cbd6f3"];
+const OTHERS_COLOR = "#e2e8f0";
+const TOP_DEALERS = DEALER_COLORS.length;
+
+/** "Good morning/afternoon/evening", by the shop's clock, not the viewer's. */
+function greeting(now: Date): string {
+  const h = Number(
+    new Intl.DateTimeFormat("en-US", { hour: "numeric", hourCycle: "h23", timeZone: SHOP_TIME_ZONE }).format(now),
+  );
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
 
 interface CapacitiesPayload {
   capacities: { cnc: number; painting: number; install: number };
@@ -96,21 +110,6 @@ interface RevenueSeriesPayload {
   series: Array<{ month: string; label: string; value: number }>;
 }
 
-type DateRange = "today" | "7d" | "30d" | "90d";
-
-const RANGE_LABEL: Record<DateRange, string> = {
-  today: "Today",
-  "7d": "Last 7 days",
-  "30d": "Last 30 days",
-  "90d": "Last 90 days",
-};
-
-const RANGE_MONTHS: Record<DateRange, number> = {
-  today: 1,
-  "7d": 1,
-  "30d": 3,
-  "90d": 6,
-};
 
 interface ActivityRecord {
   id: number;
@@ -124,15 +123,20 @@ interface ActivityRecord {
 }
 
 export default function DashboardPage() {
-  const [range, setRange] = useState<DateRange>("30d");
-
   const { data, isLoading, error, refetch } = useQuery<DashboardData>({
     queryKey: ["dashboard"],
     queryFn: () => fetch("/api/dashboard").then((r) => r.json()),
   });
+  const { data: me } = useQuery<{ user: { name: string } | null }>({
+    queryKey: ["me"],
+    queryFn: () => fetch("/api/auth/me").then((r) => r.json()),
+    staleTime: 60_000,
+  });
+  // Fetch more than we show: most chatter lines are OdooBot stage-tracking
+  // with no text, and they are filtered out below.
   const { data: activity } = useQuery<{ records: ActivityRecord[] }>({
     queryKey: ["dashboard-activity"],
-    queryFn: () => fetch("/api/activity?limit=15").then((r) => r.json()),
+    queryFn: () => fetch("/api/activity?limit=60").then((r) => r.json()),
     staleTime: 30_000,
   });
   const { data: settings } = useQuery<CapacitiesPayload>({
@@ -160,13 +164,31 @@ export default function DashboardPage() {
 
   const d = data.data;
   const totalDealerOrders = d.dealers.reduce((s, x) => s + x.count, 0) || 1;
-  const dealerPie = d.dealers.map((dealer, i) => ({
+  const byCount = [...d.dealers].sort((a, b) => b.count - a.count);
+  const top = byCount.slice(0, TOP_DEALERS);
+  const rest = byCount.slice(TOP_DEALERS);
+  const dealerPie = top.map((dealer, i) => ({
     name: dealer.name,
     value: dealer.count,
     pct: ((dealer.count / totalDealerOrders) * 100).toFixed(0),
     revenue: dealer.pending_revenue,
-    fill: DEALER_COLORS[i % DEALER_COLORS.length],
+    fill: DEALER_COLORS[i],
   }));
+  if (rest.length) {
+    const count = rest.reduce((t, x) => t + x.count, 0);
+    dealerPie.push({
+      name: `Others (${rest.length})`,
+      value: count,
+      pct: ((count / totalDealerOrders) * 100).toFixed(0),
+      revenue: rest.reduce((t, x) => t + x.pending_revenue, 0),
+      fill: OTHERS_COLOR,
+    });
+  }
+  const firstName = (me?.user?.name ?? "").split(" ")[0];
+  const installsToday = d.today_installs.reduce((t, b) => t + b.orders.length, 0);
+  const activityRows = (activity?.records ?? []).filter(
+    (a) => a.subject || (a.body ?? "").replace(/<[^>]*>/g, "").trim() !== "",
+  );
 
   const funnel = d.pipeline.map((p) => ({
     stage: p.name.replace(/ \/ /g, " / "),
@@ -174,38 +196,19 @@ export default function DashboardPage() {
   }));
 
 
-  // Trim the revenue series to the selected window.
-  const monthsToShow = RANGE_MONTHS[range];
-  const revenueSeries = (revenue?.series ?? []).slice(-monthsToShow);
+  const revenueSeries = (revenue?.series ?? []).slice(-6);
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            Good morning, Production
+            {greeting(new Date())}
+            {firstName ? `, ${firstName}` : ""}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             Here&apos;s what&apos;s happening in Indigo Decors today.
           </p>
-        </div>
-        <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-1 text-xs shadow-sm">
-          <Calendar size={14} className="ml-2 text-slate-400" />
-          {(Object.keys(RANGE_LABEL) as DateRange[]).map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setRange(k)}
-              className={cn(
-                "rounded-lg px-3 py-1.5 font-medium transition",
-                range === k
-                  ? "bg-indigo-700 text-white shadow"
-                  : "text-slate-600 hover:bg-slate-50",
-              )}
-            >
-              {RANGE_LABEL[k]}
-            </button>
-          ))}
         </div>
       </header>
 
@@ -297,7 +300,7 @@ export default function DashboardPage() {
           <h3 className="mb-4 font-semibold text-slate-800">Production Funnel</h3>
           <div className="h-64">
             <ResponsiveContainer>
-              <BarChart data={funnel} layout="vertical" barCategoryGap={8}>
+              <BarChart data={funnel} layout="vertical" barCategoryGap={8} margin={{ right: 28 }}>
                 <XAxis type="number" hide />
                 <YAxis
                   dataKey="stage"
@@ -321,12 +324,7 @@ export default function DashboardPage() {
         <div className="col-span-1 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-3">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-semibold text-slate-800">Orders by Company</h3>
-            <Link
-              href="/orders"
-              className="text-xs font-medium text-indigo-700 hover:underline"
-            >
-              View all
-            </Link>
+            <span className="text-[10px] uppercase tracking-wide text-slate-400">Active · to bill</span>
           </div>
           <div className="h-32">
             <ResponsiveContainer>
@@ -486,14 +484,14 @@ export default function DashboardPage() {
             />
             <CapacityBar
               label="Painting Capacity"
-              used={(d.pipeline.find((p) => p.code === "painting")?.count ?? 0) * 50 /* est avg SQF/order */}
+              used={d.paintingSqf ?? 0}
               capacity={caps.painting}
               unit="SQF"
               color="#f97316"
             />
             <CapacityBar
-              label="Installations Capacity"
-              used={d.kpis.pending_install ?? 0}
+              label="Installs Today"
+              used={installsToday}
               capacity={caps.install}
               unit="orders"
               color="#10b981"
@@ -552,16 +550,16 @@ export default function DashboardPage() {
             Recent Activity
           </h3>
           <span className="text-xs text-slate-400">
-            {activity?.records?.length ?? 0} events
+            {activityRows.length} events
           </span>
         </div>
-        {!activity?.records?.length ? (
+        {!activityRows.length ? (
           <div className="rounded-xl bg-slate-50 p-6 text-center text-sm text-slate-400">
             No recent activity yet.
           </div>
         ) : (
           <ul className="space-y-2">
-            {activity.records.slice(0, 10).map((a) => (
+            {activityRows.slice(0, 10).map((a) => (
               <li
                 key={a.id}
                 className="flex items-start gap-3 rounded-xl border border-slate-100 p-3 text-sm"

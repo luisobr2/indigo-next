@@ -34,7 +34,22 @@ export async function GET() {
     } catch {
       openIncidences = 0;
     }
-    return NextResponse.json({ data: { ...data, openIncidences } });
+    // Real SQF waiting in the paint shop. The capacity bar used to estimate it
+    // as "orders x 50", and showed the guess as if it were a measurement.
+    let paintingSqf = 0;
+    try {
+      const rows = await call<Array<{ total_sqf: number }>>({
+        session: s.session,
+        model: "indigo.order",
+        method: "search_read",
+        args: [[["stage_id.code", "=", "painting"]]],
+        kwargs: { fields: ["total_sqf"] },
+      });
+      paintingSqf = Math.round(rows.reduce((t, r) => t + (r.total_sqf || 0), 0));
+    } catch {
+      paintingSqf = 0;
+    }
+    return NextResponse.json({ data: { ...data, openIncidences, paintingSqf } });
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "Error fetching dashboard";
