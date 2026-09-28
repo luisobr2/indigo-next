@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
-import { money } from "@/components/billing/invoice-bits";
+import { invalidateOrderViews, money } from "@/components/billing/invoice-bits";
 
 /**
  * The draft invoice editor.
@@ -151,6 +151,7 @@ function Editor() {
       }
       qc.invalidateQueries({ queryKey: ["billing-to-invoice"] });
       qc.invalidateQueries({ queryKey: ["billing-invoices"] });
+      invalidateOrderViews(qc);
       toast.success("Draft saved");
       router.push(`/billing/invoices/${id}`);
     } catch (e) {

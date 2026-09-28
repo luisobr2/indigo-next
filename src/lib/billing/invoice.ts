@@ -186,3 +186,48 @@ export function presetRange(preset: "this-month" | "last-month" | "this-year", t
   }
   return { from: iso(new Date(y, m, 1)), to: iso(new Date(y, m + 1, 0)) };
 }
+
+/** What the order page gets about the order's invoices. */
+export interface OrderBilling {
+  ready: boolean;
+  /** The live invoice first, voided ones after. */
+  invoices: InvoiceRow[];
+  /** Installed, with no live invoice: the same rule as "To invoice". */
+  can_create: boolean;
+}
+
+/**
+ * The billing step the order page offers next.
+ *
+ * Once invoicing runs in the app, a payment goes on the invoice. Marking the
+ * order paid by hand would leave the invoice open and the dealer's statement
+ * still asking for the money, so "Mark as paid" only stays where there is no
+ * invoice in the app to put the payment on: before invoicing is set up
+ * (`billing` null) and for orders invoiced in QuickBooks before that.
+ */
+export type BillingNext =
+  | { kind: "create" }
+  | { kind: "draft"; invoice: InvoiceRow }
+  | { kind: "collect"; invoice: InvoiceRow }
+  | { kind: "mark_paid" }
+  | { kind: "none" };
+
+export function orderBillingNext(
+  stageCode: string,
+  paymentState: string,
+  billing: OrderBilling | null,
+): BillingNext {
+  if (stageCode !== "installed" && stageCode !== "invoiced") return { kind: "none" };
+  if (!billing || !billing.ready) {
+    return paymentState === "paid" ? { kind: "none" } : { kind: "mark_paid" };
+  }
+  const live = billing.invoices.filter((i) => i.state !== "cancel");
+  const draft = live.find((i) => i.state === "draft");
+  if (draft) return { kind: "draft", invoice: draft };
+  const open = live.find((i) => i.state === "posted" && i.residual > 0.005);
+  if (open) return { kind: "collect", invoice: open };
+  if (live.length) return { kind: "none" };
+  if (billing.can_create) return { kind: "create" };
+  if (stageCode === "invoiced" && paymentState !== "paid") return { kind: "mark_paid" };
+  return { kind: "none" };
+}

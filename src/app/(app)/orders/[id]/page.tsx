@@ -42,6 +42,9 @@ import { OrderDetailSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { AssignmentCard } from "@/components/assignment-card";
 import { NextActionCard } from "@/components/next-action-card";
+import { OrderInvoiceCard } from "@/components/billing/order-invoice-card";
+import { useOrderBilling } from "@/components/billing/invoice-bits";
+import { orderBillingNext, type BillingNext } from "@/lib/billing/invoice";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { deriveRole } from "@/lib/odoo/types";
@@ -110,6 +113,8 @@ export default function OrderDetailPage({
   });
   const role = me?.user ? deriveRole(me.user.groups) : null;
   const canAssign = !!(role?.isManager || role?.isOffice || me?.user?.isAdmin);
+  // Its invoice: only the office and managers bill, so only they ask.
+  const billingQ = useOrderBilling(parseInt(id, 10), canAssign);
 
   async function unschedule() {
     if (unscheduling) return;
@@ -236,7 +241,13 @@ export default function OrderDetailPage({
 
   const dealer = m2o(o.dealer_id);
   const currentStage = data.stages.find((s) => s.code === o.stage_code);
-  const wizardCfg = STAGE_WIZARDS[o.stage_code];
+  // With invoicing in the app, an installed order is invoiced from its
+  // Invoice card. The old "Invoice and mark paid" wizard would mark it
+  // invoiced and paid with no invoice behind it, so it goes away here (also
+  // while the invoices load, so it doesn't flash in and out).
+  const invoicingInApp = canAssign && (billingQ.isLoading || !!billingQ.data?.data.ready);
+  const wizardCfg =
+    o.stage_code === "installed" && invoicingInApp ? undefined : STAGE_WIZARDS[o.stage_code];
   // suppress unused warning — dealer is shown via m2o in the cards below
   void dealer;
 
@@ -256,6 +267,13 @@ export default function OrderDetailPage({
   const uDoorType = uniform((l) => l.door_type);
   const uColor = uniform((l) => l.color);
   const uPieces = uniform((l) => l.parts_count ?? 1);
+
+  // What billing step the Next action card offers. Nothing while the
+  // invoices load (so "Mark as Paid" never flashes before them); if they
+  // can't be read, the order behaves as before invoicing moved to the app.
+  const billingNext: BillingNext = !canAssign || billingQ.isLoading
+    ? { kind: "none" }
+    : orderBillingNext(o.stage_code, o.payment_state, billingQ.data?.data ?? null);
   const firstBrand = m2o(
     (lines[0] as { brand_id?: [number, string] | false } | undefined)?.brand_id,
   );
@@ -515,6 +533,7 @@ export default function OrderDetailPage({
         paymentState={o.payment_state}
         onOpenWizard={wizardCfg ? () => setWizardOpen(true) : undefined}
         wizardLabel={wizardCfg?.title}
+        billing={billingNext}
       />
 
       {/* Edit panel — appears when "Edit order" is toggled in the header. */}
@@ -978,6 +997,19 @@ export default function OrderDetailPage({
                 }
               />
               <Row
+                label="Payment"
+                value={
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
+                      PAYMENT_BADGE[o.payment_state] ?? PAYMENT_BADGE.unpaid,
+                    )}
+                  >
+                    {PAYMENT_LABEL[o.payment_state] ?? o.payment_state}
+                  </span>
+                }
+              />
+              <Row
                 label="Total"
                 value={
                   <span className="text-base font-bold text-emerald-700">
@@ -987,6 +1019,16 @@ export default function OrderDetailPage({
               />
             </dl>
           </div>
+
+          {canAssign && (
+            <OrderInvoiceCard
+              orderId={o.id}
+              stageCode={o.stage_code}
+              billing={billingQ.data?.data}
+              loading={billingQ.isLoading}
+              failed={billingQ.isError}
+            />
+          )}
 
           <AssignmentCard
             orderId={o.id}
@@ -1080,6 +1122,18 @@ export default function OrderDetailPage({
     </div>
   );
 }
+
+const PAYMENT_LABEL: Record<string, string> = {
+  unpaid: "Unpaid",
+  partial: "Partly paid",
+  paid: "Paid",
+};
+
+const PAYMENT_BADGE: Record<string, string> = {
+  unpaid: "bg-slate-100 text-slate-600",
+  partial: "bg-amber-50 text-amber-700",
+  paid: "bg-emerald-50 text-emerald-700",
+};
 
 function Row({
   label,

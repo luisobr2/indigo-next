@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
-import { InvoiceStatusBadge, money } from "@/components/billing/invoice-bits";
+import { InvoiceStatusBadge, invalidateOrderViews, money } from "@/components/billing/invoice-bits";
 
 const METHODS = [
   { value: "check", label: "Check" },
@@ -53,6 +53,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     qc.invalidateQueries({ queryKey: ["billing-invoice", id] });
     qc.invalidateQueries({ queryKey: ["billing-invoices"] });
     qc.invalidateQueries({ queryKey: ["billing-to-invoice"] });
+    invalidateOrderViews(qc);
     setPdfKey((k) => k + 1);
   }
 
@@ -84,6 +85,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       await fetchJson(`/api/invoicing/invoices/${id}`, { method: "DELETE" });
       toast.success("Draft deleted");
       qc.invalidateQueries({ queryKey: ["billing-to-invoice"] });
+      invalidateOrderViews(qc);
       router.push("/billing");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't delete the draft");

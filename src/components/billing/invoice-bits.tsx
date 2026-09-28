@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { Settings } from "lucide-react";
 import { fetchJson } from "@/lib/fetch-json";
 import { cn } from "@/lib/utils";
-import type { BillingStatus, InvoiceStatus } from "@/lib/billing/invoice";
+import type { BillingStatus, InvoiceStatus, OrderBilling } from "@/lib/billing/invoice";
 
 const STATUS_CLASS: Record<InvoiceStatus, string> = {
   Draft: "bg-slate-100 text-slate-600",
@@ -37,6 +37,30 @@ export function useBillingStatus() {
     queryFn: () => fetchJson("/api/invoicing/status"),
     staleTime: 60_000,
   });
+}
+
+/**
+ * The order's invoices, for its detail page. Only the office and managers
+ * ask (the route refuses everyone else), so the page passes `enabled`.
+ */
+export function useOrderBilling(orderId: number, enabled: boolean) {
+  return useQuery<{ data: OrderBilling }>({
+    queryKey: ["order-invoices", orderId],
+    queryFn: () => fetchJson(`/api/invoicing/orders/${orderId}`),
+    enabled,
+    retry: false,
+  });
+}
+
+/**
+ * After an invoice changes (drafted, issued, paid, voided, deleted), its
+ * orders' pages show something else: their invoice card, stage, payment and
+ * history. Those queries live 30 s, so they are dropped here.
+ */
+export function invalidateOrderViews(qc: QueryClient) {
+  for (const key of ["order", "order-invoices", "order-activity", "orders"]) {
+    qc.invalidateQueries({ queryKey: [key] });
+  }
 }
 
 /** Shown where invoicing would appear while it isn't set up yet. */

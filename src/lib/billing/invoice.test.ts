@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { draftTotals, parseEmails, presetRange, freeLine, type DraftLine } from "./invoice.ts";
+import {
+  draftTotals,
+  parseEmails,
+  presetRange,
+  freeLine,
+  orderBillingNext,
+  type DraftLine,
+  type InvoiceRow,
+  type OrderBilling,
+} from "./invoice.ts";
 
 const door = (price: number, qty = 1, taxable = true): DraftLine => ({
   order_id: 1,
@@ -55,4 +64,60 @@ test("a free line starts taxable with qty 1", () => {
   assert.equal(l.kind, "free");
   assert.equal(l.qty, 1);
   assert.equal(l.taxable, true);
+});
+
+// --- the order page's next billing step ---------------------------------
+
+const row = (over: Partial<InvoiceRow>): InvoiceRow => ({
+  id: 1,
+  name: "1365",
+  state: "posted",
+  status: "Balance due",
+  payment_state: "not_paid",
+  dealer: [7, "Dealer"],
+  invoice_date: "2026-09-28",
+  due_date: "2026-09-28",
+  untaxed: 600,
+  tax: 42,
+  total: 642,
+  residual: 642,
+  order_names: ["WEB/0001"],
+  sent_at: false,
+  ...over,
+});
+const ready = (invoices: InvoiceRow[], can_create = false): OrderBilling => ({ ready: true, invoices, can_create });
+
+test("orderBillingNext: nothing to bill before the door is installed", () => {
+  assert.deepEqual(orderBillingNext("painting", "unpaid", ready([], false)), { kind: "none" });
+  assert.deepEqual(orderBillingNext("cnc", "unpaid", null), { kind: "none" });
+});
+
+test("orderBillingNext: without invoicing in the app, Mark as paid stays", () => {
+  assert.deepEqual(orderBillingNext("installed", "unpaid", null), { kind: "mark_paid" });
+  assert.deepEqual(orderBillingNext("invoiced", "partial", { ready: false, invoices: [], can_create: false }), { kind: "mark_paid" });
+  assert.deepEqual(orderBillingNext("invoiced", "paid", null), { kind: "none" });
+});
+
+test("orderBillingNext: installed and not invoiced offers Create invoice, never Mark as paid", () => {
+  assert.deepEqual(orderBillingNext("installed", "unpaid", ready([], true)), { kind: "create" });
+  const voided = row({ state: "cancel", status: "Cancelled", residual: 0 });
+  assert.deepEqual(orderBillingNext("installed", "unpaid", ready([voided], true)), { kind: "create" });
+});
+
+test("orderBillingNext: a draft is opened, an open invoice is collected on", () => {
+  const draft = row({ state: "draft", status: "Draft", name: false });
+  assert.equal(orderBillingNext("installed", "unpaid", ready([draft])).kind, "draft");
+  const open = row({ residual: 542, payment_state: "partial" });
+  const next = orderBillingNext("invoiced", "partial", ready([open]));
+  assert.equal(next.kind, "collect");
+  assert.equal(next.kind === "collect" && next.invoice.id, 1);
+});
+
+test("orderBillingNext: a paid invoice leaves nothing to do", () => {
+  const paid = row({ residual: 0, status: "Paid", payment_state: "paid" });
+  assert.deepEqual(orderBillingNext("invoiced", "paid", ready([paid])), { kind: "none" });
+});
+
+test("orderBillingNext: invoiced in QuickBooks before the app keeps Mark as paid", () => {
+  assert.deepEqual(orderBillingNext("invoiced", "unpaid", ready([], false)), { kind: "mark_paid" });
 });

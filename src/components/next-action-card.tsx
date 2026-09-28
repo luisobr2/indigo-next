@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -9,11 +10,16 @@ import {
   Loader2,
   Phone,
   Wand2,
+  Plus,
+  Receipt,
   Ruler,
+  Wallet,
   PauseCircle,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { BillingNext } from "@/lib/billing/invoice";
+import { money } from "@/components/billing/invoice-bits";
 
 interface Props {
   orderId: number;
@@ -27,6 +33,11 @@ interface Props {
    */
   onOpenWizard?: () => void;
   wizardLabel?: string;
+  /**
+   * The billing step for this order (`orderBillingNext`). "none" for people
+   * who don't bill, and while the order's invoices are still loading.
+   */
+  billing: BillingNext;
 }
 
 interface Recipe {
@@ -149,6 +160,7 @@ export function NextActionCard({
   paymentState,
   onOpenWizard,
   wizardLabel,
+  billing,
 }: Props) {
   const qc = useQueryClient();
   const [markingPaid, setMarkingPaid] = useState(false);
@@ -174,18 +186,17 @@ export function NextActionCard({
     );
   }
 
-  const recipe = RECIPES[stageCode];
+  const base = RECIPES[stageCode];
   // Unknown stage → graceful empty (don't render a confusing default).
-  if (!recipe) return null;
+  if (!base) return null;
+  const recipe = billingRecipe(base, stageCode, paymentState, billing);
 
   const Icon = recipe.icon;
   const showWizardCta = !!(recipe.cta && onOpenWizard);
-  // Show "Mark as Paid" on installed/invoiced when not already paid.
-  // We deliberately keep this scoped — earlier stages aren't usually
-  // ready for payment and showing the button there is confusing.
-  const showMarkPaid =
-    paymentState !== "paid" &&
-    (stageCode === "installed" || stageCode === "invoiced");
+  // "Mark as Paid" only where there is no invoice in the app to put the
+  // payment on (orderBillingNext decides; see its note).
+  const showMarkPaid = billing.kind === "mark_paid";
+  const billingLink = billingCta(orderId, billing);
 
   async function markPaid() {
     if (markingPaid) return;
@@ -240,6 +251,15 @@ export function NextActionCard({
             {wizardLabel || recipe.cta}
           </button>
         )}
+        {billingLink && (
+          <Link
+            href={billingLink.href}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow shadow-emerald-600/30 hover:bg-emerald-700"
+          >
+            <billingLink.icon size={14} />
+            {billingLink.label}
+          </Link>
+        )}
         {showMarkPaid && (
           <button
             type="button"
@@ -258,4 +278,61 @@ export function NextActionCard({
       </div>
     </div>
   );
+}
+
+/**
+ * Installed / invoiced read differently once the invoice lives in the app:
+ * the hint names the invoice and what is still owed.
+ */
+function billingRecipe(base: Recipe, stageCode: string, paymentState: string, billing: BillingNext): Recipe {
+  switch (billing.kind) {
+    case "create":
+      return {
+        ...base,
+        hint: "Create the invoice from this order. It takes the next QuickBooks number when you issue it.",
+      };
+    case "draft":
+      return {
+        ...base,
+        icon: Receipt,
+        title: "Draft invoice waiting to be issued",
+        hint: `Draft for ${money(billing.invoice.total)}. Check it and issue it to give it its number.`,
+      };
+    case "collect": {
+      const inv = billing.invoice;
+      const overdue = inv.status === "Overdue";
+      return {
+        ...base,
+        tone: overdue ? "warn" : base.tone,
+        title: overdue ? "Invoice overdue — follow up with the dealer" : "Awaiting payment from dealer",
+        hint: `Invoice #${inv.name} · balance due ${money(inv.residual)}. Record the payment on the invoice when it arrives.`,
+      };
+    }
+    case "none":
+      if (stageCode === "invoiced" && paymentState === "paid") {
+        return {
+          ...base,
+          icon: CheckCircle2,
+          tone: "ok",
+          title: "Paid in full",
+          hint: "Nothing left to collect. Move it to Closed when the job is wrapped up.",
+        };
+      }
+      return base;
+    default:
+      return base;
+  }
+}
+
+function billingCta(orderId: number, billing: BillingNext): { href: string; label: string; icon: LucideIcon } | null {
+  switch (billing.kind) {
+    case "create":
+      return { href: `/billing/invoices/new?orders=${orderId}`, label: "Create invoice", icon: Plus };
+    case "draft":
+      return { href: `/billing/invoices/${billing.invoice.id}`, label: "Open draft", icon: Receipt };
+    case "collect":
+      return { href: `/billing/invoices/${billing.invoice.id}`, label: "Record payment", icon: Wallet };
+    default:
+      return null;
+  }
 }
