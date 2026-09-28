@@ -17,7 +17,7 @@ const STATUS_CLASS: Record<InvoiceStatus, string> = {
 
 /** Same words QuickBooks shows on each invoice: Open / Overdue / Paid. */
 export function InvoiceStatusBadge({ status, className }: { status: InvoiceStatus; className?: string }) {
-  const label = status === "Balance due" ? "Open" : status;
+  const label = status === "Balance due" ? "Open" : status === "Cancelled" ? "Void" : status;
   return (
     <span
       className={cn(

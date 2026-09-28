@@ -4,7 +4,7 @@ import { use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Download, Mail, Pencil, Trash2, Wallet } from "lucide-react";
+import { ArrowLeft, Ban, CheckCircle2, Download, Mail, Pencil, Trash2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
@@ -39,6 +39,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [busy, setBusy] = useState(false);
   const [confirmIssue, setConfirmIssue] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState("");
   const [sendOpen, setSendOpen] = useState(false);
   const [emails, setEmails] = useState("");
   const [message, setMessage] = useState("");
@@ -87,6 +89,12 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       toast.error(e instanceof Error ? e.message : "Couldn't delete the draft");
     } finally {
       setBusy(false);
+    }
+  }
+  async function voidInvoice() {
+    if (await act(`/api/invoicing/invoices/${id}/void`, { reason: voidReason.trim() || null }, "Invoice voided")) {
+      setVoidOpen(false);
+      setVoidReason("");
     }
   }
   function openSend() {
@@ -172,6 +180,17 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               >
                 <Download size={14} /> PDF
               </a>
+              {inv.state === "posted" && !inv.payments.length && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => setVoidOpen(true)}
+                  disabled={busy}
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                >
+                  <Ban size={14} /> Void
+                </Button>
+              )}
               {inv.state === "posted" && inv.residual > 0 && (
                 <Button variant="outline" size="lg" onClick={openPay} disabled={busy}>
                   <Wallet size={14} /> Record payment
@@ -262,7 +281,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           <DialogHeader>
             <DialogTitle>Issue this invoice?</DialogTitle>
             <DialogDescription>
-              It gets the next invoice number and can no longer be edited or deleted, only cancelled. Its orders move to
+              It gets the next invoice number and can no longer be edited or deleted, only voided. Its orders move to
               Invoiced. Total {money(inv.total)}.
             </DialogDescription>
           </DialogHeader>
@@ -289,6 +308,37 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             </Button>
             <Button onClick={remove} disabled={busy} className="bg-rose-600 text-white hover:bg-rose-700">
               Delete draft
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Anular: conserva el numero y devuelve las ordenes a "por facturar". */}
+      <Dialog open={voidOpen} onOpenChange={setVoidOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Void invoice #{inv.name}?</DialogTitle>
+            <DialogDescription>
+              It keeps its number but stops counting, and its orders go back to the list waiting for an invoice so you
+              can make the right one. This can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="block text-sm font-medium text-slate-700" htmlFor="void-reason">
+            Reason (optional)
+          </label>
+          <Textarea
+            id="void-reason"
+            value={voidReason}
+            onChange={(e) => setVoidReason(e.target.value)}
+            rows={2}
+            placeholder="Wrong price, wrong dealer…"
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setVoidOpen(false)}>
+              Keep it
+            </Button>
+            <Button onClick={voidInvoice} disabled={busy} className="bg-rose-600 text-white hover:bg-rose-700">
+              {busy ? "Voiding…" : "Void invoice"}
             </Button>
           </div>
         </DialogContent>
