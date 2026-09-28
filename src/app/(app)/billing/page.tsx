@@ -38,6 +38,8 @@ import { printTable } from "@/lib/print-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/pagination";
+import { ToInvoicePanel } from "@/components/billing/to-invoice-panel";
+import { NotReadyBanner, useBillingStatus } from "@/components/billing/invoice-bits";
 
 interface SummaryData {
   cashIn: { paid: number; pending: number };
@@ -89,6 +91,8 @@ interface PayoutBucket {
 export default function BillingPage() {
   const qc = useQueryClient();
   const [invoiceOrder, setInvoiceOrder] = useState<OrderRow | null>(null);
+  const billingStatusQ = useBillingStatus();
+  const invoicingReady = !!billingStatusQ.data?.data.ready;
 
   const summaryQ = useQuery<SummaryData>({
     queryKey: ["billing-summary"],
@@ -253,7 +257,19 @@ export default function BillingPage() {
             Cash flow this month, pending invoices and contractor payouts.
           </p>
         </div>
+        {invoicingReady && (
+          <Link
+            href="/billing/invoices"
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <FileText size={14} /> Invoices
+          </Link>
+        )}
       </div>
+
+      {billingStatusQ.data && !invoicingReady && (
+        <NotReadyBanner canSetup={billingStatusQ.data.data.can_setup} />
+      )}
 
       {/* ---------- Summary ---------- */}
       {summaryQ.isLoading && (
@@ -324,6 +340,12 @@ export default function BillingPage() {
 
       {/* ---------- To invoice + Outstanding ---------- */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* Con la facturacion de la app activa, la lista agrupa por dealer y
+            crea facturas de verdad. Sin activar, sigue la de siempre: el boton
+            "Invoice" solo marca la orden como facturada en QuickBooks. */}
+        {invoicingReady ? (
+          <ToInvoicePanel />
+        ) : (
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-semibold text-slate-800">
@@ -387,7 +409,7 @@ export default function BillingPage() {
             hideOnSinglePage
           />
         </div>
-
+        )}
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-semibold text-slate-800">

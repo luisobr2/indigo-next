@@ -22,6 +22,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/state-cards";
+import { InvoicingSettings } from "@/components/billing/invoicing-settings";
 import { BoardSkeleton } from "@/components/skeleton";
 import { fetchJson } from "@/lib/fetch-json";
 import { Button } from "@/components/ui/button";
@@ -415,6 +416,8 @@ export default function SettingsPage() {
           />
         </div>
       </section>
+
+      <InvoicingSettings />
     </div>
   );
 }
