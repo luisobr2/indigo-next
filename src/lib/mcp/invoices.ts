@@ -534,7 +534,7 @@ export const INVOICE_TOOL_DEFS: ToolDef[] = [
         },
         message: {
           type: "string",
-          description: "Optional plain-text message instead of the standard one ('Please find attached invoice N for $X...'). Only when the person asked for one.",
+          description: "Optional plain-text message instead of the standard one ('Dear Client, Please find attached the invoice for the completed work...'). Only when the person asked for one.",
         },
         confirm: CONFIRM_SCHEMA_PROPERTY,
       },
@@ -956,7 +956,7 @@ async function planSendInvoice(args: Record<string, unknown>, id: McpIdentity): 
     message:
       `ENVIAR por correo la factura #${inv.name} de ${dealer} (total ${usd(inv.total)}, saldo ${usd(inv.residual)}) a: ${to.join(", ")}. ` +
       `Va el PDF adjunto${photos ? ` con ${photos} foto${photos === 1 ? "" : "s"} de la instalación` : ""}. ` +
-      (message ? `Mensaje: "${message}". ` : "Con el mensaje estándar («Please find attached invoice…»). ") +
+      (message ? `Mensaje: "${message}". ` : "Con el mensaje estándar («Dear Client, Please find attached the invoice for the completed work…»). ") +
       (inv.sent_at ? `Ya se envió antes (${inv.sent_to || "sin destinatarios guardados"}). ` : "") +
       `El correo le llega al dealer y no se puede deshacer: comprueba los destinatarios.`,
     extra,
