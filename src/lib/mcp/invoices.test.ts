@@ -7,6 +7,7 @@ import {
   describeLines,
   optionalDate,
   parseInvoiceLines,
+  requireEmails,
   requireOrderIds,
   statusWord,
   usd,
@@ -14,8 +15,8 @@ import {
 } from "./invoices.ts";
 import { TOOL_DEFS, McpToolError } from "./tools.ts";
 
-const WRITE = ["create_invoice", "update_invoice", "delete_invoice", "issue_invoice", "void_invoice", "record_payment"];
-const READ = ["orders_to_invoice", "find_invoices", "get_invoice"];
+const WRITE = ["create_invoice", "update_invoice", "delete_invoice", "issue_invoice", "void_invoice", "record_payment", "send_invoice"];
+const READ = ["orders_to_invoice", "find_invoices", "get_invoice", "invoice_pdf_link"];
 
 function rejects(fn: () => unknown, code: string) {
   assert.throws(fn, (e: unknown) => e instanceof McpToolError && e.code === code);
@@ -36,13 +37,30 @@ test("the invoice tools are registered, and only the writes take 'confirm'", () 
   }
 });
 
-test("no tool sends the invoice: that stays a click in the app", () => {
-  for (const def of INVOICE_TOOL_DEFS) {
-    assert.ok(!/^send/.test(def.name), `${def.name} would email the dealer`);
-    assert.equal((def.inputSchema.properties as Record<string, unknown>).emails, undefined);
-  }
+test("only send_invoice emails the dealer, it needs a confirm, and it never sends a draft", () => {
+  const senders = INVOICE_TOOL_DEFS.filter((d) => /email/i.test(d.title) || "emails" in (d.inputSchema.properties as object));
+  assert.deepEqual(senders.map((d) => d.name), ["send_invoice"]);
+  const send = senders[0];
+  assert.equal((send.inputSchema.properties as Record<string, { type?: string }>).confirm?.type, "string");
+  assert.match(send.description, /draft is never sent/);
   const issue = INVOICE_TOOL_DEFS.find((d) => d.name === "issue_invoice")!;
   assert.match(issue.description, /NOT emailed/);
+});
+
+test("invoice_pdf_link is a read: no confirm, one invoice", () => {
+  const link = INVOICE_TOOL_DEFS.find((d) => d.name === "invoice_pdf_link")!;
+  assert.deepEqual(link.inputSchema.required, ["invoice_id"]);
+  assert.equal((link.inputSchema.properties as Record<string, unknown>).confirm, undefined);
+  assert.match(link.description, /30 minutes/);
+});
+
+test("requireEmails: real addresses only, deduplicated, at most 10", () => {
+  assert.deepEqual(requireEmails(["billing@dealer.com", "BILLING@dealer.com", "owner@dealer.com"]), ["billing@dealer.com", "owner@dealer.com"]);
+  rejects(() => requireEmails([]), "ENTRADA_INVALIDA");
+  rejects(() => requireEmails("billing@dealer.com"), "ENTRADA_INVALIDA");
+  rejects(() => requireEmails(["not-an-email"]), "ENTRADA_INVALIDA");
+  rejects(() => requireEmails(["a@b.com, c@d.com"]), "ENTRADA_INVALIDA");
+  rejects(() => requireEmails(Array.from({ length: 11 }, (_, i) => `p${i}@dealer.com`)), "ENTRADA_INVALIDA");
 });
 
 test("usd prints like the invoice", () => {

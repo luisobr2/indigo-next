@@ -160,7 +160,7 @@ export async function POST(req: Request): Promise<Response> {
   // `!verified` narrowing above into the closure passed to createMcpHandler
   // below, since `verified` is a `let` that (as far as the checker can
   // tell) might be reassigned before that closure runs.
-  const identity: McpIdentity = verified;
+  const identity: McpIdentity = { ...verified, origin: issuerFrom(req) };
 
   // This surface is for the internal team, not dealers — who authenticate
   // as Odoo portal users in this deployment and must never reach it, even

@@ -1,9 +1,9 @@
 /**
  * Invoice tools for the MCP: the invoicing the office does from Billing
- * (src/app/(app)/billing/invoices), for the agent. Three reads
- * (orders_to_invoice, find_invoices, get_invoice) and six writes
- * (create_invoice, update_invoice, delete_invoice, issue_invoice,
- * void_invoice, record_payment).
+ * (src/app/(app)/billing/invoices), for the agent. Four reads
+ * (orders_to_invoice, find_invoices, get_invoice, invoice_pdf_link) and seven
+ * writes (create_invoice, update_invoice, delete_invoice, issue_invoice,
+ * void_invoice, record_payment, send_invoice).
  *
  * Every call goes to the Odoo service `indigo.billing` (addon
  * models/indigo_invoicing.py), the same one the panel's /api/invoicing
@@ -17,16 +17,19 @@
  * Calls carry `indigo_origin: "mcp"` in the Odoo context, so the invoice's
  * and its orders' history say the AI assistant did it.
  *
- * Deliberately NOT here: sending the invoice by email. It is the one step
- * that reaches the dealer, and the shop keeps that a click in the app.
+ * send_invoice is the one tool that reaches the dealer. It goes through the
+ * same preview -> confirm as the rest, names every recipient in the preview,
+ * and never sends a draft: what reaches a dealer always has a number.
  */
 import type { McpIdentity } from "./token.ts";
 import type { ToolDef } from "./tools.ts";
 import { mcpError } from "./errors.ts";
 import { CONFIRM_SCHEMA_PROPERTY, requireOfficeRole, runWriteTool, type WritePlan } from "./write.ts";
 import { shopDateString } from "../shop-time.ts";
+import { issuePdfLink, PDF_LINK_TTL_SECONDS } from "./oauth.ts";
 import {
   draftTotals,
+  parseEmails,
   PRODUCT_OPTIONS,
   type BillingStatus,
   type DraftLine,
@@ -236,6 +239,21 @@ export function warningsInSpanish(warnings: string[]): string[] {
     if (m) return `${m[1]} no tiene correo de facturación todavía: no afecta al borrador, pero hará falta para enviarla desde la app.`;
     return w;
   });
+}
+
+const MAX_RECIPIENTS = 10;
+
+/** Addresses the agent passes: each one has to be a real address. */
+export function requireEmails(raw: unknown): string[] {
+  if (!Array.isArray(raw) || !raw.length) invalid("'emails' tiene que ser una lista con al menos un correo.");
+  const out: string[] = [];
+  for (const v of raw) {
+    const parsed = typeof v === "string" ? parseEmails(v) : [];
+    if (parsed.length !== 1) invalid(`'${String(v)}' no es un correo válido. Pásalos de uno en uno en la lista 'emails'.`);
+    if (!out.some((e) => e.toLowerCase() === parsed[0].toLowerCase())) out.push(parsed[0]);
+  }
+  if (out.length > MAX_RECIPIENTS) invalid(`Como mucho ${MAX_RECIPIENTS} destinatarios por envío.`);
+  return out;
 }
 
 /** Same words the app shows: Balance due -> Open, Cancelled -> Void. */
@@ -484,6 +502,43 @@ export const INVOICE_TOOL_DEFS: ToolDef[] = [
         confirm: CONFIRM_SCHEMA_PROPERTY,
       },
       required: ["invoice_id", "amount", "method"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "invoice_pdf_link",
+    title: "Download link for an invoice PDF",
+    description:
+      "Gives a link to download ONE invoice's PDF (a draft too: it prints as DRAFT INVOICE). Hand the link to the person exactly as returned: they open it in their browser and the PDF downloads. It works for 30 minutes and only for that invoice. Office/manager only.",
+    inputSchema: {
+      type: "object",
+      properties: { invoice_id: INVOICE_ID_PROPERTY },
+      required: ["invoice_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "send_invoice",
+    title: "Email an invoice to the dealer",
+    description:
+      "Emails ONE issued invoice: the PDF, with its installation photos, goes attached. Without 'emails' it goes to the dealer's invoice addresses; 'message' replaces the standard text. This reaches the dealer and can't be taken back, so the person must check the recipients in the preview before confirming. A draft is never sent — issue it first with issue_invoice: what reaches a dealer always has a number." +
+      WRITE_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoice_id: INVOICE_ID_PROPERTY,
+        emails: {
+          type: "array",
+          items: { type: "string" },
+          description: "Recipients, one address per item. Leave it out to use the dealer's invoice addresses (get_invoice shows them as dealer_emails).",
+        },
+        message: {
+          type: "string",
+          description: "Optional plain-text message instead of the standard one ('Please find attached invoice N for $X...'). Only when the person asked for one.",
+        },
+        confirm: CONFIRM_SCHEMA_PROPERTY,
+      },
+      required: ["invoice_id"],
       additionalProperties: false,
     },
   },
@@ -856,6 +911,61 @@ async function planRecordPayment(args: Record<string, unknown>, id: McpIdentity)
   };
 }
 
+async function invoicePdfLink(args: Record<string, unknown>, id: McpIdentity, now: number) {
+  const moveId = requireId(args, "invoice_id", "invoice_pdf_link");
+  await requireOfficeRole(id, "descargar facturas");
+  const inv = await detailFor(id, moveId);
+  const origin = (id.origin || process.env.PUBLIC_PANEL_URL || "https://app.indigodecors.com").replace(/\/+$/, "");
+  const token = issuePdfLink({ uid: id.uid, apiKey: id.apiKey, invoiceId: moveId }, now);
+  return {
+    invoice_id: inv.id,
+    number: inv.state !== "draft" ? inv.name || null : null,
+    status: statusWord(inv.status),
+    dealer: Array.isArray(inv.dealer) ? inv.dealer[1] : null,
+    download_url: `${origin}/api/invoicing/pdf-link?t=${encodeURIComponent(token)}`,
+    expires_in_minutes: PDF_LINK_TTL_SECONDS / 60,
+  };
+}
+
+async function planSendInvoice(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
+  const moveId = requireId(args, "invoice_id", "send_invoice");
+  const emails = args.emails === undefined ? undefined : requireEmails(args.emails);
+  if (args.message !== undefined && typeof args.message !== "string") invalid("'message' tiene que ser texto.");
+  const message = typeof args.message === "string" ? args.message.trim().slice(0, 2000) : "";
+
+  await requireOfficeRole(id, "enviar facturas");
+  const inv = await detailFor(id, moveId);
+  const dealer = Array.isArray(inv.dealer) ? inv.dealer[1] : "sin dealer";
+  if (inv.state === "draft") {
+    throw mcpError(
+      "RECHAZADO",
+      "Es un borrador y un borrador no se envía: lo que le llega al dealer siempre lleva número. Emítelo primero con issue_invoice y después envíalo.",
+    );
+  }
+  if (inv.state === "cancel") throw mcpError("RECHAZADO", `La factura #${inv.name} está anulada: no se envía.`);
+  const to = emails ?? inv.dealer_emails;
+  if (!to.length) {
+    throw mcpError(
+      "RECHAZADO",
+      `${dealer} no tiene correo de facturación guardado. Pregúntale a la persona a qué correo(s) enviarla y pásalos en 'emails'.`,
+    );
+  }
+  const photos = inv.photo_ids.length;
+  const extra: Record<string, unknown> = { invoice_id: inv.id, number: inv.name, sent_to: to };
+  return {
+    message:
+      `ENVIAR por correo la factura #${inv.name} de ${dealer} (total ${usd(inv.total)}, saldo ${usd(inv.residual)}) a: ${to.join(", ")}. ` +
+      `Va el PDF adjunto${photos ? ` con ${photos} foto${photos === 1 ? "" : "s"} de la instalación` : ""}. ` +
+      (message ? `Mensaje: "${message}". ` : "Con el mensaje estándar («Please find attached invoice…»). ") +
+      (inv.sent_at ? `Ya se envió antes (${inv.sent_to || "sin destinatarios guardados"}). ` : "") +
+      `El correo le llega al dealer y no se puede deshacer: comprueba los destinatarios.`,
+    extra,
+    execute: async () => {
+      await billing(id, "indigo_billing_send", [moveId, to, message || null]);
+    },
+  };
+}
+
 // ---------------------------------------------------------------------
 // Dispatcher (called from tools.ts's dispatchTool)
 // ---------------------------------------------------------------------
@@ -885,6 +995,10 @@ export async function runInvoiceTool(
       return runWriteTool(name, args, id, () => planVoidInvoice(args, id), now);
     case "record_payment":
       return runWriteTool(name, args, id, () => planRecordPayment(args, id), now);
+    case "invoice_pdf_link":
+      return invoicePdfLink(args, id, now);
+    case "send_invoice":
+      return runWriteTool(name, args, id, () => planSendInvoice(args, id), now);
     default:
       throw mcpError("ENTRADA_INVALIDA", `Herramienta no reconocida: '${name}'.`);
   }

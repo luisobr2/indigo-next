@@ -27,6 +27,10 @@ export interface McpIdentity {
   groups: string[];
   /** Odoo API key, forwarded on every subsequent execute_kw call. */
   apiKey: string;
+  /** The panel's public origin as this client reached it (set by the MCP
+   *  route from the request, like the OAuth issuer). Used to build links the
+   *  person opens in a browser, e.g. an invoice's download link. */
+  origin?: string;
   /** Mirrors Odoo's `res.users._is_admin()` — membership in
    *  `base.group_system`. Every stage wizard in the addon short-circuits
    *  its role check on `user._is_admin()`, so the MCP's own pre-write

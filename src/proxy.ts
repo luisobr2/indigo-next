@@ -36,6 +36,11 @@ export function proxy(req: NextRequest) {
     // a fixed pair of literal comparisons, never startsWith("/api/mcp").
     pathname === "/api/mcp" ||
     pathname === "/api/mcp/" ||
+    // Download link for one invoice's PDF, handed out by the MCP's
+    // invoice_pdf_link tool and opened in a browser with no session. The
+    // route checks its own sealed ?t= (30 min, one invoice, the caller's
+    // own Odoo rights). Exact match, like the MCP endpoint above.
+    pathname === "/api/invoicing/pdf-link" ||
     // Flujo OAuth del MCP. Tiene que ser publico por definicion: son las
     // puertas por las que alguien que TODAVIA no tiene sesion consigue
     // credenciales. Dejarlas detras del gate las rompia de dos formas

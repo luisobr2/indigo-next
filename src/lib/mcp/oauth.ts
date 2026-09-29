@@ -58,7 +58,7 @@ export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
  *  inmediatamente. Vive lo justo para el viaje de vuelta. */
 export const AUTH_CODE_TTL_SECONDS = 60;
 
-type Purpose = "client" | "code" | "access" | "refresh";
+type Purpose = "client" | "code" | "access" | "refresh" | "pdf";
 
 /** Claves distintas por proposito, derivadas del mismo secreto. Que el AAD ya
  *  separe los propositos no quita valor a derivar tambien la clave: si un dia
@@ -220,6 +220,34 @@ export function issueRefreshToken(c: OdooCredential, now: number): string {
 export function readRefreshToken(raw: string | null | undefined, now: number): OdooCredential | null {
   const p = open<OdooCredential>("refresh", raw, now);
   return p?.login && p?.apiKey ? { login: p.login, apiKey: p.apiKey } : null;
+}
+
+// ─────────────────────── Enlace de descarga de una factura ──────────────────
+
+/** Lo que dura un enlace de descarga: lo justo para abrirlo desde el chat. */
+export const PDF_LINK_TTL_SECONDS = 30 * 60;
+
+/**
+ * Un enlace para descargar el PDF de UNA factura sin sesion del panel, que es
+ * lo que da el asistente de IA (la persona lo abre en el navegador). Lleva
+ * cifrada la credencial de quien lo pidio, igual que el access token: al
+ * abrirlo, Odoo genera el PDF con los permisos de esa persona, y quitarle la
+ * clave API en Odoo lo revoca. Solo sirve para esa factura y caduca en 30 min.
+ */
+export interface PdfLinkPayload {
+  uid: number;
+  apiKey: string;
+  invoiceId: number;
+}
+
+export function issuePdfLink(p: PdfLinkPayload, now: number): string {
+  return seal("pdf", { ...p }, PDF_LINK_TTL_SECONDS, now);
+}
+
+export function readPdfLink(raw: string | null | undefined, now: number): PdfLinkPayload | null {
+  const p = open<PdfLinkPayload>("pdf", raw, now);
+  if (!p || typeof p.uid !== "number" || !p.apiKey || typeof p.invoiceId !== "number") return null;
+  return { uid: p.uid, apiKey: p.apiKey, invoiceId: p.invoiceId };
 }
 
 /**

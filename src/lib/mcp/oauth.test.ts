@@ -6,6 +6,9 @@ process.env.SESSION_SECRET ??= "x".repeat(48);
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   AUTH_CODE_TTL_SECONDS,
+  PDF_LINK_TTL_SECONDS,
+  issuePdfLink,
+  readPdfLink,
   OAUTH_TOKEN_PREFIX,
   issueAccessToken,
   issueAuthCode,
@@ -187,3 +190,30 @@ test("localhost puede cambiar de puerto, y solo localhost", () => {
 test("una redireccion que no parsea se rechaza", () => {
   assert.equal(redirectUriAllowed("no-es-url", ["http://127.0.0.1:1/cb"]), false);
 });
+
+// ---------------------------------------------------------------------
+// Enlace de descarga de una factura (lo da el asistente de IA).
+// ---------------------------------------------------------------------
+
+const PDF = { uid: 7, apiKey: "abc123def456", invoiceId: 1365 };
+
+test("el enlace de una factura se abre, sin dejar ver la clave que lleva", () => {
+  const t = issuePdfLink(PDF, NOW);
+  assert.deepEqual(readPdfLink(t, NOW), PDF);
+  assert.ok(!t.includes(PDF.apiKey));
+});
+
+test("el enlace de una factura caduca a los 30 minutos", () => {
+  assert.equal(PDF_LINK_TTL_SECONDS, 30 * 60);
+  const t = issuePdfLink(PDF, NOW);
+  assert.ok(readPdfLink(t, NOW + PDF_LINK_TTL_SECONDS * 1000 - 1));
+  assert.equal(readPdfLink(t, NOW + PDF_LINK_TTL_SECONDS * 1000), null);
+});
+
+test("un enlace de factura no es un token de acceso, ni al reves", () => {
+  assert.equal(readAccessToken(issuePdfLink(PDF, NOW), NOW), null);
+  assert.equal(readPdfLink(issueAccessToken(CRED, NOW), NOW), null);
+  assert.equal(readPdfLink("basura", NOW), null);
+  assert.equal(readPdfLink(null, NOW), null);
+});
+

@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
-import { InvoiceStatusBadge, invalidateOrderViews, money } from "@/components/billing/invoice-bits";
+import { InvoiceStatusBadge, invalidateOrderViews, money, useBillingStatus } from "@/components/billing/invoice-bits";
 
 const METHODS = [
   { value: "check", label: "Check" },
@@ -42,6 +42,10 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [sendOpen, setSendOpen] = useState(false);
+  // The same dialog sends an issued invoice, or issues a draft and sends it
+  // in one go: what reaches a dealer always carries its number.
+  const [sendMode, setSendMode] = useState<"send" | "issue-send">("send");
+  const billingStatus = useBillingStatus();
   const [emails, setEmails] = useState("");
   const [message, setMessage] = useState("");
   const [payOpen, setPayOpen] = useState(false);
@@ -99,7 +103,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       setVoidReason("");
     }
   }
-  function openSend() {
+  function openSend(mode: "send" | "issue-send" = "send") {
+    setSendMode(mode);
     setEmails((inv?.dealer_emails ?? []).join(", "));
     setMessage("");
     setSendOpen(true);
@@ -110,8 +115,42 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       toast.error("Add at least one valid email address.");
       return;
     }
-    if (await act(`/api/invoicing/invoices/${id}/send`, { emails: list, message: message.trim() || null }, `Sent to ${list.join(", ")}`)) {
+    const body = { emails: list, message: message.trim() || null };
+    if (sendMode === "send") {
+      if (await act(`/api/invoicing/invoices/${id}/send`, body, `Sent to ${list.join(", ")}`)) setSendOpen(false);
+      return;
+    }
+    // Issue, then send. If the email fails after issuing, the invoice keeps
+    // its number and stays issued: say so, and leave Send to retry.
+    setBusy(true);
+    let number: string | false = false;
+    try {
+      const issued = await fetchJson<{ data: InvoiceDetail }>(`/api/invoicing/invoices/${id}/post`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      number = issued.data?.name ?? false;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't issue the invoice");
+      setBusy(false);
+      return;
+    }
+    try {
+      await fetchJson(`/api/invoicing/invoices/${id}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      toast.success(`Invoice #${number} issued and sent to ${list.join(", ")}`);
+    } catch (e) {
+      toast.error(
+        `Invoice #${number} was issued, but the email failed: ${e instanceof Error ? e.message : "unknown error"}. Use Send to try again.`,
+      );
+    } finally {
       setSendOpen(false);
+      setBusy(false);
+      refresh();
     }
   }
   function openPay() {
@@ -137,8 +176,17 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   }
 
   const isDraft = inv.state === "draft";
-  const title = inv.name ? `Invoice #${inv.name}` : "Draft invoice";
+  const title = !isDraft && inv.name ? `Invoice #${inv.name}` : "Draft invoice";
   const pdfUrl = `/api/invoicing/invoices/${inv.id}/pdf?v=${pdfKey}`;
+  const nextNumber = billingStatus.data?.data.next_number;
+  const pdfDownload = (
+    <a
+      href={`/api/invoicing/invoices/${inv.id}/pdf?download=1`}
+      className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+    >
+      <Download size={14} /> PDF
+    </a>
+  );
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-5">
@@ -170,18 +218,23 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               <Button variant="outline" size="lg" onClick={() => router.push(`/billing/invoices/new?edit=${inv.id}`)} disabled={busy}>
                 <Pencil size={14} /> Edit
               </Button>
-              <Button size="lg" onClick={() => setConfirmIssue(true)} disabled={busy} className="bg-emerald-600 text-white hover:bg-emerald-700">
+              {pdfDownload}
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => setConfirmIssue(true)}
+                disabled={busy}
+                className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+              >
                 <CheckCircle2 size={14} /> Issue invoice
+              </Button>
+              <Button size="lg" onClick={() => openSend("issue-send")} disabled={busy} className="bg-emerald-600 text-white hover:bg-emerald-700">
+                <Mail size={14} /> Issue &amp; send
               </Button>
             </>
           ) : (
             <>
-              <a
-                href={`/api/invoicing/invoices/${inv.id}/pdf?download=1`}
-                className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                <Download size={14} /> PDF
-              </a>
+              {pdfDownload}
               {inv.state === "posted" && !inv.payments.length && (
                 <Button
                   variant="outline"
@@ -199,7 +252,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 </Button>
               )}
               {inv.state === "posted" && (
-                <Button size="lg" onClick={openSend} disabled={busy}>
+                <Button size="lg" onClick={() => openSend("send")} disabled={busy}>
                   <Mail size={14} /> {inv.sent_at ? "Send again" : "Send"}
                 </Button>
               )}
@@ -283,8 +336,9 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           <DialogHeader>
             <DialogTitle>Issue this invoice?</DialogTitle>
             <DialogDescription>
-              It gets the next invoice number and can no longer be edited or deleted, only voided. Its orders move to
-              Invoiced. Total {money(inv.total)}.
+              It gets the next invoice number{nextNumber ? ` (#${nextNumber})` : ""} and can no longer be edited or
+              deleted, only voided. Its orders move to Invoiced. Total {money(inv.total)}. It isn&apos;t emailed: use
+              Send afterwards, or Issue &amp; send.
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2">
@@ -349,8 +403,12 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Send invoice #{inv.name}</DialogTitle>
-            <DialogDescription>The PDF goes attached, with the installation photos. Separate addresses with commas.</DialogDescription>
+            <DialogTitle>{sendMode === "issue-send" ? "Issue & send this invoice" : `Send invoice #${inv.name}`}</DialogTitle>
+            <DialogDescription>
+              {sendMode === "issue-send"
+                ? `It gets the next invoice number${nextNumber ? ` (#${nextNumber})` : ""} and can no longer be edited or deleted, only voided. Then it's emailed with the PDF and the installation photos attached. Separate addresses with commas.`
+                : "The PDF goes attached, with the installation photos. Separate addresses with commas."}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <label className="block text-sm font-medium text-slate-700" htmlFor="send-emails">
@@ -367,8 +425,9 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             <Button variant="outline" onClick={() => setSendOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={send} disabled={busy}>
-              <Mail size={14} /> {busy ? "Sending…" : "Send"}
+            <Button onClick={send} disabled={busy} className={sendMode === "issue-send" ? "bg-emerald-600 text-white hover:bg-emerald-700" : undefined}>
+              <Mail size={14} />{" "}
+              {busy ? (sendMode === "issue-send" ? "Issuing & sending…" : "Sending…") : sendMode === "issue-send" ? "Issue & send" : "Send"}
             </Button>
           </div>
         </DialogContent>
