@@ -388,7 +388,7 @@ export const INVOICE_TOOL_DEFS: ToolDef[] = [
           type: "string",
           enum: ["installation", "none"],
           description:
-            "'installation' (default) attaches the photos taken since the installation date, one per page at the end of the PDF, as the app does; 'none' attaches none.",
+            "'installation' (default) attaches the photos taken since the installation date, as thumbnails under the totals, as the app does; 'none' attaches none.",
         },
         invoice_date: { type: "string", description: "Invoice date, YYYY-MM-DD. Defaults to today." },
         confirm: CONFIRM_SCHEMA_PROPERTY,
@@ -659,7 +659,7 @@ async function planCreateInvoice(args: Record<string, unknown>, id: McpIdentity)
       `crear un BORRADOR de factura para ${prev.dealer.name}${prev.dealer.tax_exempt ? " (dealer exento de impuesto)" : ""}, ` +
       `con ${prev.order_ids.length === 1 ? "la orden" : "las órdenes"} ${Object.values(names).join(", ")}:\n` +
       describeLines(lines, prev.tax_rate, names) +
-      `\n  Fotos: ${photoIds.length ? `${photoIds.length} de la instalación, una por página al final del PDF` : "ninguna"}` +
+      `\n  Fotos: ${photoIds.length ? `${photoIds.length} de la instalación, en miniatura debajo de los totales` : "ninguna"}` +
       `\n  Fecha de la factura: ${invoiceDate ?? "hoy"}` +
       (avisos.length ? `\n  Avisos:\n${avisos.map((a) => `   - ${a}`).join("\n")}` : "") +
       `\nQueda como borrador, sin número y sin enviar: se puede cambiar con update_invoice o borrar con delete_invoice, y se numera al emitirla con issue_invoice.`,

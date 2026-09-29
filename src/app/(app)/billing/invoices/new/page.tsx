@@ -317,7 +317,7 @@ function Editor() {
           <ImageIcon size={15} className="text-indigo-700" /> Installation photos
         </h2>
         <p className="mb-3 text-xs text-slate-500">
-          Ticked photos go at the end of the invoice PDF, one per page. The ones uploaded on or after the installation day come ticked.
+          Ticked photos go on the invoice PDF as thumbnails, four per row under the totals. The ones uploaded on or after the installation day come ticked.
         </p>
         {!preview?.photos.length ? (
           <p className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-400">These orders have no photos yet.</p>
