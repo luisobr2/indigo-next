@@ -74,6 +74,15 @@ const EXPECTED_TOOL_NAMES = [
   "schedule_install",
   "hold_order",
   "add_note",
+  "orders_to_invoice",
+  "find_invoices",
+  "get_invoice",
+  "create_invoice",
+  "update_invoice",
+  "delete_invoice",
+  "issue_invoice",
+  "void_invoice",
+  "record_payment",
 ];
 
 // ---------------------------------------------------------------------

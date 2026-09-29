@@ -5,6 +5,10 @@
  * (Fase 2) — advance_order, assign_order, schedule_install, hold_order,
  * add_note.
  *
+ * The invoice tools (read, create, change, delete, issue, void, record a
+ * payment) live in ./invoices.ts and are appended to TOOL_DEFS below; the
+ * preview -> confirm plumbing they share with these lives in ./write.ts.
+ *
  * Every Odoo call runs through `rpcExecuteKw(id.uid, id.apiKey, ...)` —
  * Odoo's external API (see src/lib/odoo/rpc.ts) — so it executes as the
  * real logged-in person and Odoo's own ACLs / record rules apply, same
@@ -62,12 +66,12 @@ import { isInternalUser, type McpIdentity } from "./token.ts";
 // still comes from getDeriveRole() below, like everywhere else here.
 import type * as OdooTypes from "../odoo/types.ts";
 import { shopDateString } from "../shop-time.ts";
-import { requireSessionSecret } from "../odoo/session-cookie.ts";
-import { issueConfirmToken, verifyConfirmToken } from "./confirm.ts";
 // Also re-exported below — a bare `export ... from` does not bind these
 // locally, and this module raises them on nearly every path.
 import { McpToolError, mcpError, toMcpToolError } from "./errors.ts";
 import { QUERY_MODELS, planQuery, formatQueryRow, formatGroupRow } from "./query.ts";
+import { CONFIRM_SCHEMA_PROPERTY, requireOfficeRole, runWriteTool, type WritePlan } from "./write.ts";
+import { INVOICE_TOOL_DEFS, INVOICE_TOOL_NAMES, runInvoiceTool } from "./invoices.ts";
 
 // Lazy import so this module can be loaded (and its pure exports tested)
 // in a plain `node --test` environment that doesn't resolve the `@/`
@@ -235,6 +239,11 @@ const TODAY_BOARD_LIMIT_SCHEMA_PROPERTY = {
 // has always been their public home.
 export { McpToolError, mcpError, toMcpToolError };
 
+// The preview -> confirm plumbing lives in ./write.ts (shared with the
+// invoice tools in ./invoices.ts); runWriteTool is re-exported because this
+// has always been its public home.
+export { runWriteTool };
+
 // ---------------------------------------------------------------------
 // Write-tool infrastructure — shared by all five reversible write tools
 // (advance_order, assign_order, schedule_install, hold_order, add_note).
@@ -242,12 +251,6 @@ export { McpToolError, mcpError, toMcpToolError };
 // specifically to gate writes behind the preview -> confirm handshake.
 // ---------------------------------------------------------------------
 
-/** JSON Schema fragment shared by every write tool's `confirm` argument. */
-const CONFIRM_SCHEMA_PROPERTY = {
-  type: "string",
-  description:
-    "The 'confirm' token returned by a PREVIOUS call to this SAME tool with these SAME arguments. Omit this argument to preview — that call makes no change and costs nothing to undo. Pass the token back, unchanged, alongside the identical arguments to execute. It expires a few minutes after the preview; if execution is rejected as expired or mismatched, call again without 'confirm' to get a fresh preview and token.",
-};
 
 /**
  * One order per write-tool call, always. Stricter than `Number(args.id)`
@@ -266,97 +269,7 @@ function requireOrderId(args: Record<string, unknown>, toolName: string): number
   return raw;
 }
 
-/**
- * The role gate the panel's own /assign, /schedule, /hold and /note routes
- * apply (src/app/api/orders/[id]/{assign,schedule,hold,note}/route.ts all
- * check `role.isManager || role.isOffice || s.user.isAdmin`) — reproduced
- * here because, per this file's top doc comment, Odoo's own ACL does NOT
- * enforce it for these four direct-write actions.
- *
- * Narrower than the panel's own check in one respect: MCP identities
- * (McpIdentity, from an Odoo API key) don't carry an `isAdmin` flag the way
- * a browser session does — verifyMcpToken only reads `groups_id`, never
- * whether the user is Odoo's technical superadmin. That's acceptable here:
- * it makes this gate fail CLOSED for an edge case (a bare superadmin
- * account with no Indigo group membership calling the MCP) rather than
- * open, and the real people this surface is for (Majela, Javier, and
- * whoever else is issued an MCP token) are expected to hold an actual
- * Indigo role group either way.
- */
-async function requireOfficeRole(id: McpIdentity, action: string): Promise<void> {
-  const deriveRole = await getDeriveRole();
-  const role = deriveRole(id.groups);
-  if (!role.isManager && !role.isOffice) {
-    throw mcpError(
-      "PERMISO_DENEGADO",
-      `Esta cuenta no tiene permiso para ${action}. Solo oficina o gerencia pueden hacerlo desde el asistente — pídeselo a alguien con ese rol.`,
-    );
-  }
-}
 
-/**
- * A write tool's plan: computed fresh on EVERY call (preview or confirm —
- * see runWriteTool), never cached between them, so a confirm always
- * re-validates against Odoo's current state rather than trusting what was
- * true when the preview ran. `message` is written tense-neutral ("marcar la
- * orden X como instalada", not "se marcará"/"se marcó") so runWriteTool can
- * prefix it for either a preview or a completed action without the two
- * reading like they contradict each other.
- */
-interface WritePlan {
-  message: string;
-  /** Extra fields merged into the tool's JSON result alongside `message`
-   *  (e.g. `{ order, client }`) — never anything security-relevant, since
-   *  this is included verbatim in BOTH the preview and the executed result. */
-  extra?: Record<string, unknown>;
-  /** Performs the actual Odoo write(s). Only ever invoked after a valid,
-   *  argument-bound confirm token has verified — see runWriteTool. */
-  execute: () => Promise<void>;
-}
-
-/**
- * Shared preview -> confirm orchestration for every write tool. `buildPlan`
- * does ALL the Odoo reads and business-rule validation and must be safe to
- * call on every invocation, preview or confirm alike, with no side effects
- * of its own — only `plan.execute()` writes, and this function calls it in
- * exactly one place, gated by a verified token. That single call site is
- * the entire write surface of this module; see the doc comment above
- * WritePlan for why re-running buildPlan on confirm (rather than trusting
- * whatever the preview computed) matters.
- *
- * `now` is an explicit parameter rather than read internally — same
- * convention as checkRate() in ./rate-limit.ts — so callers control the
- * clock in tests instead of this function reading Date.now() itself.
- */
-export async function runWriteTool(
-  toolName: string,
-  args: Record<string, unknown>,
-  id: McpIdentity,
-  buildPlan: () => Promise<WritePlan>,
-  now: number,
-): Promise<unknown> {
-  const { confirm, ...boundArgs } = args;
-  const plan = await buildPlan();
-
-  if (typeof confirm !== "string" || !confirm) {
-    const secret = requireSessionSecret();
-    const token = issueConfirmToken(toolName, boundArgs, id.uid, secret, now);
-    return { preview: true, message: `Vista previa — ${plan.message}`, confirm: token, ...(plan.extra ?? {}) };
-  }
-
-  const secret = requireSessionSecret();
-  const decision = verifyConfirmToken(confirm, toolName, boundArgs, id.uid, secret, now);
-  if (!decision.ok) {
-    const reasonMsg =
-      decision.reason === "expired"
-        ? "El token de confirmación venció (expiran a los pocos minutos)."
-        : "El token de confirmación no corresponde exactamente a esta acción — cambiaron los datos, es de otra herramienta, o es inválido.";
-    throw mcpError("CONFIRMACION_INVALIDA", `${reasonMsg} Vuelve a llamar a esta herramienta SIN 'confirm' para previsualizar de nuevo, y confirma con el token nuevo.`);
-  }
-
-  await plan.execute();
-  return { ok: true, message: `Hecho — ${plan.message}`, ...(plan.extra ?? {}) };
-}
 
 /**
  * Runs an Odoo write behind a Spanish, action-naming PERMISO_DENEGADO on
@@ -871,7 +784,9 @@ export const TOOL_DEFS: ToolDef[] = [
       required: ["dealer_id", "client_name", "doors"],
       additionalProperties: false,
     },
-  },
+  },  // Facturas (./invoices.ts): leer, crear, cambiar, borrar, emitir, anular
+  // y cobrar, sobre el mismo servicio de Odoo que usa Billing en la app.
+  ...INVOICE_TOOL_DEFS,
 ];
 
 // ---------------------------------------------------------------------
@@ -2832,6 +2747,7 @@ async function dispatchTool(
     case "create_order":
       return createOrder(args, id, now);
     default:
+      if (INVOICE_TOOL_NAMES.has(name)) return runInvoiceTool(name, args, id, now);
       // Unreachable via the MCP transport today (route.ts only ever calls
       // this with a literal def.name from TOOL_DEFS), but runTool is
       // exported and directly testable, so this still honors the same

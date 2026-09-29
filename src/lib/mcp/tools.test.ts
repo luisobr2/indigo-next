@@ -899,7 +899,7 @@ test("the server briefing points at the discovery tools by name", () => {
 test("every tool the briefing names is actually registered", () => {
   // A renamed tool must not leave the briefing pointing at nothing.
   const registrados = new Set(TOOL_DEFS.map((t) => t.name));
-  for (const m of SERVER_INSTRUCTIONS.matchAll(/\b(list_\w+|get_order|find_orders|today_board)\b/g)) {
+  for (const m of SERVER_INSTRUCTIONS.matchAll(/\b(list_\w+|get_order|find_orders|today_board|orders_to_invoice|find_invoices|get_invoice)\b/g)) {
     assert.ok(registrados.has(m[1]), `briefing names '${m[1]}', which is not in TOOL_DEFS`);
   }
 });
