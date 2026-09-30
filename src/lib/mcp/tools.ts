@@ -707,7 +707,7 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "create_order",
     title: "Create a new order from a dealer's sheet",
     description:
-      "Creates ONE new order, with its doors, in stage 'New Order'. Built for the way orders actually arrive at the shop: a photo or scan of the dealer's quote sheet, often with the client's details handwritten on top. Read the sheet, call this, and the office confirms the preview. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm').\n\nWHAT TO PUT IN, AND WHAT TO LEAVE OUT. Contact details (name, phone, address) transcribe reliably and are most of the typing this saves. Measurements and design codes do NOT: the same sheet read twice gives '24 7/8' once and '24 1/8' the next, and a handwritten 'B59' reads as '859'. Both are production inputs where a wrong value is expensive and invisible. So omit 'width'/'height' and 'design_code' unless a PERSON read them out to you — not because you read them off an image. Leaving them out is correct and expected; someone fills them in Odoo, where they already do it. Put whatever the sheet says verbatim in 'notes' instead, so it is on the order for whoever does.\n\nA dealer's sheet usually also lists WINDOWS (horizontal roller, single hung, fixed, picture). Indigo decorates doors only — do not send those as doors.",
+      "Creates ONE new order, with its doors, in stage 'New Order'. Built for the way orders actually arrive at the shop: a photo or scan of the dealer's quote sheet, often with the client's details handwritten on top. Read the sheet, call this, and the office confirms the preview. Office/manager only. Preview-then-confirm like every write tool here (see 'confirm').\n\nWHAT TO PUT IN, AND WHAT TO LEAVE OUT. Contact details (name, phone, address) transcribe reliably and are most of the typing this saves. Measurements and design codes do NOT: the same sheet read twice gives '24 7/8' once and '24 1/8' the next, and a handwritten 'B59' reads as '859'. Both are production inputs where a wrong value is expensive and invisible. So: 'design_code' only when a PERSON told you the catalog design (the dealer's own codes go verbatim in 'notes'). 'width'/'height' in two cases only, and say which with 'measurements_from': the sheet is PRINTED (typed text, like Lock Tight's quote items) -> 'printed_sheet'; or a person read them out to you -> 'person'. A HANDWRITTEN measurement is never a field: leave width/height out and put it in 'notes'. Their panels are taller than wide, so of the two numbers the larger is the height ('79 5/16 x 26 3/4' is height 79.3125, width 26.75). Always also copy what the sheet says verbatim into 'notes', so the office can check the fields against it.\n\nA dealer's sheet usually also lists WINDOWS (horizontal roller, single hung, fixed, picture). Indigo decorates doors only — do not send those as doors.",
     inputSchema: {
       type: "object",
       properties: {
@@ -765,11 +765,11 @@ export const TOOL_DEFS: ToolDef[] = [
               },
               width: {
                 type: "number",
-                description: "Optional. Panel width in inches, decimal (24 7/8 is 24.875). Only from a person, never read off an image — see the tool description.",
+                description: "Optional. Panel width in inches, decimal (24 7/8 is 24.875) — the SMALLER of the sheet's two numbers. Only from a printed sheet or a person, never from handwriting; send it with 'height' and set 'measurements_from'. See the tool description.",
               },
               height: {
                 type: "number",
-                description: "Optional. Panel height in inches, decimal. Only from a person, never read off an image.",
+                description: "Optional. Panel height in inches, decimal — the LARGER of the sheet's two numbers. Only from a printed sheet or a person, never from handwriting; send it with 'width'.",
               },
               qty: {
                 type: "number",
@@ -783,6 +783,11 @@ export const TOOL_DEFS: ToolDef[] = [
             required: ["door_type", "color"],
             additionalProperties: false,
           },
+        },
+        measurements_from: {
+          type: "string",
+          enum: ["person", "printed_sheet"],
+          description: "Required when any door carries width/height: where they came from. 'printed_sheet' = read off a PRINTED (typed) dealer sheet; the order is then marked to check them before CNC. 'person' = a person read them out to you. Handwritten measurements are neither: leave them out.",
         },
         allow_duplicate: {
           type: "boolean",
@@ -2405,6 +2410,12 @@ export function parseOrderDoors(args: Record<string, unknown>): DoorSpec[] {
       }
       spec[dim] = v;
     }
+    // Half a size is worse than none: the door looks measured and isn't.
+    if ((spec.width === undefined) !== (spec.height === undefined)) {
+      invalidInput(
+        `${pos} trae solo ${spec.width === undefined ? "el alto" : "el ancho"}: manda el ancho y el alto juntos, o ninguno de los dos.`,
+      );
+    }
 
     if (d.design_code !== undefined) {
       if (typeof d.design_code !== "string" || !d.design_code.trim()) {
@@ -2420,6 +2431,30 @@ export function parseOrderDoors(args: Record<string, unknown>): DoorSpec[] {
 
     return spec;
   });
+}
+
+export const MEASUREMENTS_FROM = ["person", "printed_sheet"] as const;
+export type MeasurementsFrom = (typeof MEASUREMENTS_FROM)[number];
+
+/**
+ * Where the doors' measurements came from, when there are any. A person
+ * who read them out, or a PRINTED dealer sheet (typed, like Lock Tight's
+ * quote items). Handwriting is not a source: '24 7/8' and '24 1/8' look
+ * alike there. The answer decides what the preview and the order say, so
+ * the office knows which sizes still have to be checked against the paper.
+ */
+export function parseMeasurementsFrom(
+  args: Record<string, unknown>,
+  doors: DoorSpec[],
+): MeasurementsFrom | undefined {
+  if (!doors.some((d) => d.width !== undefined)) return undefined;
+  const v = args.measurements_from;
+  if (typeof v !== "string" || !(MEASUREMENTS_FROM as readonly string[]).includes(v)) {
+    invalidInput(
+      "Hay puertas con medidas: di de donde salieron con 'measurements_from': 'person' (te las dicto una persona) o 'printed_sheet' (las leiste de una hoja IMPRESA). Si la hoja esta escrita a mano, no mandes las medidas: van literales en 'notes'.",
+    );
+  }
+  return v as MeasurementsFrom;
 }
 
 /** Trims an optional string argument, returning undefined for anything
@@ -2539,6 +2574,7 @@ async function planCreateOrder(args: Record<string, unknown>, id: McpIdentity): 
     invalidInput("create_order requiere 'client_name', el nombre del cliente final.");
   }
   const doors = parseOrderDoors(args);
+  const measuredFrom = parseMeasurementsFrom(args, doors);
 
   // The same gate the panel's own POST /api/orders applies (manager or
   // office) — see this file's top doc comment on why it lives here too.
@@ -2668,6 +2704,13 @@ async function planCreateOrder(args: Record<string, unknown>, id: McpIdentity): 
   if (typeof orderVals.notes === "string") {
     orderVals.notes = `${shopDateString(new Date())} · de la hoja del dealer: ${orderVals.notes}`;
   }
+  // Sizes read off the printed sheet are on the order, and the order says
+  // so: whoever takes it to CNC checks them against the paper first.
+  if (measuredFrom === "printed_sheet") {
+    const aviso = "Medidas leidas de la hoja impresa por el asistente: verificar contra la hoja antes de CNC.";
+    orderVals.notes = orderVals.notes ? `${orderVals.notes}
+${aviso}` : `${shopDateString(new Date())} · ${aviso}`;
+  }
 
   // The preview has to show every value about to be written, not a summary
   // of them: it is the only place a human sees a misread phone number or a
@@ -2678,7 +2721,10 @@ async function planCreateOrder(args: Record<string, unknown>, id: McpIdentity): 
       const partes = [DOOR_TYPE_LABEL[d.door_type], d.color];
       partes.push(d.design_code ? `diseno ${d.design_code}` : "sin diseno asignado");
       if (d.width !== undefined && d.height !== undefined) {
-        partes.push(`${inchesLabel(d.width)} x ${inchesLabel(d.height)} in`);
+        partes.push(
+          `ancho ${inchesLabel(d.width)} x alto ${inchesLabel(d.height)} in` +
+            (measuredFrom === "printed_sheet" ? " (de la hoja impresa)" : " (dictadas por una persona)"),
+        );
       } else {
         partes.push("SIN MEDIDAS (se completan en Odoo)");
       }
@@ -2699,8 +2745,24 @@ async function planCreateOrder(args: Record<string, unknown>, id: McpIdentity): 
 
   const puertas = doors.reduce((n, d) => n + d.qty, 0);
   const extra: Record<string, unknown> = { dealer: dealer.name, client: clientName, doors: puertas };
+  if (measuredFrom) extra.measurements_from = measuredFrom;
 
   const avisos: string[] = [];
+  if (measuredFrom === "printed_sheet") {
+    avisos.push(
+      "  MEDIDAS DE LA HOJA: se leyeron de la hoja impresa. Comparalas una por una con la hoja antes de confirmar; la orden queda marcada para verificarlas antes de CNC.",
+    );
+  }
+  // Their panels are taller than wide (79 5/16 x 26 3/4 is alto x ancho):
+  // a door that comes out wider than tall almost surely has them swapped.
+  const alReves = doors
+    .map((d, i) => (d.width !== undefined && d.height !== undefined && d.width > d.height ? i + 1 : 0))
+    .filter(Boolean);
+  if (alReves.length) {
+    avisos.push(
+      `  ANCHO Y ALTO: en la${alReves.length === 1 ? " puerta" : "s puertas"} ${alReves.join(", ")} el ancho es mayor que el alto. Los paneles son mas altos que anchos: revisa si estan al reves.`,
+    );
+  }
   const zipAviso = zipWarning(orderVals.client_address as string | undefined);
   if (zipAviso) avisos.push(`  AVISO ZIP: ${zipAviso}.`);
   if (duplicados.length) {

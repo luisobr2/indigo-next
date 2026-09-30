@@ -668,19 +668,11 @@ export default function OrderDetailPage({
                 />
                 <Row
                   label="Width"
-                  value={
-                    lines[0]?.width_label
-                      ? `${lines[0].width_label} in`
-                      : `${lines[0]?.width ?? "—"} in`
-                  }
+                  value={<Dim label={lines[0]?.width_label} value={lines[0]?.width} unit=" in" />}
                 />
                 <Row
                   label="Height"
-                  value={
-                    lines[0]?.height_label
-                      ? `${lines[0].height_label} in`
-                      : `${lines[0]?.height ?? "—"} in`
-                  }
+                  value={<Dim label={lines[0]?.height_label} value={lines[0]?.height} unit=" in" />}
                 />
                 <Row
                   label="Pieces"
@@ -896,8 +888,8 @@ export default function OrderDetailPage({
                           {glassPrivacy === "privacy" ? "Privacy" : "Clear"}
                         </Badge>
                       </td>
-                      <td className="py-2 text-right">{l.width_label || l.width}</td>
-                      <td className="py-2 text-right">{l.height_label || l.height}</td>
+                      <td className="py-2 text-right"><Dim label={l.width_label} value={l.width} /></td>
+                      <td className="py-2 text-right"><Dim label={l.height_label} value={l.height} /></td>
                       <td className="py-2 text-right">{l.qty}</td>
                       <td className="py-2 text-right">{l.parts_count ?? 1}</td>
                       <td className="py-2 text-right font-semibold">
@@ -1135,6 +1127,19 @@ const PAYMENT_BADGE: Record<string, string> = {
   partial: "bg-amber-50 text-amber-700",
   paid: "bg-emerald-50 text-emerald-700",
 };
+
+/** A door measurement. Odoo keeps an empty one as 0, which used to read
+ *  "0 in" — as if the door measured zero. Empty says so instead. */
+function Dim({ label, value, unit = "" }: { label?: string | false; value?: number | false | null; unit?: string }) {
+  if (!value) {
+    return (
+      <span className="font-semibold text-amber-700" title="No measurement yet: fill it in before CNC.">
+        Missing
+      </span>
+    );
+  }
+  return <>{`${label || value}${unit}`}</>;
+}
 
 function Row({
   label,

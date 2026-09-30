@@ -14,6 +14,7 @@ import {
   requireLineSqf,
   requireHoldCause,
   parseOrderDoors,
+  parseMeasurementsFrom,
   inchesLabel,
   clientNameKey,
   namesLookLikeSamePerson,
@@ -977,4 +978,37 @@ test("runWriteTool: what the server resolved is part of the confirm (e.g. who an
   recipients = ["billing@dealer.test"];
   await runWriteTool("send_invoice", { invoice_id: 7, confirm: preview.confirm }, FAKE_ID, plan, now + 2000);
   assert.deepEqual(sent, ["billing@dealer.test"]);
+});
+
+// create_order — measurements from the dealer's sheet (2026-09-30). The
+// assistant used to leave every measurement in 'notes'; on a PRINTED sheet
+// (Lock Tight's) that left 25 orders with no size. Now it may fill them, but
+// has to say where they came from, and a door gets both or neither.
+
+test("parseOrderDoors wants width and height together, never just one", () => {
+  assert.throws(
+    () => parseOrderDoors({ doors: [{ door_type: "SD", color: "white", width: 24 }] }),
+    (e: unknown) => e instanceof McpToolError && /ancho y el alto/.test(e.message),
+  );
+  assert.throws(
+    () => parseOrderDoors({ doors: [{ door_type: "SD", color: "white", height: 80 }] }),
+    McpToolError,
+  );
+});
+
+test("measurements need a source: a person, or a printed sheet", () => {
+  const withSize = parseOrderDoors({ doors: [{ door_type: "DD", color: "bronze", width: 26.75, height: 79.3125 }] });
+  assert.throws(
+    () => parseMeasurementsFrom({}, withSize),
+    (e: unknown) => e instanceof McpToolError && /measurements_from/.test(e.message),
+  );
+  assert.throws(() => parseMeasurementsFrom({ measurements_from: "handwriting" }, withSize), McpToolError);
+  assert.equal(parseMeasurementsFrom({ measurements_from: "printed_sheet" }, withSize), "printed_sheet");
+  assert.equal(parseMeasurementsFrom({ measurements_from: "person" }, withSize), "person");
+});
+
+test("no measurements, no source needed", () => {
+  const noSize = parseOrderDoors({ doors: [{ door_type: "SD", color: "white" }] });
+  assert.equal(parseMeasurementsFrom({}, noSize), undefined);
+  assert.equal(parseMeasurementsFrom({ measurements_from: "printed_sheet" }, noSize), undefined);
 });
