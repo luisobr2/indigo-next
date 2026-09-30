@@ -630,6 +630,13 @@ function RateGroup({
           Add
         </Button>
       </div>
+      {showPaintShop && !rates.some(({ r }) => r.partner_id != null && r.paint_shop) && (
+        <p className="mb-2 rounded-lg border border-amber-700/30 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Painting has two stages, Michel and Indigo. Add one line per painter: <b>Add</b>, pick the
+          person instead of &ldquo;Everyone else&rdquo;, set their rate, and choose <b>Paints at Michel</b> or{" "}
+          <b>Paints at Indigo</b>. Only painters set up this way can be chosen on an order.
+        </p>
+      )}
       {rates.length === 0 ? (
         <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/30 px-3 py-4 text-center text-xs text-slate-400">
           No {title.toLowerCase()} configured yet.

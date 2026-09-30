@@ -44,6 +44,7 @@ export async function GET() {
       login: string;
       partner_id: [number, string] | false;
       groups_id: number[];
+      share: boolean;
     }
     const users = await call<UserRow[]>({
       session: s.session,
@@ -51,7 +52,7 @@ export async function GET() {
       method: "search_read",
       args: [
         [["active", "=", true], ["login", "!=", "default"], ["login", "!=", "public"], ["login", "!=", "portaltemplate"]],
-        ["id", "name", "login", "partner_id", "groups_id"],
+        ["id", "name", "login", "partner_id", "groups_id", "share"],
       ],
       kwargs: { limit: 200 },
     });
@@ -106,10 +107,16 @@ export async function GET() {
     const configured = (await loadConfiguredPainters(s.session)).map((p) =>
       seesRates ? p : { id: p.id, name: p.name, shop: p.shop },
     );
-    // Whoever can be made a painter in Settings: today's painters plus the
-    // installers (Elio and Mandy install AND paint at Indigo).
+    // Whoever can be made a painter in Settings: today's painters, the
+    // installers, and then the rest of the staff — who paints isn't tied to
+    // a role (at Indigo it's installers and even a manager who paint).
+    const indigoGroupIds = new Set(groups.map((g) => g.id));
+    const staff = users
+      .filter((u) => u.partner_id && !u.share && u.groups_id.some((g) => indigoGroupIds.has(g)))
+      .map((u) => ({ id: (u.partner_id as [number, string])[0], name: u.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
     const seen = new Set<number>();
-    const painterCandidates = [...configured, ...painters, ...installers]
+    const painterCandidates = [...configured, ...painters, ...installers, ...staff]
       .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
       .map((p) => ({ id: p.id, name: p.name }));
     return NextResponse.json({
