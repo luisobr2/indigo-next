@@ -164,6 +164,17 @@ export default function SettingsPage() {
     setDirty(true);
   }
 
+  function personName(r: DraftRate): string | undefined {
+    if (r.partner_id == null) return undefined;
+    const list =
+      r.contractor_type === "painter"
+        ? (people?.painterCandidates ?? people?.painters ?? [])
+        : r.contractor_type === "installer"
+          ? (people?.installers ?? [])
+          : [];
+    return list.find((p) => p.id === r.partner_id)?.name;
+  }
+
   function deleteRate(idx: number) {
     const r = rates[idx];
     if (!r.id) {
@@ -175,6 +186,16 @@ export default function SettingsPage() {
   }
 
   async function save() {
+    // A painter line for one person has to say where they paint: without it
+    // they're never offered on an order, and nothing else would tell you.
+    const noShop = rates.filter(
+      (r) => !r._delete && r.active && r.contractor_type === "painter" && r.partner_id != null && !r.paint_shop,
+    );
+    if (noShop.length) {
+      const names = noShop.map((r) => personName(r) ?? r.name).join(", ");
+      toast.error(`Choose where ${names} paint${noShop.length === 1 ? "s" : ""}: Michel or Indigo.`);
+      return;
+    }
     setSaving(true);
     const payload = {
       capacities: caps,
@@ -182,7 +203,8 @@ export default function SettingsPage() {
       rates: rates.map((r) => ({
         id: r.id,
         _delete: r._delete,
-        name: r.name,
+        // A person's line carries that person's name, whatever was typed.
+        name: personName(r) ?? r.name,
         contractor_type: r.contractor_type,
         partner_id: r.partner_id,
         rate: Number(r.rate) || 0,
@@ -648,9 +670,14 @@ function RateGroup({
               key={r.id ?? `tmp-${r._tempId}`}
               className={`flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 ${!r.active ? "opacity-50" : ""}`}
             >
+              {/* A line for one person is named after that person, so the
+                  name can't say one thing and the person picker another.
+                  Only the "Everyone else" line takes a free name. */}
               <Input
-                value={r.name}
+                value={r.partner_id != null ? (people.find((p) => p.id === r.partner_id)?.name ?? r.name) : r.name}
                 onChange={(e) => onUpdate(i, { name: e.target.value })}
+                readOnly={r.partner_id != null}
+                title={r.partner_id != null ? "Named after the person chosen on the right" : undefined}
                 placeholder="Name"
                 className="min-w-0 basis-full border-0 bg-transparent text-sm font-medium text-slate-800 shadow-none focus-visible:ring-0 sm:basis-auto sm:flex-1"
               />
@@ -730,11 +757,15 @@ function RateGroup({
                   <span className="text-slate-300">|</span>
                   <Select
                     value={r.partner_id == null ? "__default__" : String(r.partner_id)}
-                    onValueChange={(v) =>
+                    onValueChange={(v) => {
+                      const person = v === "__default__" ? null : people.find((p) => p.id === Number(v));
                       onUpdate(i, {
-                        partner_id: v === "__default__" ? null : Number(v),
-                      })
-                    }
+                        partner_id: person ? person.id : null,
+                        // The line takes the person's name; back to "Everyone
+                        // else", it becomes the standard rate again.
+                        name: person ? person.name : "Standard rate",
+                      });
+                    }}
                   >
                     <SelectTrigger className="h-8 w-auto text-xs">
                       <SelectValue>
@@ -757,28 +788,24 @@ function RateGroup({
               {showPaintShop && r.partner_id != null && (
                 <>
                   <span className="text-slate-300">|</span>
-                  {!r.paint_shop && (
-                    <span className="text-[11px] text-amber-700" title="Without a shop this person isn't offered as a painter on orders.">
-                      choose where they paint →
-                    </span>
-                  )}
                   <Select
-                    value={r.paint_shop || "__none__"}
-                    onValueChange={(v) =>
-                      onUpdate(i, { paint_shop: v === "__none__" ? false : (v as "michel" | "indigo") })
-                    }
+                    value={r.paint_shop || ""}
+                    onValueChange={(v) => onUpdate(i, { paint_shop: v as "michel" | "indigo" })}
                   >
-                    <SelectTrigger className="h-8 w-auto text-xs" aria-label="Paints at">
+                    <SelectTrigger
+                      className={`h-8 w-auto text-xs ${r.paint_shop ? "" : "border-amber-700/40 text-amber-700"}`}
+                      aria-label="Paints at"
+                      title={r.paint_shop ? undefined : "Without a shop this person isn't offered as a painter on orders."}
+                    >
                       <SelectValue>
                         {r.paint_shop === "michel"
                           ? "Paints at Michel"
                           : r.paint_shop === "indigo"
                             ? "Paints at Indigo"
-                            : "Not a painter"}
+                            : "Where do they paint?"}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__none__">Not a painter</SelectItem>
                       <SelectItem value="michel">Paints at Michel</SelectItem>
                       <SelectItem value="indigo">Paints at Indigo</SelectItem>
                     </SelectContent>
