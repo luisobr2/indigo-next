@@ -10,6 +10,7 @@ import { sortRows } from "@/hooks/use-table-prefs";
 import { printTable } from "@/lib/print-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 interface TeamUser {
   id: number;
@@ -30,6 +31,14 @@ const ROLE_BADGE: Record<string, string> = {
   installer: "bg-emerald-50 text-emerald-700",
 };
 
+/** The team roles, in the order the flow goes. A user with none of them
+ *  (a bare Odoo account) falls under "No role". */
+const ROLE_ORDER = ["manager", "office", "designer", "cnc", "painter", "installer"];
+
+function roleKey(u: TeamUser): string {
+  return ROLE_ORDER.includes(u.role) ? u.role : "none";
+}
+
 export default function UsersAdminPage() {
   const qc = useQueryClient();
   const { data, isLoading, isError, refetch } = useQuery<{ records: TeamUser[] }>({
@@ -38,7 +47,25 @@ export default function UsersAdminPage() {
     retry: 1,
   });
 
-  const users = data?.records ?? [];
+  const allUsers = useMemo(() => data?.records ?? [], [data]);
+
+  // Filter by type of user: one tab per role that has somebody in it.
+  const [roleFilter, setRoleFilter] = useState("all");
+  const roleTabs = useMemo(() => {
+    const byRole = new Map<string, { label: string; count: number }>();
+    for (const u of allUsers) {
+      const k = roleKey(u);
+      const t = byRole.get(k) ?? { label: k === "none" ? "No role" : u.role_label, count: 0 };
+      t.count += 1;
+      byRole.set(k, t);
+    }
+    return [...ROLE_ORDER, "none"].filter((k) => byRole.has(k)).map((k) => ({ key: k, ...byRole.get(k)! }));
+  }, [allUsers]);
+  const users = useMemo(
+    () => (roleFilter === "all" ? allUsers : allUsers.filter((u) => roleKey(u) === roleFilter)),
+    [allUsers, roleFilter],
+  );
+  const roleName = roleTabs.find((t) => t.key === roleFilter)?.label;
 
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
   const SORT_VAL: Record<string, (u: TeamUser) => string | number> = {
@@ -62,7 +89,7 @@ export default function UsersAdminPage() {
     if (!sortedUsers.length) return toast.warning("Nothing to print");
     const ok = printTable({
       title: "Indigo Decors — Users",
-      subtitle: `${sortedUsers.length} user${sortedUsers.length === 1 ? "" : "s"} · ${new Date().toLocaleString()}`,
+      subtitle: `${roleName ? `${roleName} · ` : ""}${sortedUsers.length} user${sortedUsers.length === 1 ? "" : "s"} · ${new Date().toLocaleString()}`,
       rows: sortedUsers,
       columns: [
         { label: "Name", print: (u) => u.name },
@@ -127,7 +154,33 @@ export default function UsersAdminPage() {
       )}
 
       {!isLoading && !isError && (
-        <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+          <div className="flex flex-wrap gap-1 border-b border-slate-100 px-3 pt-2" role="tablist" aria-label="Filter by type of user">
+            {[{ key: "all", label: "All", count: allUsers.length }, ...roleTabs].map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={roleFilter === t.key}
+                onClick={() => setRoleFilter(t.key)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition",
+                  roleFilter === t.key ? "border-indigo-700 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-800",
+                )}
+              >
+                {t.label}
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 text-[11px] tabular-nums",
+                    roleFilter === t.key ? "bg-indigo-50 text-indigo-700" : "bg-slate-100 text-slate-500",
+                  )}
+                >
+                  {t.count}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] text-sm">
             <thead className="border-b border-slate-200 text-left text-xs font-semibold uppercase text-slate-500">
               <tr>
@@ -193,7 +246,8 @@ export default function UsersAdminPage() {
               )}
             </tbody>
           </table>
-        </div>
+          </div>
+        </section>
       )}
     </div>
   );
