@@ -13,6 +13,13 @@ export function isValidEmail(value: string): boolean {
   return EMAIL_RE.test(value.trim());
 }
 
+/** A text field's value. Odoo hands an empty char field back as `false`,
+ *  and String(false) is "false" — which read as a (broken) email and
+ *  blocked saving any order that had none. */
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export interface OrderEditValues {
   client_name?: unknown;
   client_email?: unknown;
@@ -32,11 +39,12 @@ export interface LineEditValues {
  */
 export function validateOrderEdit(vals: OrderEditValues): string | null {
   if ("client_name" in vals) {
-    const name = String(vals.client_name ?? "").trim();
+    const name = text(vals.client_name);
     if (!name) return "Client name can't be empty.";
   }
   if ("client_email" in vals) {
-    const email = String(vals.client_email ?? "").trim();
+    // Optional: empty is fine, only a written address is checked.
+    const email = text(vals.client_email);
     if (email && !isValidEmail(email)) {
       return "Email address looks invalid (e.g. name@domain.com).";
     }
