@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 import { deriveRole } from "@/lib/odoo/types";
+import { odooErrorResponse } from "@/lib/odoo/http-error";
 
 export const runtime = "nodejs";
 
@@ -203,8 +204,6 @@ export async function POST(
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    if (e instanceof Response) return e;
-    const msg = e instanceof Error ? e.message : "Error advancing stage";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return odooErrorResponse(e, "Error advancing stage");
   }
 }

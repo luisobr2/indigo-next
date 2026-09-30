@@ -29,7 +29,11 @@ export async function loadConfiguredPainters(session: string): Promise<Configure
     });
     // Michel's shop first: it is the default painter wherever one is guessed.
     return [...rows].sort((a, b) => (a.shop === b.shop ? a.name.localeCompare(b.name) : a.shop === "michel" ? -1 : 1));
-  } catch {
+  } catch (e) {
+    // Not silent: an old Odoo without the method and a real failure look the
+    // same to the caller (it falls back to the Painter group), so the reason
+    // at least lands in the server log.
+    console.error("loadConfiguredPainters:", e instanceof Error ? e.message : e);
     return [];
   }
 }

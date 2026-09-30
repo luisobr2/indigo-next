@@ -224,7 +224,10 @@ export async function PUT(req: NextRequest) {
           active: r.active ?? true,
           // El taller solo tiene sentido en la regla de UN pintor (Michel,
           // Elio, Mandy): es lo que lo pone en la lista de pintores.
-          paint_shop: r.contractor_type === "painter" && r.partner_id ? r.paint_shop || false : false,
+          paint_shop:
+            r.contractor_type === "painter" && r.partner_id && (r.paint_shop === "michel" || r.paint_shop === "indigo")
+              ? r.paint_shop
+              : false,
         };
         if (r.id) {
           await call({

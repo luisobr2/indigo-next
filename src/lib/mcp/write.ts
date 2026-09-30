@@ -74,6 +74,13 @@ export interface WritePlan {
   /** Performs the actual Odoo write(s). Only ever invoked after a valid,
    *  argument-bound confirm token has verified — see runWriteTool. */
   execute: () => Promise<void>;
+  /** Values the plan RESOLVED on the server (not given as arguments) that
+   *  decide the effect — e.g. the dealer addresses an email goes to when no
+   *  'emails' was passed. They're signed into the confirm token with the
+   *  arguments, so if they change between preview and confirm the token no
+   *  longer matches and a fresh preview is required: what the person saw is
+   *  what happens. */
+  bind?: Record<string, unknown>;
 }
 
 /**
@@ -97,8 +104,9 @@ export async function runWriteTool(
   buildPlan: () => Promise<WritePlan>,
   now: number,
 ): Promise<unknown> {
-  const { confirm, ...boundArgs } = args;
+  const { confirm, ...args0 } = args;
   const plan = await buildPlan();
+  const boundArgs = plan.bind ? { ...args0, __resolved: plan.bind } : args0;
 
   if (typeof confirm !== "string" || !confirm) {
     const secret = requireSessionSecret();

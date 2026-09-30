@@ -204,6 +204,9 @@ export default function SettingsPage() {
         if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
         qc.setQueryData(["settings"], { capacities: j.capacities, notify: j.notify, rates: j.rates });
         qc.invalidateQueries({ queryKey: ["dashboard"] });
+        // Pintores y tarifas: la pantalla Paint y los asistentes los leen de ahi.
+        qc.invalidateQueries({ queryKey: ["contractors"] });
+        qc.invalidateQueries({ queryKey: ["pay-rules"] });
         setDirty(false);
         return j;
       })
@@ -747,6 +750,11 @@ function RateGroup({
               {showPaintShop && r.partner_id != null && (
                 <>
                   <span className="text-slate-300">|</span>
+                  {!r.paint_shop && (
+                    <span className="text-[11px] text-amber-700" title="Without a shop this person isn't offered as a painter on orders.">
+                      choose where they paint →
+                    </span>
+                  )}
                   <Select
                     value={r.paint_shop || "__none__"}
                     onValueChange={(v) =>

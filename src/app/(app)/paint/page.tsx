@@ -32,12 +32,8 @@ import { toCsv, downloadCsv } from "@/lib/csv";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
 import { PAINT_SHOP_LABEL, PAINT_STAGE_OF_SHOP, type PaintShop } from "@/lib/stages";
 import { cn } from "@/lib/utils";
+import { deriveRole } from "@/lib/odoo/types";
 
-/** Fallback ONLY for the first render, before /api/pay-rules answers. The
- *  real number comes from the configured painter rule — this sheet is a
- *  document the painter is paid from, so a stale literal here would be a
- *  wrong figure in someone's hand. */
-const PAINT_RATE_PLACEHOLDER = 0;
 
 interface PaintRow {
   id: number;
@@ -226,9 +222,14 @@ export default function PaintPage() {
     queryKey: ["pay-rules"],
     queryFn: () => fetchJson("/api/pay-rules"),
   });
-  const PAINT_RATE =
-    payRulesQ.data?.rules.find((r) => r.contractorType === "painter" && r.partnerId === null)
-      ?.ratePerDoor ?? PAINT_RATE_PLACEHOLDER;
+  // Quien puede elegir el pintor: oficina y gerencia (las mismas que la
+  // ruta /assign acepta). Un pintor ve la hoja, no la edita.
+  const meQ = useQuery<{ user: { isAdmin: boolean; groups: string[] } | null }>({
+    queryKey: ["me"],
+    queryFn: () => fetch("/api/auth/me").then((r) => r.json()),
+  });
+  const role = meQ.data?.user ? deriveRole(meQ.data.user.groups) : null;
+  const canAssign = !!(role?.isManager || role?.isOffice || meQ.data?.user?.isAdmin);
 
   // Dos etapas de pintura (2026-09-29): la pestana elige cual se ve.
   const [shop, setShop] = useState<PaintShop>("michel");
@@ -237,56 +238,94 @@ export default function PaintPage() {
     queryFn: () => fetchJson("/api/contractors"),
     staleTime: 60_000,
   });
-  const shopPainters = (painterListQ.data?.painters ?? []).filter((p) => p.shop === shop);
+  const allPainters = painterListQ.data?.painters ?? [];
+  const shopPainters = allPainters.filter((p) => p.shop === shop);
+  const [assigning, setAssigning] = useState<Set<number>>(new Set());
   async function assignPainter(orderId: number, painterId: number | null) {
+    setAssigning((prev) => new Set(prev).add(orderId));
     try {
       await fetchJson(`/api/orders/${orderId}/assign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ painter_id: painterId }),
       });
-      qc.invalidateQueries({ queryKey: ["paint"] });
+      await qc.invalidateQueries({ queryKey: ["paint"] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't assign the painter");
+    } finally {
+      setAssigning((prev) => {
+        const next = new Set(prev);
+        next.delete(orderId);
+        return next;
+      });
     }
   }
-  // La tarifa de cada puerta es la de su pintor (Michel $8, Elio y Mandy $4).
-  // En Indigo, sin pintor elegido todavia no hay precio.
+
+  // Tarifas: nunca un 0 inventado. Mientras cargan, o si fallan, el precio
+  // es "—" (esta hoja es el papel con el que se le paga a alguien).
+  const rulesReady = payRulesQ.isSuccess;
+  const painterRules = (payRulesQ.data?.rules ?? []).filter((x) => x.contractorType === "painter");
+  const generalRate = painterRules.find((x) => x.partnerId === null)?.ratePerDoor ?? null;
+  const shopRate = (k: PaintShop): number | null => {
+    const ids = new Set(allPainters.filter((p) => p.shop === k).map((p) => p.id));
+    const rates = new Set(painterRules.filter((x) => x.partnerId != null && ids.has(x.partnerId)).map((x) => x.ratePerDoor));
+    return rates.size === 1 ? [...rates][0] : null;
+  };
+  const michelRate = rulesReady ? (shopRate("michel") ?? generalRate) : null;
+  // En Indigo, "tiene pintor" es tener a uno de los pintores de Indigo, no
+  // cualquier pintor_id (uno de Michel puesto desde la ficha no vale).
+  const isShopPainter = (r: PaintRow) =>
+    Array.isArray(r.painter_id) && shopPainters.some((p) => p.id === (r.painter_id as [number, string])[0]);
+  const needsPainter = (r: PaintRow) => shop === "indigo" && !isShopPainter(r);
   const rateOf = (r: PaintRow): number | null => {
+    if (!rulesReady) return null;
     const pid = Array.isArray(r.painter_id) ? r.painter_id[0] : null;
-    const own = pid != null
-      ? payRulesQ.data?.rules.find((x) => x.contractorType === "painter" && x.partnerId === pid)
-      : undefined;
+    const own = pid != null ? painterRules.find((x) => x.partnerId === pid) : undefined;
+    if (shop === "indigo") {
+      if (isShopPainter(r) && own) return own.ratePerDoor;
+      // Sin pintor de Indigo todavia: la tarifa del taller si es una sola.
+      return canAssign ? shopRate("indigo") : null;
+    }
     if (own) return own.ratePerDoor;
-    if (shop === "indigo") return pid != null ? PAINT_RATE : null;
-    return PAINT_RATE;
+    return michelRate;
   };
   const painterCell = (r: PaintRow): ReactNode => {
     const current = Array.isArray(r.painter_id) ? r.painter_id : null;
-    if (shop !== "indigo") {
+    if (shop !== "indigo" || !canAssign) {
       return <span className="text-slate-700">{current ? current[1] : "—"}</span>;
     }
+    const valid = isShopPainter(r);
     return (
-      <select
-        aria-label={`Who painted ${r.dealer_ref || r.name}`}
-        value={current ? current[0] : ""}
-        onChange={(e) => assignPainter(r.id, e.target.value ? Number(e.target.value) : null)}
-        className={cn(
-          "h-9 rounded-lg border bg-white px-2 text-sm",
-          current ? "border-slate-200 text-slate-800" : "border-amber-300 text-amber-800",
+      <div className="space-y-1">
+        <select
+          aria-label={`Who painted ${r.dealer_ref || r.name}`}
+          value={valid && current ? current[0] : ""}
+          disabled={assigning.has(r.id) || painterListQ.isLoading}
+          onChange={(e) => assignPainter(r.id, e.target.value ? Number(e.target.value) : null)}
+          className={cn(
+            "h-10 rounded-lg border bg-white px-2 text-sm disabled:opacity-60",
+            valid ? "border-slate-200 text-slate-800" : "border-amber-300 text-amber-800",
+          )}
+        >
+          <option value="">Choose…</option>
+          {shopPainters.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        {current && !valid && (
+          <div className="text-[11px] text-amber-700">{current[1]} doesn&apos;t paint at Indigo</div>
         )}
-      >
-        <option value="">Choose…</option>
-        {shopPainters.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
+      </div>
     );
   };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const PAINT_COLUMNS = useMemo(() => buildPaintColumns(rateOf, painterCell), [PAINT_RATE, shop, payRulesQ.data, painterListQ.data]);
+  const PAINT_RATE = michelRate;
+  const PAINT_COLUMNS = useMemo(
+    () => buildPaintColumns(rateOf, painterCell),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shop, payRulesQ.data, rulesReady, painterListQ.data, painterListQ.isLoading, canAssign, assigning],
+  );
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [marking, setMarking] = useState(false);
@@ -296,7 +335,9 @@ export default function PaintPage() {
     PAINT_COL_DEFAULT,
     PAINT_COL_DEFAULT,
   );
-  const visiblePaintCols = PAINT_COLUMNS.filter((c) => colKeys.includes(c.key));
+  const visiblePaintCols = PAINT_COLUMNS.filter(
+    (c) => colKeys.includes(c.key) || (c.key === "painter" && shop === "indigo"),
+  );
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
   function toggleSort(key: string) {
     const col = PAINT_COLUMNS.find((c) => c.key === key);
@@ -321,7 +362,7 @@ export default function PaintPage() {
   // Cuantas puertas hay en la OTRA pestana, para su contador.
   const otherShop: PaintShop = shop === "michel" ? "indigo" : "michel";
   const otherQ = useQuery<{ total: number }>({
-    queryKey: ["paint", otherShop, "count"],
+    queryKey: ["paint", "count", otherShop],
     queryFn: () => {
       const url = new URL("/api/orders", window.location.origin);
       url.searchParams.set("stage", PAINT_STAGE_OF_SHOP[otherShop]);
@@ -345,7 +386,7 @@ export default function PaintPage() {
   }, [rows, sort, PAINT_COLUMNS]);
   const totalSqf = rows.reduce((s, r) => s + (r.total_sqf || 0), 0);
   const totalAmount = rows.reduce((s, r) => s + (r.total_sqf || 0) * (rateOf(r) ?? 0), 0);
-  const unassigned = shop === "indigo" ? rows.filter((r) => !Array.isArray(r.painter_id)) : [];
+  const unassigned = rows.filter(needsPainter);
 
   function toggleOne(id: number) {
     setSelected((prev) => {
@@ -370,7 +411,7 @@ export default function PaintPage() {
     if (marking) return;
     const ids = Array.from(selected);
     if (!ids.length) return;
-    const missing = rows.filter((r) => selected.has(r.id) && shop === "indigo" && !Array.isArray(r.painter_id));
+    const missing = rows.filter((r) => selected.has(r.id) && needsPainter(r));
     if (missing.length) {
       toast.error(
         `Choose who painted ${missing.map((r) => r.dealer_ref || r.name).join(", ")} before marking ${missing.length === 1 ? "it" : "them"} received.`,
@@ -409,18 +450,26 @@ export default function PaintPage() {
     setMarking(false);
     qc.invalidateQueries({ queryKey: ["paint"] });
     const failed = results.filter((r) => r.status === "rejected").length;
+    // El motivo real (el de Odoo), no solo cuantas fallaron.
+    const reasons = [
+      ...new Set(
+        results.flatMap((r) =>
+          r.status === "rejected" ? [r.reason instanceof Error ? r.reason.message : "Failed"] : [],
+        ),
+      ),
+    ].slice(0, 2);
     if (failed === 0) {
       toast.success(`${ids.length} order${ids.length === 1 ? "" : "s"} marked received — moved to Ready for Installation`);
       clearSelection();
       return;
     }
     if (failed === ids.length) {
-      toast.error(`All ${ids.length} updates failed.`);
+      toast.error(`All ${ids.length} updates failed: ${reasons.join(" · ")}`, { duration: 10000 });
       return;
     }
     toast.warning(
-      `${ids.length - failed} of ${ids.length} moved. ${failed} failed — check their chatter.`,
-      { duration: 8000 },
+      `${ids.length - failed} of ${ids.length} moved. ${failed} failed: ${reasons.join(" · ")}`,
+      { duration: 10000 },
     );
     clearSelection();
   }
@@ -453,7 +502,7 @@ export default function PaintPage() {
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             {shop === "michel"
-              ? `Michel's painting worksheet. SQF × $${PAINT_RATE.toFixed(2)} per SQF.`
+              ? `Michel's painting worksheet. SQF × ${PAINT_RATE == null ? "his rate" : `$${PAINT_RATE.toFixed(2)}`} per SQF.`
               : "Indigo's painting worksheet. Choose who painted each door: it sets the price per SQF."}
           </p>
         </div>
@@ -477,11 +526,12 @@ export default function PaintPage() {
             onToggle={toggleCol}
             triggerClassName="inline-flex h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none"
           />
-          <Button variant="outline" size="lg" onClick={printList}>
+          <Button variant="outline" size="lg" onClick={printList} disabled={!rulesReady}>
             <FileText size={14} /> Print list
           </Button>
           <Button
             size="lg"
+            disabled={!rulesReady}
             className="bg-emerald-600 text-white shadow shadow-emerald-600/30 hover:bg-emerald-700"
             onClick={() => {
               if (!rows.length) return toast.warning("Nothing to export");
@@ -536,16 +586,24 @@ export default function PaintPage() {
         </div>
       </header>
 
+      {payRulesQ.isError && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <span className="flex-1">Couldn&apos;t load the painters&apos; rates, so prices are hidden and the sheet can&apos;t be printed from here.</span>
+          <Button size="sm" variant="outline" onClick={() => payRulesQ.refetch()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Las dos etapas de pintura: Michel e Indigo. */}
-      <div className="flex flex-wrap gap-1 border-b border-slate-200" role="tablist" aria-label="Painting stage">
+      <div className="flex flex-wrap gap-1 border-b border-slate-200" aria-label="Painting stage">
         {(["michel", "indigo"] as const).map((k) => {
           const count = k === shop ? rows.length : otherQ.data?.total;
           return (
             <button
               key={k}
               type="button"
-              role="tab"
-              aria-selected={shop === k}
+              aria-pressed={shop === k}
               onClick={() => {
                 setShop(k);
                 setSelected(new Set());
@@ -576,7 +634,9 @@ export default function PaintPage() {
         <div className="flex flex-wrap items-center gap-3">
           <span className="inline-block rounded-xl bg-indigo-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-indigo-800">
             {shop === "michel"
-              ? `Paint price: $${PAINT_RATE.toFixed(2)} per SQF`
+              ? PAINT_RATE == null
+                ? "Paint price: loading…"
+                : `Paint price: $${PAINT_RATE.toFixed(2)} per SQF`
               : "Paint price: each painter's rate per SQF"}
           </span>
           {unassigned.length > 0 && (
@@ -683,7 +743,7 @@ export default function PaintPage() {
                 { label: "Sides", value: String(r.first_line?.paint_sides ?? 2) },
               ]}
               action={
-                shop === "indigo" && !Array.isArray(r.painter_id) ? (
+                needsPainter(r) ? (
                   <span className="text-xs font-medium text-amber-700">Choose who painted it first</span>
                 ) : (
                   <QuickStageActionButton
@@ -773,7 +833,7 @@ export default function PaintPage() {
                       </td>
                     ))}
                     <td className="px-4 py-3 text-center">
-                      {shop === "indigo" && !Array.isArray(r.painter_id) ? (
+                      {needsPainter(r) ? (
                         <span className="text-xs font-medium text-amber-700">Choose painter</span>
                       ) : (
                         <QuickStageActionButton

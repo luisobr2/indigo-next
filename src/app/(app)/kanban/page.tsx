@@ -32,6 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/state-cards";
 import { STAGE_WIZARDS } from "@/components/stage-wizard-modal";
 import { KanbanSkeleton } from "@/components/skeleton";
+import { isPaintStage } from "@/lib/stages";
 
 interface Stage {
   id: number;
@@ -144,7 +145,20 @@ export default function KanbanPage() {
     // A plain one-step advance out of a non-capture stage goes through with
     // no friction (that's the point of the board).
     const currentStage = data?.stages.find((s) => s.id === currentStageId);
-    const gap = targetStage.sequence - (currentStage?.sequence ?? 0);
+    // Steps by POSITION on the board, not by `sequence` (it goes 10, 20, …),
+    // and the two painting stages count as ONE step: they're alternatives
+    // (Michel's shop or Indigo's), not one after the other.
+    const ordered = [...(data?.stages ?? [])].sort((a, b) => a.sequence - b.sequence);
+    const stepOf = new Map<number, number>();
+    let step = -1;
+    let prevPaint = false;
+    for (const st of ordered) {
+      const paint = isPaintStage(st.code);
+      if (!(paint && prevPaint)) step += 1;
+      stepOf.set(st.id, step);
+      prevPaint = paint;
+    }
+    const gap = (stepOf.get(targetStage.id) ?? 0) - (stepOf.get(currentStageId) ?? 0);
     const wizard = currentStage ? STAGE_WIZARDS[currentStage.code] : undefined;
     const nonAdjacent = Math.abs(gap) > 1;
     const backward = gap < 0;

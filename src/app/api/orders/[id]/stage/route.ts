@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 import { deriveRole } from "@/lib/odoo/types";
+import { odooErrorResponse } from "@/lib/odoo/http-error";
 
 export const runtime = "nodejs";
 
@@ -158,10 +159,6 @@ export async function POST(
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    if (e instanceof Response) return e;
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Error" },
-      { status: 500 },
-    );
+    return odooErrorResponse(e);
   }
 }

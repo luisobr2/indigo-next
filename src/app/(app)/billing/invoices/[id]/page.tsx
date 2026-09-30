@@ -57,6 +57,11 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     qc.invalidateQueries({ queryKey: ["billing-invoice", id] });
     qc.invalidateQueries({ queryKey: ["billing-invoices"] });
     qc.invalidateQueries({ queryKey: ["billing-to-invoice"] });
+    // The next number, the Billing summary, what's outstanding and the
+    // dealer's statement all change when an invoice is issued, paid or sent.
+    for (const key of ["billing-status", "billing-summary", "billing-outstanding", "billing-dealer"]) {
+      qc.invalidateQueries({ queryKey: [key] });
+    }
     invalidateOrderViews(qc);
     setPdfKey((k) => k + 1);
   }
@@ -133,6 +138,9 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       number = issued.data?.name ?? false;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't issue the invoice");
+      // Someone else may have issued it, or the reply was lost: show what
+      // Odoo has now instead of a stale "Draft".
+      refresh();
       setBusy(false);
       return;
     }
@@ -145,7 +153,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       toast.success(`Invoice #${number} issued and sent to ${list.join(", ")}`);
     } catch (e) {
       toast.error(
-        `Invoice #${number} was issued, but the email failed: ${e instanceof Error ? e.message : "unknown error"}. Use Send to try again.`,
+        `Invoice #${number} was issued, but the email may not have gone out: ${e instanceof Error ? e.message : "unknown error"}. Check "Last sent to" before sending it again.`,
       );
     } finally {
       setSendOpen(false);
@@ -346,7 +354,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           <DialogHeader>
             <DialogTitle>Issue this invoice?</DialogTitle>
             <DialogDescription>
-              It gets the next invoice number{nextNumber ? ` (#${nextNumber})` : ""} and can no longer be edited or
+              It gets the next invoice number{nextNumber ? ` (normally #${nextNumber})` : ""} and can no longer be edited or
               deleted, only voided. Its orders move to Invoiced. Total {money(inv.total)}. It isn&apos;t emailed: use
               Send afterwards, or Issue &amp; send.
             </DialogDescription>
@@ -416,7 +424,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             <DialogTitle>{sendMode === "issue-send" ? "Issue & send this invoice" : `Send invoice #${inv.name}`}</DialogTitle>
             <DialogDescription>
               {sendMode === "issue-send"
-                ? `It gets the next invoice number${nextNumber ? ` (#${nextNumber})` : ""} and can no longer be edited or deleted, only voided. Then it's emailed with the PDF and the installation photos attached. Separate addresses with commas.`
+                ? `It gets the next invoice number${nextNumber ? ` (normally #${nextNumber})` : ""} and can no longer be edited or deleted, only voided. Then it's emailed with the PDF and the installation photos attached. Separate addresses with commas.`
                 : "The PDF goes attached, with the installation photos. Separate addresses with commas."}
             </DialogDescription>
           </DialogHeader>

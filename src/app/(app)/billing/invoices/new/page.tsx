@@ -223,7 +223,7 @@ function Editor() {
                     aria-label="Product or service"
                     value={l.product_code}
                     onChange={(e) => setProduct(i, e.target.value)}
-                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold uppercase text-slate-800"
+                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-2 text-base font-semibold uppercase text-slate-800"
                   >
                     {PRODUCT_OPTIONS.map((o) => (
                       <option key={o.code} value={o.code}>

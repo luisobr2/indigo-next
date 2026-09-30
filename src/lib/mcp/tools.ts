@@ -1687,6 +1687,10 @@ async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity):
     painterId = match.id;
     painterLabel = match.name;
   }
+  // When painter_id wasn't passed, the order's painter was used: sign it into
+  // the confirm, so a change before confirming forces a new preview.
+  const resolvedBind =
+    painterId !== undefined && typeof args.painter_id !== "number" ? { painter_id: painterId } : undefined;
 
   const messageParts = [`Orden ${order.name} (${order.client_name}): ${config.actionLabel}.`];
   if (paintStage) {
@@ -1715,6 +1719,7 @@ async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity):
   return {
     message: messageParts.join(" "),
     extra: { order: order.name, client: order.client_name },
+    bind: resolvedBind,
     execute: async () => {
       if (lineSqf) {
         await Promise.all(

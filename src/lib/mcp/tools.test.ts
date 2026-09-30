@@ -952,3 +952,29 @@ test("painting_done leaves either painting stage", () => {
   const cfg = ADVANCE_OUTCOMES.painting_done as { fromStageCode: string; alsoFromStageCodes?: string[] };
   assert.deepEqual([cfg.fromStageCode, ...(cfg.alsoFromStageCodes ?? [])], ["painting", "painting_indigo"]);
 });
+
+test("runWriteTool: what the server resolved is part of the confirm (e.g. who an email goes to)", async () => {
+  // The dealer's saved addresses are looked up by the plan, not passed as
+  // arguments. If they change between preview and confirm, the confirm
+  // must be refused: the person never saw the new list.
+  let recipients = ["billing@dealer.test"];
+  let sent: string[] = [];
+  const plan = async () => ({
+    message: `enviar a ${recipients.join(", ")}`,
+    bind: { to: [...recipients] },
+    execute: async () => {
+      sent = [...recipients];
+    },
+  });
+  const now = 1_700_000_000_000;
+  const preview = (await runWriteTool("send_invoice", { invoice_id: 7 }, FAKE_ID, plan, now)) as { confirm: string };
+  recipients = ["someone@else.test"];
+  await assert.rejects(
+    runWriteTool("send_invoice", { invoice_id: 7, confirm: preview.confirm }, FAKE_ID, plan, now + 1000),
+    (e: unknown) => e instanceof McpToolError && e.code === "CONFIRMACION_INVALIDA",
+  );
+  assert.deepEqual(sent, [], "nothing may be sent to a list the person didn't see");
+  recipients = ["billing@dealer.test"];
+  await runWriteTool("send_invoice", { invoice_id: 7, confirm: preview.confirm }, FAKE_ID, plan, now + 2000);
+  assert.deepEqual(sent, ["billing@dealer.test"]);
+});

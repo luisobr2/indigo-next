@@ -217,3 +217,13 @@ test("un enlace de factura no es un token de acceso, ni al reves", () => {
   assert.equal(readPdfLink(null, NOW), null);
 });
 
+test("un enlace con la etiqueta recortada no abre (no se puede adivinar por fuerza bruta)", () => {
+  const t = issuePdfLink(PDF, NOW);
+  const [prefix, iv, ct, tag] = t.split(".");
+  for (const bytes of [12, 8, 4]) {
+    const short = Buffer.from(tag, "base64url").subarray(0, bytes).toString("base64url");
+    assert.equal(readPdfLink([prefix, iv, ct, short].join("."), NOW), null, `${bytes}-byte tag must not open`);
+  }
+  assert.deepEqual(readPdfLink(t, NOW), PDF);
+});
+

@@ -67,6 +67,12 @@ async function billing<T>(id: McpIdentity, method: string, args: unknown[] = [])
 export function billingRefusal(e: unknown): unknown {
   if (e instanceof Error && e.name === "OdooRpcError") {
     const err = e as Error & { errorName?: string };
+    if (err.errorName === "odoo.exceptions.UserError" && /could not be sent/i.test(err.message)) {
+      return mcpError(
+        "ENVIO_FALLIDO",
+        `El correo no salió: "${err.message}". No se envió nada. Puede ser pasajero: vuelve a llamar sin 'confirm' para una vista previa nueva y confirma otra vez; si se repite, que lo revise la oficina.`,
+      );
+    }
     if (err.errorName === "odoo.exceptions.UserError" || err.errorName === "odoo.exceptions.ValidationError") {
       return mcpError(
         "RECHAZADO",
@@ -455,7 +461,7 @@ export const INVOICE_TOOL_DEFS: ToolDef[] = [
     name: "issue_invoice",
     title: "Issue a draft invoice",
     description:
-      "Issues a DRAFT invoice: it takes the next number of the QuickBooks sequence, goes into the accounts, and its orders move to 'Invoiced / Paid'. After that it can't be changed or deleted, only voided. It is NOT emailed: sending to the dealer stays a manual step in the app." +
+      "Issues a DRAFT invoice: it takes the next number of the QuickBooks sequence, goes into the accounts, and its orders move to 'Invoiced / Paid'. After that it can't be changed or deleted, only voided. It is NOT emailed: send it afterwards with send_invoice (or the Send button in the app)." +
       WRITE_NOTE,
     inputSchema: {
       type: "object",
@@ -819,7 +825,7 @@ async function planIssueInvoice(args: Record<string, unknown>, id: McpIdentity):
   const head = `EMITIR ${invoiceLabel(inv)}: subtotal ${usd(inv.untaxed)}, impuesto ${usd(inv.tax)}, total ${usd(inv.total)}, con ${ordersLabel(inv.orders)}.`;
   const tail =
     ` Sus órdenes pasan a «Invoiced / Paid». Después ya no se puede cambiar ni borrar, solo anular.` +
-    ` NO se envía al dealer: el envío se hace aparte, desde la app.`;
+    ` NO se envía al dealer: el envío es aparte (send_invoice o el botón Send de la app).`;
   const plan: WritePlan = {
     message: `${head} Toma el siguiente número de la numeración de QuickBooks (el ${status.next_number}, salvo que ya esté usado).${tail}`,
     extra,
@@ -943,7 +949,10 @@ async function planSendInvoice(args: Record<string, unknown>, id: McpIdentity): 
     );
   }
   if (inv.state === "cancel") throw mcpError("RECHAZADO", `La factura #${inv.name} está anulada: no se envía.`);
-  const to = emails ?? inv.dealer_emails;
+  // Without 'emails', the dealer's saved addresses — cleaned the same way
+  // as explicit ones, so the preview shows exactly what gets sent.
+  const saved = [...new Set(inv.dealer_emails.flatMap((e) => parseEmails(e)))];
+  const to = emails ?? saved;
   if (!to.length) {
     throw mcpError(
       "RECHAZADO",
@@ -952,18 +961,27 @@ async function planSendInvoice(args: Record<string, unknown>, id: McpIdentity): 
   }
   const photos = inv.photo_ids.length;
   const extra: Record<string, unknown> = { invoice_id: inv.id, number: inv.name, sent_to: to };
-  return {
+  const what =
+    `la factura #${inv.name} de ${dealer} (total ${usd(inv.total)}, saldo ${usd(inv.residual)}) a: ${to.join(", ")}. ` +
+    `Va el PDF adjunto${photos ? ` con ${photos} foto${photos === 1 ? "" : "s"} de la instalación` : ""}.`;
+  // Once sent, the result reads as done (no "check the recipients").
+  const sentMessage = `ENVIADA por correo ${what}`;
+  const sendPlan: WritePlan = {
     message:
-      `ENVIAR por correo la factura #${inv.name} de ${dealer} (total ${usd(inv.total)}, saldo ${usd(inv.residual)}) a: ${to.join(", ")}. ` +
-      `Va el PDF adjunto${photos ? ` con ${photos} foto${photos === 1 ? "" : "s"} de la instalación` : ""}. ` +
+      `ENVIAR por correo ${what} ` +
       (message ? `Mensaje: "${message}". ` : "Con el mensaje estándar («Dear Client, Please find attached the invoice for the completed work…»). ") +
       (inv.sent_at ? `Ya se envió antes (${inv.sent_to || "sin destinatarios guardados"}). ` : "") +
       `El correo le llega al dealer y no se puede deshacer: comprueba los destinatarios.`,
     extra,
+    // The addresses were looked up now: sign them into the confirm, so an
+    // edit to the dealer's emails before confirming forces a new preview.
+    bind: { to, message },
     execute: async () => {
       await billing(id, "indigo_billing_send", [moveId, to, message || null]);
+      sendPlan.message = sentMessage;
     },
   };
+  return sendPlan;
 }
 
 // ---------------------------------------------------------------------

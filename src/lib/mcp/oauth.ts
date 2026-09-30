@@ -112,13 +112,20 @@ export function open<T = Record<string, unknown>>(
     // keyFor() va DENTRO del try a proposito: lanza si falta SESSION_SECRET, y
     // un servidor mal configurado tiene que responder "token invalido" (401),
     // no reventar con un 500 que sugiere que el token era bueno.
+    // The tag must be the full 16 bytes. Node accepts shorter GCM tags
+    // (down to 4 bytes) unless told otherwise, and a 4-byte tag can be
+    // brute-forced -- which the public /api/invoicing/pdf-link route would
+    // allow with a link someone once held.
+    const tag = Buffer.from(tagRaw, "base64url");
+    if (tag.length !== 16) return null;
     const decipher = createDecipheriv(
       "aes-256-gcm",
       keyFor(purpose),
       Buffer.from(ivRaw, "base64url"),
+      { authTagLength: 16 },
     );
     decipher.setAAD(Buffer.from(purpose));
-    decipher.setAuthTag(Buffer.from(tagRaw, "base64url"));
+    decipher.setAuthTag(tag);
     const out = Buffer.concat([
       decipher.update(Buffer.from(ctRaw, "base64url")),
       decipher.final(),

@@ -101,13 +101,19 @@ export function StageWizardModal({
   // In Indigo's stage the painter is chosen right here (Elio or Mandy), so
   // there is nothing to go assign first.
   const requiresPainter = config.wizard === "indigo.painter.done.wizard" && !config.choosePainterFrom;
-  const [paintStage, setPaintStage] = useState<"michel" | "indigo">("michel");
+  // No default: where it's painted decides who gets paid, so it's a choice.
+  const [paintStage, setPaintStage] = useState<"michel" | "indigo" | null>(null);
   const [painterId, setPainterId] = useState<number | null>(null);
   const [shopPainters, setShopPainters] = useState<Array<{ id: number; name: string }>>([]);
+  const [paintersState, setPaintersState] = useState<"loading" | "ok" | "error">("loading");
+  const [paintersReload, setPaintersReload] = useState(0);
   useEffect(() => {
     if (!open || !config.choosePainterFrom) return;
     let cancelled = false;
-    fetch("/api/contractors")
+    fetch("/api/contractors").then((r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      return r;
+    })
       .then((r) => r.json())
       .then((j) => {
         if (cancelled) return;
@@ -115,12 +121,15 @@ export function StageWizardModal({
           (p) => p.shop === config.choosePainterFrom,
         );
         setShopPainters(list);
+        setPaintersState("ok");
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setPaintersState("error");
+      });
     return () => {
       cancelled = true;
     };
-  }, [open, config.choosePainterFrom]);
+  }, [open, config.choosePainterFrom, paintersReload]);
   const requiresInstaller = config.wizard === "indigo.installed.wizard";
   const needsOrderFetch =
     config.withSqfTable || config.withMeasureTable || requiresPainter ||
@@ -200,6 +209,19 @@ export function StageWizardModal({
 
   const sqfTotal = sqfLines.reduce((s, l) => s + (Number(l.sqf) || 0), 0);
 
+  // Only a painter from this shop's list counts (an old assignment to someone
+  // who doesn't paint here is shown as "Choose…").
+  const validPainterId =
+    painterId != null && shopPainters.some((p) => p.id === painterId) ? painterId : null;
+
+  // Everything this form picked is per order: start clean next time.
+  function handleClose() {
+    setPaintStage(null);
+    setPainterId(null);
+    setError(null);
+    onClose();
+  }
+
   async function submit() {
     setError(null);
     // Amount is OPTIONAL for the invoice/paid wizard. Leaving it blank invoices
@@ -212,7 +234,11 @@ export function StageWizardModal({
         return;
       }
     }
-    if (config.choosePainterFrom && !painterId) {
+    if (config.withPaintDestination && !paintStage) {
+      setError("Choose where it's painted: Michel or Indigo.");
+      return;
+    }
+    if (config.choosePainterFrom && !validPainterId) {
       setError("Choose who painted it — their pay depends on it.");
       return;
     }
@@ -233,7 +259,7 @@ export function StageWizardModal({
       const payload: Record<string, unknown> = {};
       if (note) payload.note = note;
       if (config.withPaintDestination) payload.paint_stage = paintStage;
-      if (config.choosePainterFrom && painterId) payload.painter_id = painterId;
+      if (config.choosePainterFrom && validPainterId) payload.painter_id = validPainterId;
       // Per-line dims persisted server-side in /advance (mirrors line_sqfs)
       // before the wizard advances the stage to Measured.
       if (config.withMeasureTable && sqfLines.length) {
@@ -274,7 +300,7 @@ export function StageWizardModal({
         description: "Stage advanced and chatter updated.",
       });
       onSuccess();
-      onClose();
+      handleClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -283,7 +309,7 @@ export function StageWizardModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{config.title}</DialogTitle>
@@ -344,7 +370,8 @@ export function StageWizardModal({
               <Label htmlFor="wizard-painter">Painted by</Label>
               <select
                 id="wizard-painter"
-                value={painterId ?? ""}
+                value={validPainterId ?? ""}
+                disabled={paintersState !== "ok"}
                 onChange={(e) => setPainterId(e.target.value ? Number(e.target.value) : null)}
                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm"
               >
@@ -355,7 +382,22 @@ export function StageWizardModal({
                   </option>
                 ))}
               </select>
-              {shopPainters.length === 0 && (
+              {paintersState === "error" && (
+                <p className="text-[11px] text-rose-700">
+                  Couldn&apos;t load the painters.{" "}
+                  <button
+                    type="button"
+                    className="font-semibold underline"
+                    onClick={() => {
+                      setPaintersState("loading");
+                      setPaintersReload((n) => n + 1);
+                    }}
+                  >
+                    Retry
+                  </button>
+                </p>
+              )}
+              {paintersState === "ok" && shopPainters.length === 0 && (
                 <p className="text-[11px] text-amber-700">
                   No Indigo painters set up yet. A manager adds them in Settings → Contractor rates → Painters.
                 </p>
@@ -563,13 +605,13 @@ export function StageWizardModal({
         </div>
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+          <Button type="button" variant="outline" onClick={handleClose} disabled={busy}>
             Cancel
           </Button>
           <Button
             type="button"
             onClick={submit}
-            disabled={busy || missingAssignment}
+            disabled={busy || missingAssignment || (!!config.choosePainterFrom && paintersState !== "ok")}
             className="bg-indigo-700 text-white shadow shadow-indigo-700/30 hover:bg-indigo-800"
           >
             <CheckCircle2 size={14} />

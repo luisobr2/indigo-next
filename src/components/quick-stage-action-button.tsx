@@ -79,6 +79,8 @@ export function QuickStageActionButton({
       qc.invalidateQueries({ queryKey: ["stage-v2-stats"] });
       qc.invalidateQueries({ queryKey: ["orders"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      // La pantalla de pintura (y el contador de sus pestanas).
+      qc.invalidateQueries({ queryKey: ["paint"] });
     })().finally(() => setBusy(false));
 
     toast.promise(promise, {

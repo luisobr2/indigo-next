@@ -61,11 +61,14 @@ export default function UsersAdminPage() {
     }
     return [...ROLE_ORDER, "none"].filter((k) => byRole.has(k)).map((k) => ({ key: k, ...byRole.get(k)! }));
   }, [allUsers]);
+  // If the chosen role no longer has anyone (e.g. its last user changed
+  // role), fall back to All instead of an empty table with no tab lit.
+  const activeRole = roleFilter !== "all" && !roleTabs.some((t) => t.key === roleFilter) ? "all" : roleFilter;
   const users = useMemo(
-    () => (roleFilter === "all" ? allUsers : allUsers.filter((u) => roleKey(u) === roleFilter)),
-    [allUsers, roleFilter],
+    () => (activeRole === "all" ? allUsers : allUsers.filter((u) => roleKey(u) === activeRole)),
+    [allUsers, activeRole],
   );
-  const roleName = roleTabs.find((t) => t.key === roleFilter)?.label;
+  const roleName = roleTabs.find((t) => t.key === activeRole)?.label;
 
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
   const SORT_VAL: Record<string, (u: TeamUser) => string | number> = {
@@ -161,18 +164,18 @@ export default function UsersAdminPage() {
                 key={t.key}
                 type="button"
                 role="tab"
-                aria-selected={roleFilter === t.key}
+                aria-selected={activeRole === t.key}
                 onClick={() => setRoleFilter(t.key)}
                 className={cn(
                   "inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition",
-                  roleFilter === t.key ? "border-indigo-700 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-800",
+                  activeRole === t.key ? "border-indigo-700 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-800",
                 )}
               >
                 {t.label}
                 <span
                   className={cn(
                     "rounded-full px-1.5 text-[11px] tabular-nums",
-                    roleFilter === t.key ? "bg-indigo-50 text-indigo-700" : "bg-slate-100 text-slate-500",
+                    activeRole === t.key ? "bg-indigo-50 text-indigo-700" : "bg-slate-100 text-slate-500",
                   )}
                 >
                   {t.count}
