@@ -188,10 +188,10 @@ function Editor() {
             ) : null}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-slate-600">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <label className="flex flex-1 items-center gap-2 text-sm text-slate-600 sm:flex-none">
             Invoice date
-            <Input id="invoice-date" type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className="h-10 w-40" />
+            <Input id="invoice-date" type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className="h-10 flex-1 sm:w-40 sm:flex-none" />
           </label>
           <Button size="lg" onClick={save} disabled={saving}>
             <Save size={14} /> {saving ? "Saving…" : "Save draft"}
@@ -210,7 +210,84 @@ function Editor() {
       )}
 
       <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
-        <div className="overflow-x-auto">
+        {/* Telefono: una tarjeta por linea. La tabla de abajo necesita 860 px y
+            en un iPhone dejaba el precio (Rate) fuera de la pantalla. */}
+        <ul className="divide-y divide-slate-100 md:hidden">
+          {lines.map((l, i) => (
+            <li key={i} className="space-y-3 p-4">
+              <div className="flex items-start gap-2">
+                <span className="pt-3 text-xs text-slate-400">{i + 1}.</span>
+                <div className="min-w-0 flex-1">
+                  <select
+                    id={`m-line-product-${i}`}
+                    aria-label="Product or service"
+                    value={l.product_code}
+                    onChange={(e) => setProduct(i, e.target.value)}
+                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold uppercase text-slate-800"
+                  >
+                    {PRODUCT_OPTIONS.map((o) => (
+                      <option key={o.code} value={o.code}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  {l.order_name && <div className="mt-1 text-[11px] text-slate-400">{l.order_name}</div>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}
+                  className="mt-1 rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                  aria-label="Remove line"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+              <textarea
+                id={`m-line-desc-${i}`}
+                aria-label="Description"
+                value={l.description}
+                onChange={(e) => patch(i, { description: e.target.value })}
+                rows={2}
+                className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-base text-slate-800"
+              />
+              <div className="grid grid-cols-[5rem_1fr_auto] items-end gap-3">
+                <label className="text-xs font-medium text-slate-500" htmlFor={`m-line-qty-${i}`}>
+                  Qty
+                  <Input
+                    id={`m-line-qty-${i}`}
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    value={l.qty}
+                    onChange={(e) => patch(i, { qty: Number(e.target.value) })}
+                    className="mt-1 h-11 text-right text-base tabular-nums"
+                  />
+                </label>
+                <label className="text-xs font-medium text-slate-500" htmlFor={`m-line-rate-${i}`}>
+                  Rate (price)
+                  <Input
+                    id={`m-line-rate-${i}`}
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    value={l.price_unit}
+                    onChange={(e) => patch(i, { price_unit: Number(e.target.value) })}
+                    className="mt-1 h-11 text-right text-base tabular-nums"
+                  />
+                </label>
+                <label className="flex h-11 items-center gap-2 text-sm text-slate-600" htmlFor={`m-line-tax-${i}`}>
+                  <Checkbox id={`m-line-tax-${i}`} checked={l.taxable} onCheckedChange={(v) => patch(i, { taxable: !!v })} />
+                  Tax
+                </label>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-500">Amount</span>
+                <span className="font-semibold tabular-nums text-slate-800">{money((Number(l.qty) || 0) * (Number(l.price_unit) || 0))}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[860px] text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
@@ -301,7 +378,7 @@ function Editor() {
           <Button variant="outline" size="sm" onClick={() => setLines((prev) => [...prev, freeLine()])}>
             <Plus size={13} /> Add line
           </Button>
-          <dl className="grid w-64 grid-cols-2 gap-y-1.5 text-sm">
+          <dl className="grid w-full grid-cols-2 gap-y-1.5 text-sm sm:w-64">
             <dt className="text-slate-500">Subtotal</dt>
             <dd className="text-right tabular-nums">{money(totals.untaxed)}</dd>
             <dt className="text-slate-500">Sales tax</dt>

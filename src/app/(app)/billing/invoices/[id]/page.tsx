@@ -4,7 +4,7 @@ import { use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Ban, CheckCircle2, Download, Mail, Pencil, Trash2, Wallet } from "lucide-react";
+import { ArrowLeft, Ban, CheckCircle2, Download, FileText, Mail, Pencil, Trash2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
@@ -262,7 +262,17 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       </header>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100 lg:col-span-8">
+        {/* En el telefono un PDF dentro de un iframe solo muestra la primera
+            hoja (Safari de iOS): alli se abre en el visor del propio telefono. */}
+        <a
+          href={pdfUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center justify-center gap-2 rounded-2xl bg-white p-4 text-sm font-semibold text-indigo-700 shadow-sm ring-1 ring-slate-100 md:hidden"
+        >
+          <FileText size={16} /> View the invoice PDF
+        </a>
+        <section className="hidden overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100 md:block lg:col-span-8">
           <iframe key={pdfKey} src={pdfUrl} title={title} className="h-[80vh] min-h-[640px] w-full" />
         </section>
 
