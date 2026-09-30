@@ -44,6 +44,7 @@ import { ColumnsMenu } from "@/components/columns-menu";
 import { TableRowsSkeleton } from "@/components/skeleton";
 import { useColumnPrefs } from "@/hooks/use-table-prefs";
 import { MobileCardList, MobileRowCard } from "@/components/mobile-row-card";
+import { isPaintStage } from "@/lib/stages";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                              */
@@ -921,7 +922,7 @@ export function StageScreenV2({
           finishedDoor={
             !!selected.cnc_done_at ||
             !!selected.paint_done_at ||
-            ["painting", "ready_install", "install_scheduled"].includes(
+            ["painting", "painting_indigo", "ready_install", "install_scheduled"].includes(
               selected.stage_code,
             )
           }
@@ -1671,7 +1672,7 @@ function SidePanel({
               ? "measurement"
               : order.stage_code === "cnc"
                 ? "cut"
-                : order.stage_code === "painting"
+                : isPaintStage(order.stage_code)
                   ? "paint"
                   : ["ready_install", "install_scheduled", "installed"].includes(
                         order.stage_code,
@@ -1759,7 +1760,7 @@ function SidePanel({
             {(order.cancelled_at ||
               sub === "in_progress" ||
               sub === "completed" ||
-              ["cnc", "painting", "ready_install", "install_scheduled"].includes(
+              ["cnc", "painting", "painting_indigo", "ready_install", "install_scheduled"].includes(
                 order.stage_code,
               )) && (
               <Button

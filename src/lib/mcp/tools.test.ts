@@ -932,3 +932,23 @@ test("the server briefing stays short enough to sit beside the tool descriptions
     `briefing is ${SERVER_INSTRUCTIONS.length} chars; keep tool-specific guidance in the tool's own description`,
   );
 });
+
+// ---------------------------------------------------------------------
+// Two painting stages (2026-09-29): CNC asks where the door goes, and a
+// door painted at Indigo needs to say who painted it.
+// ---------------------------------------------------------------------
+
+test("advance_order asks where a door is painted and who painted it at Indigo", () => {
+  const def = TOOL_DEFS.find((t) => t.name === "advance_order")!;
+  const props = def.inputSchema.properties as Record<string, { type?: string; enum?: string[] }>;
+  assert.deepEqual(props.paint_stage?.enum, ["michel", "indigo"]);
+  assert.equal(props.painter_id?.type, "number");
+  assert.match(def.description, /paint_stage/);
+  assert.match(def.description, /Painting – Indigo/);
+  assert.ok(!def.inputSchema.required?.includes("paint_stage"), "only cnc_done needs it; the server enforces that");
+});
+
+test("painting_done leaves either painting stage", () => {
+  const cfg = ADVANCE_OUTCOMES.painting_done as { fromStageCode: string; alsoFromStageCodes?: string[] };
+  assert.deepEqual([cfg.fromStageCode, ...(cfg.alsoFromStageCodes ?? [])], ["painting", "painting_indigo"]);
+});

@@ -44,6 +44,11 @@ export interface StageWizardConfig {
    */
   withMeasureTable?: boolean;
   noteLabel?: string;
+  /** CNC: choose which painting stage the door goes to (Michel or Indigo). */
+  withPaintDestination?: boolean;
+  /** Painting – Indigo: choose who painted it (Elio or Mandy). Their pay
+   *  depends on it, so it's required. */
+  choosePainterFrom?: "indigo";
 }
 
 interface StageWizardModalProps {
@@ -93,11 +98,33 @@ export function StageWizardModal({
   // Track painter/installer assignment for wizards that require them.
   // Lets us block submission with a clear message instead of silently
   // letting the stage advance create no payout.
-  const requiresPainter = config.wizard === "indigo.painter.done.wizard";
+  // In Indigo's stage the painter is chosen right here (Elio or Mandy), so
+  // there is nothing to go assign first.
+  const requiresPainter = config.wizard === "indigo.painter.done.wizard" && !config.choosePainterFrom;
+  const [paintStage, setPaintStage] = useState<"michel" | "indigo">("michel");
+  const [painterId, setPainterId] = useState<number | null>(null);
+  const [shopPainters, setShopPainters] = useState<Array<{ id: number; name: string }>>([]);
+  useEffect(() => {
+    if (!open || !config.choosePainterFrom) return;
+    let cancelled = false;
+    fetch("/api/contractors")
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled) return;
+        const list = ((j.painters ?? []) as Array<{ id: number; name: string; shop?: string }>).filter(
+          (p) => p.shop === config.choosePainterFrom,
+        );
+        setShopPainters(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, config.choosePainterFrom]);
   const requiresInstaller = config.wizard === "indigo.installed.wizard";
   const needsOrderFetch =
     config.withSqfTable || config.withMeasureTable || requiresPainter ||
-    requiresInstaller || config.withAmount;
+    requiresInstaller || config.withAmount || !!config.choosePainterFrom;
 
   const [assignment, setAssignment] = useState<{
     painter: [number, string] | false;
@@ -130,6 +157,9 @@ export function StageWizardModal({
           );
         }
         const order = j.order ?? {};
+        if (config.choosePainterFrom && Array.isArray(order.painter_id)) {
+          setPainterId(order.painter_id[0]);
+        }
         setAssignment({
           painter: order.painter_id ?? false,
           installerCount: Array.isArray(order.installer_ids)
@@ -150,7 +180,7 @@ export function StageWizardModal({
     return () => {
       cancelled = true;
     };
-  }, [open, needsOrderFetch, config.withSqfTable, config.withMeasureTable, config.withAmount, orderId]);
+  }, [open, needsOrderFetch, config.withSqfTable, config.withMeasureTable, config.withAmount, config.choosePainterFrom, orderId]);
 
   const missingAssignment =
     (requiresPainter && assignment !== null && !assignment.painter) ||
@@ -182,6 +212,10 @@ export function StageWizardModal({
         return;
       }
     }
+    if (config.choosePainterFrom && !painterId) {
+      setError("Choose who painted it — their pay depends on it.");
+      return;
+    }
     // Measurements must be filled in before advancing to Measured.
     if (config.withMeasureTable) {
       if (!sqfLines.length) {
@@ -198,6 +232,8 @@ export function StageWizardModal({
     try {
       const payload: Record<string, unknown> = {};
       if (note) payload.note = note;
+      if (config.withPaintDestination) payload.paint_stage = paintStage;
+      if (config.choosePainterFrom && painterId) payload.painter_id = painterId;
       // Per-line dims persisted server-side in /advance (mirrors line_sqfs)
       // before the wizard advances the stage to Measured.
       if (config.withMeasureTable && sqfLines.length) {
@@ -273,6 +309,60 @@ export function StageWizardModal({
               </p>
             </div>
           )}
+          {config.withPaintDestination && (
+            <fieldset className="space-y-1.5">
+              <legend className="text-sm font-medium text-slate-700">Send to</legend>
+              <div className="grid grid-cols-2 gap-2">
+                {(["michel", "indigo"] as const).map((shop) => (
+                  <label
+                    key={shop}
+                    htmlFor={`wizard-paint-${shop}`}
+                    className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition ${
+                      paintStage === shop
+                        ? "border-indigo-500 bg-indigo-50 font-semibold text-indigo-800"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <input
+                      id={`wizard-paint-${shop}`}
+                      type="radio"
+                      name="wizard-paint-stage"
+                      value={shop}
+                      checked={paintStage === shop}
+                      onChange={() => setPaintStage(shop)}
+                      className="accent-indigo-700"
+                    />
+                    Painting – {shop === "michel" ? "Michel" : "Indigo"}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+
+          {config.choosePainterFrom && (
+            <div className="space-y-1.5">
+              <Label htmlFor="wizard-painter">Painted by</Label>
+              <select
+                id="wizard-painter"
+                value={painterId ?? ""}
+                onChange={(e) => setPainterId(e.target.value ? Number(e.target.value) : null)}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm"
+              >
+                <option value="">Choose…</option>
+                {shopPainters.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              {shopPainters.length === 0 && (
+                <p className="text-[11px] text-amber-700">
+                  No Indigo painters set up yet. A manager adds them in Settings → Contractor rates → Painters.
+                </p>
+              )}
+            </div>
+          )}
+
           {config.withAmount && (
             <div className="space-y-1.5">
               <Label htmlFor="wizard-amount">Amount collected (USD)</Label>
@@ -513,18 +603,30 @@ export const STAGE_WIZARDS: Record<string, StageWizardConfig> = {
     wizard: "indigo.cnc.done.wizard",
     title: "Enter SQF & mark CNC done",
     description:
-      "Enter the SQF you got from the CorelDraw plugin for each piece, then confirm cutting is done. The order moves to Painting.",
-    submitLabel: "Save & advance to Painting",
+      "Enter the SQF you got from the CorelDraw plugin for each piece, choose where it's painted, then confirm cutting is done.",
+    submitLabel: "Save & send to painting",
     withSqfTable: true,
+    withPaintDestination: true,
     noteLabel: "Note (e.g. broken bit, redid piece 2)",
   },
   painting: {
     wizard: "indigo.painter.done.wizard",
     title: "Mark painted",
     description:
-      "Confirm pieces are painted. Order moves to Ready for Installation.",
+      "Confirm Michel painted the pieces. Order moves to Ready for Installation.",
     submitLabel: "Save & advance to Ready for Installation",
     withPhoto: true,
+  },
+  // Indigo's own painting stage: same wizard, but it asks who painted it
+  // (Elio or Mandy) — the pay goes to that person at the Indigo rate.
+  painting_indigo: {
+    wizard: "indigo.painter.done.wizard",
+    title: "Mark painted",
+    description:
+      "Choose who painted it and confirm. Order moves to Ready for Installation.",
+    submitLabel: "Save & advance to Ready for Installation",
+    withPhoto: true,
+    choosePainterFrom: "indigo",
   },
   install_scheduled: {
     wizard: "indigo.installed.wizard",

@@ -514,7 +514,7 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "advance_order",
     title: "Advance an order to its next stage",
     description:
-      "Moves ONE order forward in production by describing what actually happened — never by naming an Odoo model or wizard. The server picks the right step from the order's CURRENT stage and the 'outcome' you give it, and refuses (code CONFLICTO) if the order isn't in the stage that outcome applies to — call get_order first if you're not sure which stage it's in. Preview-then-confirm like every write tool here (see 'confirm'); the preview also tells you if this step will trigger a contractor payout or an email notification, so nothing is a surprise on confirm. Valid 'outcome' values: 'measurements_taken' (Measurement Pending -> Measured; installers/office/manager only; needs 'line_dimensions' with real width/height for every piece, inches), 'digitalization_done' (Ready for Digitalization -> CNC; office/manager only, NOT the designer — this emails the Ficha de orden PDF to the order's assigned designer and moves it to CNC; the order MUST already have a designer assigned or this refuses with CONFLICTO telling you to assign one first — never guess a designer; no SQF is entered at this step anymore), 'cnc_done' (CNC -> Painting; CNC/office/manager only; needs 'line_sqf' with the REAL decorated square footage measured for every piece — this number becomes the painter's pay, never estimate or invent it, and the call is refused if any piece is missing it), 'painting_done' (Painting -> Ready for Installation; painter/office/manager only; may generate a painter payout if one is assigned; optional 'photo_base64'), 'installed' (Installation Scheduled -> Installed; the assigned installer, office, or manager only; may generate installer payout(s); optional 'photo_base64'). Does NOT cover invoicing or marking an order paid — money is out of scope for this tool entirely, in every phase this tool exists in today.",
+      "Moves ONE order forward in production by describing what actually happened — never by naming an Odoo model or wizard. The server picks the right step from the order's CURRENT stage and the 'outcome' you give it, and refuses (code CONFLICTO) if the order isn't in the stage that outcome applies to — call get_order first if you're not sure which stage it's in. Preview-then-confirm like every write tool here (see 'confirm'); the preview also tells you if this step will trigger a contractor payout or an email notification, so nothing is a surprise on confirm. Valid 'outcome' values: 'measurements_taken' (Measurement Pending -> Measured; installers/office/manager only; needs 'line_dimensions' with real width/height for every piece, inches), 'digitalization_done' (Ready for Digitalization -> CNC; office/manager only, NOT the designer — this emails the Ficha de orden PDF to the order's assigned designer and moves it to CNC; the order MUST already have a designer assigned or this refuses with CONFLICTO telling you to assign one first — never guess a designer; no SQF is entered at this step anymore), 'cnc_done' (CNC -> one of the two painting stages; CNC/office/manager only; needs 'line_sqf' with the REAL decorated square footage measured for every piece — this number becomes the painter's pay, never estimate or invent it, and the call is refused if any piece is missing it — AND 'paint_stage': 'michel' or 'indigo', which the person decides), 'painting_done' (Painting – Michel or Painting – Indigo -> Ready for Installation; painter/office/manager only; generates the painter's payout at their own rate; from Indigo's stage it needs 'painter_id' — who painted it, Elio or Mandy — ask, never guess; optional 'photo_base64'), 'installed' (Installation Scheduled -> Installed; the assigned installer, office, or manager only; may generate installer payout(s); optional 'photo_base64'). Does NOT cover invoicing or marking an order paid — money is out of scope for this tool entirely, in every phase this tool exists in today.",
     inputSchema: {
       type: "object",
       properties: {
@@ -539,6 +539,15 @@ export const TOOL_DEFS: ToolDef[] = [
           type: "object",
           description: "REQUIRED for outcome 'cnc_done', ignored otherwise. Maps EVERY order-line id (string key — get ids from get_order's 'lines') to its real decorated square footage. Must cover every piece on the order, no more and no less — the tool refuses if any piece is missing, an unknown line id is included, or a value is zero/not a positive number. This is what the painter gets paid on; never estimate or invent it.",
           additionalProperties: { type: "number" },
+        },
+        paint_stage: {
+          type: "string",
+          enum: ["michel", "indigo"],
+          description: "REQUIRED for outcome 'cnc_done', ignored otherwise: which painting stage the door goes to — 'michel' (Painting – Michel) or 'indigo' (Painting – Indigo, where Elio and Mandy paint). Ask the person; never pick one.",
+        },
+        painter_id: {
+          type: "number",
+          description: "For outcome 'painting_done' from Painting – Indigo: the res.partner id of who painted it (Elio or Mandy). Their pay depends on it. If you don't have it, call advance_order without it: the error lists the Indigo painters with their ids — then ask the person which one.",
         },
         line_dimensions: {
           type: "object",
@@ -1289,6 +1298,9 @@ interface AdvanceOutcome {
    *  call shapes this drives. */
   orderMethod?: string;
   fromStageCode: string;
+  /** Other stages the same step also starts from. 'painting_done' leaves
+   *  either painting stage (Michel's or Indigo's, since 2026-09-29). */
+  alsoFromStageCodes?: string[];
   toStageLabel: string;
   actionLabel: string;
   roleHint: string;
@@ -1368,8 +1380,8 @@ export const ADVANCE_OUTCOMES: Record<string, AdvanceOutcome> = {
   cnc_done: {
     wizardModel: "indigo.cnc.done.wizard",
     fromStageCode: "cnc",
-    toStageLabel: "Painting",
-    actionLabel: "registrar el SQF real de cada pieza, marcar el corte CNC como terminado y enviar la orden a Pintura",
+    toStageLabel: "Painting – Michel o Painting – Indigo",
+    actionLabel: "registrar el SQF real de cada pieza, marcar el corte CNC como terminado y enviar la orden a pintura",
     roleHint: "Pueden hacerlo CNC, oficina o gerencia.",
     requiresLineSqf: true,
     allowedRoles: ["isCnc", "isOffice", "isManager"],
@@ -1377,6 +1389,7 @@ export const ADVANCE_OUTCOMES: Record<string, AdvanceOutcome> = {
   painting_done: {
     wizardModel: "indigo.painter.done.wizard",
     fromStageCode: "painting",
+    alsoFromStageCodes: ["painting_indigo"],
     toStageLabel: "Ready for Installation",
     actionLabel: "marcar la pintura como terminada y dejar la orden lista para instalación",
     roleHint: "Pueden hacerlo pintura, oficina o gerencia.",
@@ -1582,7 +1595,7 @@ async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity):
   // assertMayAdvance's doc comment for what that used to cost.
   await assertMayAdvance(outcome, config, id, order, execute);
 
-  if (order.stage_code !== config.fromStageCode) {
+  if (order.stage_code !== config.fromStageCode && !(config.alsoFromStageCodes ?? []).includes(order.stage_code || "")) {
     const currentStage = m2oLabel(order.stage_id) ?? "(sin etapa)";
     throw mcpError(
       "CONFLICTO",
@@ -1638,14 +1651,56 @@ async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity):
   const noteArg = typeof args.note === "string" ? args.note.trim() : "";
   const photoArg = config.supportsPhoto && typeof args.photo_base64 === "string" ? args.photo_base64 : "";
 
+  // Dos etapas de pintura (2026-09-29). Al cerrar el CNC se dice a cual va;
+  // al terminar la de Indigo, quien la pinto (Elio o Mandy): es su pago.
+  let paintStage: "michel" | "indigo" | undefined;
+  if (outcome === "cnc_done") {
+    if (args.paint_stage !== "michel" && args.paint_stage !== "indigo") {
+      throw mcpError(
+        "ENTRADA_INVALIDA",
+        "cnc_done requiere 'paint_stage': 'michel' (Painting – Michel) o 'indigo' (Painting – Indigo). Pregúntale a la persona a cuál va — no lo elijas tú.",
+      );
+    }
+    paintStage = args.paint_stage;
+  }
+  let painterId: number | undefined;
+  let painterLabel: string | undefined;
+  if (outcome === "painting_done" && order.stage_code === "painting_indigo") {
+    const painters = await execute<Array<{ id: number; name: string; shop: string }>>(
+      id.uid,
+      id.apiKey,
+      "indigo.order",
+      "indigo_painters_list",
+      [],
+      {},
+    );
+    const indigo = painters.filter((p) => p.shop === "indigo");
+    const wanted = typeof args.painter_id === "number" ? args.painter_id : Array.isArray(order.painter_id) ? order.painter_id[0] : undefined;
+    const match = indigo.find((p) => p.id === wanted);
+    if (!match) {
+      const names = indigo.map((p) => `${p.name} (id ${p.id})`).join(", ") || "ninguno configurado todavía";
+      throw mcpError(
+        "ENTRADA_INVALIDA",
+        `La orden ${order.name} está en Painting – Indigo: hace falta 'painter_id' con quién la pintó. Pintores de Indigo: ${names}. Pregúntaselo a la persona.`,
+      );
+    }
+    painterId = match.id;
+    painterLabel = match.name;
+  }
+
   const messageParts = [`Orden ${order.name} (${order.client_name}): ${config.actionLabel}.`];
+  if (paintStage) {
+    messageParts.push(`Va a ${paintStage === "indigo" ? "Painting – Indigo" : "Painting – Michel"}.`);
+  }
   if (config.orderMethod === "action_send_to_designer" && order.designer_id) {
     messageParts.push(
       `Se enviará la Ficha de orden (PDF) por correo a ${m2oLabel(order.designer_id)} y la orden pasará a CNC.`,
     );
   }
-  if (config.triggersPayoutFor === "painter" && order.painter_id) {
-    messageParts.push(`Esto generará un pago borrador para el pintor asignado (${m2oLabel(order.painter_id)}).`);
+  if (config.triggersPayoutFor === "painter" && (painterLabel || order.painter_id)) {
+    messageParts.push(
+      `Esto generará un pago borrador para ${painterLabel ?? m2oLabel(order.painter_id)}, con su tarifa por SQF.`,
+    );
   }
   if (config.triggersPayoutFor === "installer" && order.installer_ids.length > 0) {
     messageParts.push(
@@ -1696,6 +1751,8 @@ async function planAdvanceOrder(args: Record<string, unknown>, id: McpIdentity):
           const payload: Record<string, unknown> = { order_id: orderId };
           if (noteArg) payload.note = noteArg;
           if (photoArg) payload.photo = photoArg;
+          if (paintStage) payload.paint_stage = paintStage;
+          if (painterId) payload.painter_id = painterId;
           const wizardId = await execute<number>(id.uid, id.apiKey, config.wizardModel, "create", [payload], {});
           await execute(id.uid, id.apiKey, config.wizardModel, "action_save_and_advance", [[wizardId]], {});
         }

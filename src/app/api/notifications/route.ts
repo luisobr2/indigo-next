@@ -191,7 +191,7 @@ export async function GET() {
         }
       : role.isPainter
         ? {
-            stages: ["painting"],
+            stages: ["painting", "painting_indigo"],
             label: "Painting",
             href: "/paint",
           }

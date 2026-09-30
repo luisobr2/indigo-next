@@ -19,6 +19,8 @@ interface RateRow {
   bonus_amount: number;
   bonus_unit: "order" | "door";
   active: boolean;
+  /** Painters only: which painting stage the person paints in. */
+  paint_shop?: "michel" | "indigo" | false | null;
 }
 
 /** Read once for the GET and again after a save — keep the two in step. */
@@ -33,6 +35,7 @@ const RATE_FIELDS = [
   "bonus_amount",
   "bonus_unit",
   "active",
+  "paint_shop",
 ];
 
 /** Parse a raw param string to a positive number, else fall back. */
@@ -219,6 +222,9 @@ export async function PUT(req: NextRequest) {
           bonus_amount: r.bonus_amount ?? 0,
           bonus_unit: r.bonus_unit ?? "order",
           active: r.active ?? true,
+          // El taller solo tiene sentido en la regla de UN pintor (Michel,
+          // Elio, Mandy): es lo que lo pone en la lista de pintores.
+          paint_shop: r.contractor_type === "painter" && r.partner_id ? r.paint_shop || false : false,
         };
         if (r.id) {
           await call({

@@ -103,8 +103,15 @@ const RECIPES: Record<string, Recipe> = {
   painting: {
     icon: Wand2,
     tone: "warn",
-    title: "Painter has the pieces",
+    title: "Michel has the pieces",
     hint: "Once the pieces come back, mark received from the Paint screen or here.",
+    cta: "Open Painting wizard",
+  },
+  painting_indigo: {
+    icon: Wand2,
+    tone: "warn",
+    title: "Painting at Indigo",
+    hint: "When it's painted, mark it done and choose who painted it (Elio or Mandy): their pay depends on it.",
     cta: "Open Painting wizard",
   },
   ready_install: {

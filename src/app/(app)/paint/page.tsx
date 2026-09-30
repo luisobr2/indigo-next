@@ -30,6 +30,8 @@ import { fetchJson } from "@/lib/fetch-json";
 import { colorLabel, doorTypeLabel } from "@/lib/labels";
 import { toCsv, downloadCsv } from "@/lib/csv";
 import { openOdooReport, REPORTS } from "@/lib/odoo-pdf";
+import { PAINT_SHOP_LABEL, PAINT_STAGE_OF_SHOP, type PaintShop } from "@/lib/stages";
+import { cn } from "@/lib/utils";
 
 /** Fallback ONLY for the first render, before /api/pay-rules answers. The
  *  real number comes from the configured painter rule — this sheet is a
@@ -46,6 +48,7 @@ interface PaintRow {
   client_name: string;
   door_count: number;
   total_sqf: number;
+  painter_id?: [number, string] | false;
   first_line?: {
     id: number;
     design_id: [number, string] | false;
@@ -76,7 +79,11 @@ interface PaintCol {
 }
 // Fabrica en vez de constante: las columnas de precio dependen de la
 // tarifa configurada, que se conoce recien despues del fetch.
-const buildPaintColumns = (PAINT_RATE: number): PaintCol[] => [
+const money2 = (n: number | null) => (n == null ? "—" : `$${n.toFixed(2)}`);
+const buildPaintColumns = (
+  rateOf: (r: PaintRow) => number | null,
+  painterCell: (r: PaintRow) => ReactNode,
+): PaintCol[] => [
   {
     key: "company",
     label: "Company",
@@ -129,6 +136,15 @@ const buildPaintColumns = (PAINT_RATE: number): PaintCol[] => [
     sortVal: (r) => doorTypeLabel(r.first_line?.door_type),
   },
   {
+    // Quien la pinta. En la pestana de Indigo se elige aqui (Elio o Mandy):
+    // su pago y el precio de la hoja salen de ese dato.
+    key: "painter",
+    label: "Painted by",
+    cell: painterCell,
+    print: (r) => (Array.isArray(r.painter_id) ? r.painter_id[1] : ""),
+    sortVal: (r) => (Array.isArray(r.painter_id) ? r.painter_id[1] : "").toLowerCase(),
+  },
+  {
     key: "sqf",
     label: "SQF",
     align: "right",
@@ -150,18 +166,23 @@ const buildPaintColumns = (PAINT_RATE: number): PaintCol[] => [
     key: "price",
     label: "Price (USD) / SQF",
     align: "right",
-    cell: () => <span className="font-mono">${PAINT_RATE.toFixed(2)}</span>,
-    print: () => PAINT_RATE.toFixed(2),
+    cell: (r) => <span className="font-mono">{money2(rateOf(r))}</span>,
+    print: (r) => (rateOf(r) == null ? "" : rateOf(r)!.toFixed(2)),
   },
   {
     key: "total",
     label: "Total (USD)",
     align: "right",
-    cell: (r) => (
-      <span className="font-bold text-emerald-700">{fmtMoney((r.total_sqf || 0) * PAINT_RATE)}</span>
-    ),
-    print: (r) => ((r.total_sqf || 0) * PAINT_RATE).toFixed(2),
-    sortVal: (r) => (r.total_sqf || 0) * PAINT_RATE,
+    cell: (r) => {
+      const rate = rateOf(r);
+      return (
+        <span className="font-bold text-emerald-700">
+          {rate == null ? "—" : fmtMoney((r.total_sqf || 0) * rate)}
+        </span>
+      );
+    },
+    print: (r) => (rateOf(r) == null ? "" : ((r.total_sqf || 0) * rateOf(r)!).toFixed(2)),
+    sortVal: (r) => (r.total_sqf || 0) * (rateOf(r) ?? 0),
   },
   {
     key: "design",
@@ -192,7 +213,7 @@ const buildPaintColumns = (PAINT_RATE: number): PaintCol[] => [
   },
 ];
 // Las claves no dependen de la tarifa; cualquier valor sirve para leerlas.
-const PAINT_COL_DEFAULT = buildPaintColumns(0).map((c) => c.key);
+const PAINT_COL_DEFAULT = buildPaintColumns(() => 0, () => null).map((c) => c.key);
 const PAINT_COLS_KEY = "indigo:paint-cols";
 
 export default function PaintPage() {
@@ -208,7 +229,64 @@ export default function PaintPage() {
   const PAINT_RATE =
     payRulesQ.data?.rules.find((r) => r.contractorType === "painter" && r.partnerId === null)
       ?.ratePerDoor ?? PAINT_RATE_PLACEHOLDER;
-  const PAINT_COLUMNS = useMemo(() => buildPaintColumns(PAINT_RATE), [PAINT_RATE]);
+
+  // Dos etapas de pintura (2026-09-29): la pestana elige cual se ve.
+  const [shop, setShop] = useState<PaintShop>("michel");
+  const painterListQ = useQuery<{ painters: Array<{ id: number; name: string; shop?: PaintShop }> }>({
+    queryKey: ["contractors"],
+    queryFn: () => fetchJson("/api/contractors"),
+    staleTime: 60_000,
+  });
+  const shopPainters = (painterListQ.data?.painters ?? []).filter((p) => p.shop === shop);
+  async function assignPainter(orderId: number, painterId: number | null) {
+    try {
+      await fetchJson(`/api/orders/${orderId}/assign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ painter_id: painterId }),
+      });
+      qc.invalidateQueries({ queryKey: ["paint"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't assign the painter");
+    }
+  }
+  // La tarifa de cada puerta es la de su pintor (Michel $8, Elio y Mandy $4).
+  // En Indigo, sin pintor elegido todavia no hay precio.
+  const rateOf = (r: PaintRow): number | null => {
+    const pid = Array.isArray(r.painter_id) ? r.painter_id[0] : null;
+    const own = pid != null
+      ? payRulesQ.data?.rules.find((x) => x.contractorType === "painter" && x.partnerId === pid)
+      : undefined;
+    if (own) return own.ratePerDoor;
+    if (shop === "indigo") return pid != null ? PAINT_RATE : null;
+    return PAINT_RATE;
+  };
+  const painterCell = (r: PaintRow): ReactNode => {
+    const current = Array.isArray(r.painter_id) ? r.painter_id : null;
+    if (shop !== "indigo") {
+      return <span className="text-slate-700">{current ? current[1] : "—"}</span>;
+    }
+    return (
+      <select
+        aria-label={`Who painted ${r.dealer_ref || r.name}`}
+        value={current ? current[0] : ""}
+        onChange={(e) => assignPainter(r.id, e.target.value ? Number(e.target.value) : null)}
+        className={cn(
+          "h-9 rounded-lg border bg-white px-2 text-sm",
+          current ? "border-slate-200 text-slate-800" : "border-amber-300 text-amber-800",
+        )}
+      >
+        <option value="">Choose…</option>
+        {shopPainters.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+    );
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const PAINT_COLUMNS = useMemo(() => buildPaintColumns(rateOf, painterCell), [PAINT_RATE, shop, payRulesQ.data, painterListQ.data]);
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [marking, setMarking] = useState(false);
@@ -229,13 +307,25 @@ export default function PaintPage() {
   }
 
   const { data, isLoading } = useQuery<{ records: PaintRow[]; total: number }>({
-    queryKey: ["paint", q],
+    queryKey: ["paint", shop, q],
     queryFn: () => {
       const url = new URL("/api/orders", window.location.origin);
-      url.searchParams.set("stage", "painting");
+      url.searchParams.set("stage", PAINT_STAGE_OF_SHOP[shop]);
       url.searchParams.set("include", "lines");
       url.searchParams.set("limit", "200");
       if (q) url.searchParams.set("q", q);
+      return fetch(url).then((r) => r.json());
+    },
+  });
+
+  // Cuantas puertas hay en la OTRA pestana, para su contador.
+  const otherShop: PaintShop = shop === "michel" ? "indigo" : "michel";
+  const otherQ = useQuery<{ total: number }>({
+    queryKey: ["paint", otherShop, "count"],
+    queryFn: () => {
+      const url = new URL("/api/orders", window.location.origin);
+      url.searchParams.set("stage", PAINT_STAGE_OF_SHOP[otherShop]);
+      url.searchParams.set("limit", "1");
       return fetch(url).then((r) => r.json());
     },
   });
@@ -252,9 +342,10 @@ export default function PaintPage() {
     const col = PAINT_COLUMNS.find((c) => c.key === sort.key);
     if (!col?.sortVal) return rows;
     return sortRows(rows, col.sortVal, sort.dir);
-  }, [rows, sort]);
+  }, [rows, sort, PAINT_COLUMNS]);
   const totalSqf = rows.reduce((s, r) => s + (r.total_sqf || 0), 0);
-  const totalAmount = totalSqf * PAINT_RATE;
+  const totalAmount = rows.reduce((s, r) => s + (r.total_sqf || 0) * (rateOf(r) ?? 0), 0);
+  const unassigned = shop === "indigo" ? rows.filter((r) => !Array.isArray(r.painter_id)) : [];
 
   function toggleOne(id: number) {
     setSelected((prev) => {
@@ -279,6 +370,13 @@ export default function PaintPage() {
     if (marking) return;
     const ids = Array.from(selected);
     if (!ids.length) return;
+    const missing = rows.filter((r) => selected.has(r.id) && shop === "indigo" && !Array.isArray(r.painter_id));
+    if (missing.length) {
+      toast.error(
+        `Choose who painted ${missing.map((r) => r.dealer_ref || r.name).join(", ")} before marking ${missing.length === 1 ? "it" : "them"} received.`,
+      );
+      return;
+    }
     // Resolve the target stage BEFORE flipping `marking` — otherwise an
     // early return here would leave the button stuck on "Marking…" forever.
     const readyStage = stagesQ.data?.records?.find(
@@ -337,7 +435,7 @@ export default function PaintPage() {
         print: c.print,
       }));
     const ok = printTable({
-      title: "Indigo Decors — Paint worksheet",
+      title: `Indigo Decors — Paint worksheet · ${PAINT_SHOP_LABEL[shop]}`,
       subtitle: `${sortedRows.length} order${sortedRows.length === 1 ? "" : "s"}${q ? ` · filter “${q}”` : ""} · Total SQF ${fmtNum(totalSqf)} · ${fmtMoney(totalAmount)}`,
       columns: cols,
       rows: sortedRows,
@@ -354,7 +452,9 @@ export default function PaintPage() {
             Paint
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Painting worksheet. SQF × ${PAINT_RATE.toFixed(2)} per SQF.
+            {shop === "michel"
+              ? `Michel's painting worksheet. SQF × $${PAINT_RATE.toFixed(2)} per SQF.`
+              : "Indigo's painting worksheet. Choose who painted each door: it sets the price per SQF."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -403,14 +503,15 @@ export default function PaintPage() {
                   header: "Door Sides",
                   value: (r) => r.first_line?.paint_sides ?? 2,
                 },
-                { header: "Price / SQF (USD)", value: () => PAINT_RATE },
+                { header: "Painted by", value: (r) => (Array.isArray(r.painter_id) ? r.painter_id[1] : "") },
+                { header: "Price / SQF (USD)", value: (r) => rateOf(r) ?? "" },
                 {
                   header: "Total (USD)",
-                  value: (r) => (r.total_sqf || 0) * PAINT_RATE,
+                  value: (r) => (rateOf(r) == null ? "" : (r.total_sqf || 0) * rateOf(r)!),
                 },
               ]);
               downloadCsv(
-                `paint-sheet-${new Date().toISOString().slice(0, 10)}.csv`,
+                `paint-sheet-${shop}-${new Date().toISOString().slice(0, 10)}.csv`,
                 csv,
               );
               toast.success(`Exported ${rows.length} rows`);
@@ -426,7 +527,7 @@ export default function PaintPage() {
               openOdooReport({
                 report: REPORTS.painterSheet,
                 ids: rows.map((r) => r.id),
-                filename: `paint-sheet-${new Date().toISOString().slice(0, 10)}.pdf`,
+                filename: `paint-sheet-${shop}-${new Date().toISOString().slice(0, 10)}.pdf`,
               });
             }}
           >
@@ -435,12 +536,54 @@ export default function PaintPage() {
         </div>
       </header>
 
+      {/* Las dos etapas de pintura: Michel e Indigo. */}
+      <div className="flex flex-wrap gap-1 border-b border-slate-200" role="tablist" aria-label="Painting stage">
+        {(["michel", "indigo"] as const).map((k) => {
+          const count = k === shop ? rows.length : otherQ.data?.total;
+          return (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={shop === k}
+              onClick={() => {
+                setShop(k);
+                setSelected(new Set());
+              }}
+              className={cn(
+                "inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-semibold transition",
+                shop === k ? "border-indigo-700 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-800",
+              )}
+            >
+              Painting – {PAINT_SHOP_LABEL[k]}
+              {count != null && (
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 text-[11px] tabular-nums",
+                    shop === k ? "bg-indigo-50 text-indigo-700" : "bg-slate-100 text-slate-500",
+                  )}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Stats bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white px-5 py-3 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
           <span className="inline-block rounded-xl bg-indigo-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-indigo-800">
-            Paint price: ${PAINT_RATE.toFixed(2)} per SQF
+            {shop === "michel"
+              ? `Paint price: $${PAINT_RATE.toFixed(2)} per SQF`
+              : "Paint price: each painter's rate per SQF"}
           </span>
+          {unassigned.length > 0 && (
+            <span className="rounded-xl bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800">
+              {unassigned.length} without painter — choose Elio or Mandy
+            </span>
+          )}
           {selected.size > 0 && (
             <>
               <Badge
@@ -533,18 +676,23 @@ export default function PaintPage() {
                 { label: "SQF", value: (r.total_sqf || 0).toFixed(2), strong: true },
                 {
                   label: "Total",
-                  value: fmtMoney((r.total_sqf || 0) * PAINT_RATE),
+                  value: rateOf(r) == null ? "—" : fmtMoney((r.total_sqf || 0) * rateOf(r)!),
                   strong: true,
                 },
+                { label: "Painted by", value: painterCell(r) },
                 { label: "Sides", value: String(r.first_line?.paint_sides ?? 2) },
               ]}
               action={
-                <QuickStageActionButton
-                  orderId={r.id}
-                  targetStageCode="ready_install"
-                  label="Received"
-                  loadingVerb="Marking received"
-                />
+                shop === "indigo" && !Array.isArray(r.painter_id) ? (
+                  <span className="text-xs font-medium text-amber-700">Choose who painted it first</span>
+                ) : (
+                  <QuickStageActionButton
+                    orderId={r.id}
+                    targetStageCode="ready_install"
+                    label="Received"
+                    loadingVerb="Marking received"
+                  />
+                )
               }
             />
           ))}
@@ -625,12 +773,16 @@ export default function PaintPage() {
                       </td>
                     ))}
                     <td className="px-4 py-3 text-center">
-                      <QuickStageActionButton
-                        orderId={r.id}
-                        targetStageCode="ready_install"
-                        label="Received"
-                        loadingVerb="Marking received"
-                      />
+                      {shop === "indigo" && !Array.isArray(r.painter_id) ? (
+                        <span className="text-xs font-medium text-amber-700">Choose painter</span>
+                      ) : (
+                        <QuickStageActionButton
+                          orderId={r.id}
+                          targetStageCode="ready_install"
+                          label="Received"
+                          loadingVerb="Marking received"
+                        />
+                      )}
                     </td>
                   </tr>
                 );

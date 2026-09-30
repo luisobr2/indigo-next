@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
+import { deriveRole } from "@/lib/odoo/types";
+import { loadConfiguredPainters } from "@/lib/painters";
 
 export const runtime = "nodejs";
 
@@ -94,9 +96,26 @@ export async function GET() {
         login: u.login,
       }));
 
+    // Since the two painting stages, the painters are the people with their
+    // own painter rule and a shop (see src/lib/painters.ts); the group-based
+    // list stays as the fallback for a base where none is configured yet.
+    // A painter's rate is compensation: only office/manager see it, the
+    // same line /api/pay-rules draws. Everyone else gets names and shops.
+    const role = deriveRole(s.user.groups);
+    const seesRates = role.isManager || role.isOffice || s.user.isAdmin;
+    const configured = (await loadConfiguredPainters(s.session)).map((p) =>
+      seesRates ? p : { id: p.id, name: p.name, shop: p.shop },
+    );
+    // Whoever can be made a painter in Settings: today's painters plus the
+    // installers (Elio and Mandy install AND paint at Indigo).
+    const seen = new Set<number>();
+    const painterCandidates = [...configured, ...painters, ...installers]
+      .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
+      .map((p) => ({ id: p.id, name: p.name }));
     return NextResponse.json({
-      painters,
+      painters: configured.length ? configured : painters,
       installers,
+      painterCandidates,
       rateCount: rates.length,
     });
   } catch (e) {

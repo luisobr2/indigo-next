@@ -30,6 +30,7 @@ const STAGE_ORDER = [
   "ready_digitalization",
   "cnc",
   "painting",
+  "painting_indigo",
   "ready_install",
   "install_scheduled",
   "installed",
@@ -45,7 +46,8 @@ const STAGE_LABEL: Record<string, string> = {
   measured: "Measured",
   ready_digitalization: "Ready for Digitalization",
   cnc: "CNC / Router",
-  painting: "Painting",
+  painting: "Painting – Michel",
+  painting_indigo: "Painting – Indigo",
   ready_install: "Ready for Installation",
   install_scheduled: "Installation Scheduled",
   installed: "Installed",
@@ -193,10 +195,17 @@ export async function GET(
       ready_digitalization: order.digi_started_at,
       cnc: order.cnc_started_at,
       painting: order.paint_started_at,
+      painting_indigo: order.paint_started_at,
       installed: order.installation_date,
     };
 
-    const timeline = STAGE_ORDER.map((code) => {
+    // A door is painted in ONE of the two shops: show that one and leave
+    // the other out, or the timeline would always carry a "Pending" stage
+    // the door will never go through. Michel's until Indigo's shows up.
+    const wentToIndigo = order.stage_code === "painting_indigo" || enteredAt.has("painting_indigo");
+    const skipped = wentToIndigo ? "painting" : "painting_indigo";
+
+    const timeline = STAGE_ORDER.filter((code) => code !== skipped).map((code) => {
       const explicitDate = explicit[code];
       const trackingDate = enteredAt.get(code);
       const date =

@@ -49,6 +49,7 @@ function sugerido(stageCode?: string): Kind {
       return "received";
     case "cnc":
     case "painting":
+    case "painting_indigo":
     case "ready_digitalization":
       return "production";
     case "ready_install":

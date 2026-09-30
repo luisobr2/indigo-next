@@ -42,7 +42,7 @@ export async function GET() {
         session: s.session,
         model: "indigo.order",
         method: "search_read",
-        args: [[["stage_id.code", "=", "painting"]]],
+        args: [[["stage_id.code", "in", ["painting", "painting_indigo"]]]],
         kwargs: { fields: ["total_sqf"] },
       });
       paintingSqf = Math.round(rows.reduce((t, r) => t + (r.total_sqf || 0), 0));

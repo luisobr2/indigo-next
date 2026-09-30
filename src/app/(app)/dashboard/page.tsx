@@ -19,6 +19,7 @@ import { DashboardSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { fmtMoney, fmtNum, fmtDateTime, fmtAxisMoney } from "@/lib/utils";
 import { SHOP_TIME_ZONE } from "@/lib/shop-time";
+import { isPaintStage } from "@/lib/stages";
 import {
   BarChart,
   Bar,
@@ -243,7 +244,7 @@ export default function DashboardPage() {
         <KpiCard
           label="Painting"
           value={fmtNum(
-            d.pipeline.find((p) => p.code === "painting")?.count ?? 0,
+            d.pipeline.filter((p) => isPaintStage(p.code)).reduce((n, p) => n + (p.count ?? 0), 0),
           )}
           icon={Brush}
           iconBg="bg-orange-50"

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 import { deriveRole } from "@/lib/odoo/types";
+import { loadConfiguredPainters } from "@/lib/painters";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,8 @@ export const runtime = "nodejs";
  * POST → applies the assignment and returns the counts that were touched
  */
 
+// Sin "painting_indigo": ahi pintan Elio o Mandy y eso lo decide una persona,
+// no esta ruta. En las demas, el pintor por defecto es el del taller de Michel.
 const PAINTER_STAGES = ["cnc", "painting", "ready_install", "install_scheduled", "installed", "invoiced"];
 const INSTALLER_STAGES = ["ready_install", "install_scheduled", "installed", "invoiced"];
 
@@ -76,11 +79,16 @@ async function getContractorPartners(session: string) {
   const installers = users
     .filter((u) => u.partner_id && u.groups_id.some((g) => installerGroupIds.includes(g)))
     .sort((a, b) => a.id - b.id);
+  // Pintores configurados (con taller) si los hay, Michel primero: es el
+  // que se pone por defecto. Si no, los usuarios del grupo Pintor.
+  const configured = (await loadConfiguredPainters(session)).filter((p) => p.shop === "michel");
   return {
-    painters: painters.map((u) => ({
-      id: (u.partner_id as [number, string])[0],
-      name: u.name,
-    })),
+    painters: configured.length
+      ? configured.map((p) => ({ id: p.id, name: p.name }))
+      : painters.map((u) => ({
+          id: (u.partner_id as [number, string])[0],
+          name: u.name,
+        })),
     installers: installers.map((u) => ({
       id: (u.partner_id as [number, string])[0],
       name: u.name,

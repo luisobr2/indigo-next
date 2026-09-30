@@ -58,6 +58,7 @@ export const STAGE_BADGE: Record<string, string> = {
   ready_digitalization: "bg-cyan-50 text-cyan-700",
   cnc: "bg-violet-50 text-violet-700",
   painting: "bg-pink-50 text-pink-700",
+  painting_indigo: "bg-fuchsia-50 text-fuchsia-700",
   ready_install: "bg-sky-50 text-sky-700",
   install_scheduled: "bg-blue-50 text-blue-700",
   installed: "bg-emerald-50 text-emerald-700",

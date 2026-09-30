@@ -160,6 +160,7 @@ export async function GET(req: NextRequest) {
           ready_digitalization: "digi",
           cnc: "cnc",
           painting: "paint",
+          painting_indigo: "paint",
         };
         const prefix = prefixMap[stage];
         if (prefix) {

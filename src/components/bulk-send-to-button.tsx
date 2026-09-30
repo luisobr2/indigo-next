@@ -60,7 +60,7 @@ const STAGE_GROUPS: Array<{ label: string; codes: string[] }> = [
   },
   {
     label: "Production",
-    codes: ["ready_digitalization", "cnc", "painting"],
+    codes: ["ready_digitalization", "cnc", "painting", "painting_indigo"],
   },
   {
     label: "Installation",

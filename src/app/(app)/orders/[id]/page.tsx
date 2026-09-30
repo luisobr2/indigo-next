@@ -45,6 +45,7 @@ import { NextActionCard } from "@/components/next-action-card";
 import { OrderInvoiceCard } from "@/components/billing/order-invoice-card";
 import { useOrderBilling } from "@/components/billing/invoice-bits";
 import { orderBillingNext, type BillingNext } from "@/lib/billing/invoice";
+import { isPaintStage } from "@/lib/stages";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { deriveRole } from "@/lib/odoo/types";
@@ -304,7 +305,7 @@ export default function OrderDetailPage({
             </h1>
             <span
               className={`inline-block rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${
-                o.stage_code === "painting"
+                isPaintStage(o.stage_code)
                   ? "bg-orange-50 text-orange-700"
                   : "bg-indigo-50 text-indigo-700"
               }`}
@@ -574,7 +575,7 @@ export default function OrderDetailPage({
       <StockMatchBanner
         orderId={parseInt(id, 10)}
         disabled={
-          ["cnc", "painting", "ready_install", "install_scheduled", "installed", "invoiced", "closed"].includes(o.stage_code)
+          ["cnc", "painting", "painting_indigo", "ready_install", "install_scheduled", "installed", "invoiced", "closed"].includes(o.stage_code)
         }
       />
 
@@ -987,7 +988,7 @@ export default function OrderDetailPage({
                   <span
                     className={cn(
                       "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
-                      o.stage_code === "painting"
+                      isPaintStage(o.stage_code)
                         ? "bg-orange-50 text-orange-700"
                         : "bg-indigo-50 text-indigo-700",
                     )}

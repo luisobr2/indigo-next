@@ -48,6 +48,7 @@ interface RateRow {
   bonus_amount: number;
   bonus_unit: "order" | "door";
   active: boolean;
+  paint_shop?: "michel" | "indigo" | false | null;
 }
 
 interface ContractorOption {
@@ -75,6 +76,8 @@ interface DraftRate {
   bonus_amount: number;
   bonus_unit: "order" | "door";
   active: boolean;
+  /** Painters only: the painting stage this person paints in. */
+  paint_shop?: "michel" | "indigo" | false | null;
 }
 
 interface SettingsData {
@@ -100,6 +103,7 @@ export default function SettingsPage() {
   const { data: people } = useQuery<{
     painters: ContractorOption[];
     installers: ContractorOption[];
+    painterCandidates?: ContractorOption[];
   }>({
     queryKey: ["contractors"],
     queryFn: async () => {
@@ -187,6 +191,7 @@ export default function SettingsPage() {
         bonus_amount: Number(r.bonus_amount) || 0,
         bonus_unit: r.bonus_unit,
         active: r.active,
+        paint_shop: r.paint_shop || false,
       })),
     };
     const promise = fetch("/api/settings", {
@@ -357,6 +362,8 @@ export default function SettingsPage() {
           onUpdate={updateRate}
           onDelete={deleteRate}
           onAdd={() => addRate("painter")}
+          people={people?.painterCandidates ?? people?.painters ?? []}
+          showPaintShop
         />
         <RateGroup
           title="Installers"
@@ -590,6 +597,7 @@ function RateGroup({
   onAdd,
   people = [],
   showDayRule = false,
+  showPaintShop = false,
 }: {
   title: string;
   icon: typeof Settings;
@@ -603,6 +611,9 @@ function RateGroup({
   /** Installers are paid by the DAY, so their rules carry a floor and a
    *  travel bonus. Painters are still paid straight per SQF. */
   showDayRule?: boolean;
+  /** Painters: the shop each person paints in (Michel or Indigo). A painter
+   *  with a shop is one of the painters offered on an order. */
+  showPaintShop?: boolean;
 }) {
   return (
     <div className="mt-6 first:mt-0">
@@ -648,7 +659,7 @@ function RateGroup({
                 onValueChange={(v) => onUpdate(i, { rate_unit: v as "sqf" | "piece" })}
               >
                 <SelectTrigger className="h-8 w-auto text-xs">
-                  <SelectValue />
+                  <SelectValue>{r.rate_unit === "sqf" ? "SQF" : "piece"}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="sqf">SQF</SelectItem>
@@ -695,7 +706,7 @@ function RateGroup({
                     }
                   >
                     <SelectTrigger className="h-8 w-auto text-xs">
-                      <SelectValue />
+                      <SelectValue>{r.bonus_unit === "door" ? "per door" : "per install"}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="order">per install</SelectItem>
@@ -716,7 +727,11 @@ function RateGroup({
                     }
                   >
                     <SelectTrigger className="h-8 w-auto text-xs">
-                      <SelectValue />
+                      <SelectValue>
+                        {r.partner_id == null
+                          ? "Everyone else"
+                          : (people.find((p) => p.id === r.partner_id)?.name ?? `Contact #${r.partner_id}`)}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__default__">Everyone else</SelectItem>
@@ -725,6 +740,32 @@ function RateGroup({
                           {p.name}
                         </SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
+              {showPaintShop && r.partner_id != null && (
+                <>
+                  <span className="text-slate-300">|</span>
+                  <Select
+                    value={r.paint_shop || "__none__"}
+                    onValueChange={(v) =>
+                      onUpdate(i, { paint_shop: v === "__none__" ? false : (v as "michel" | "indigo") })
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-auto text-xs" aria-label="Paints at">
+                      <SelectValue>
+                        {r.paint_shop === "michel"
+                          ? "Paints at Michel"
+                          : r.paint_shop === "indigo"
+                            ? "Paints at Indigo"
+                            : "Not a painter"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Not a painter</SelectItem>
+                      <SelectItem value="michel">Paints at Michel</SelectItem>
+                      <SelectItem value="indigo">Paints at Indigo</SelectItem>
                     </SelectContent>
                   </Select>
                 </>
