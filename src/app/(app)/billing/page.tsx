@@ -3,17 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
-import {
-  ArrowDownCircle,
-  ArrowUpCircle,
-  Brush,
-  Truck,
-  ChevronRight,
-  Receipt,
-  FileText,
-  CheckCircle2,
-  Printer,
-} from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, Brush, CheckCircle2, ChevronRight, FileText, Printer, Receipt, Truck, Users } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -258,12 +248,20 @@ export default function BillingPage() {
           </p>
         </div>
         {invoicingReady && (
-          <Link
-            href="/billing/invoices"
-            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <FileText size={14} /> Invoices
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/billing/dealers"
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Users size={14} /> Dealer billing
+            </Link>
+            <Link
+              href="/billing/invoices"
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <FileText size={14} /> Invoices
+            </Link>
+          </div>
         )}
       </div>
 

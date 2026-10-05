@@ -98,7 +98,8 @@ export function ToInvoicePanel() {
                 <Checkbox checked={allPicked} onCheckedChange={() => toggleAll(g)} aria-label="Select all of this dealer" />
                 <Link
                   href={`/billing/dealers/${dealerId}`}
-                  className="flex-1 font-semibold text-slate-800 hover:text-indigo-700 hover:underline"
+                  className="flex-1 font-semibold text-indigo-800 underline decoration-indigo-200 underline-offset-2 hover:decoration-indigo-700"
+                  title="Billing details: where its invoices are emailed, tax, statement"
                 >
                   {g.dealer ? g.dealer[1] : "No dealer"}
                 </Link>

@@ -133,7 +133,10 @@ export default function DealerStatementPage({ params }: { params: Promise<{ id: 
           dealerId={id}
           initial={d.dealer}
           templates={templates}
-          onSaved={() => qc.invalidateQueries({ queryKey: ["billing-dealer", id] })}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["billing-dealer", id] });
+            qc.invalidateQueries({ queryKey: ["billing-dealers"] });
+          }}
         />
       </div>
     </div>
