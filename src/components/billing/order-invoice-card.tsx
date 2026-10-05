@@ -71,7 +71,24 @@ function Body({
         </ul>
       )}
 
-      {billing.can_create ? (
+      {billing.can_create && billing.marked_by_hand ? (
+        <div className="space-y-2">
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            This order was marked Invoiced / Paid by hand
+            {billing.marked_at ? ` on ${fmtDate(billing.marked_at)}` : ""}, but it has no invoice here. If it was already
+            invoiced in QuickBooks, don&apos;t invoice it again.
+            {billing.paid_by_hand
+              ? " It was also marked as paid: once you issue the invoice, record the payment that was collected."
+              : ""}
+          </p>
+          <Link
+            href={`/billing/invoices/new?orders=${orderId}`}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white shadow shadow-indigo-700/30 hover:bg-indigo-800"
+          >
+            <Plus size={14} /> Create invoice
+          </Link>
+        </div>
+      ) : billing.can_create ? (
         <div className="space-y-2">
           <p className="text-sm text-slate-500">
             {rows.length ? "Its invoice was voided, so it can be invoiced again." : "Installed and not invoiced yet."}

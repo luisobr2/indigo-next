@@ -121,3 +121,12 @@ test("orderBillingNext: a paid invoice leaves nothing to do", () => {
 test("orderBillingNext: invoiced in QuickBooks before the app keeps Mark as paid", () => {
   assert.deepEqual(orderBillingNext("invoiced", "unpaid", ready([], false)), { kind: "mark_paid" });
 });
+
+test("orderBillingNext: an order marked invoiced by hand doesn't push Create invoice as the next step", () => {
+  // Its card offers the invoice (with a warning about QuickBooks); the next
+  // action stays what it was, so the 200+ older ones aren't nudged to bill again.
+  const byHand: OrderBilling = { ready: true, invoices: [], can_create: true, marked_by_hand: true, paid_by_hand: true };
+  assert.deepEqual(orderBillingNext("invoiced", "paid", byHand), { kind: "none" });
+  assert.deepEqual(orderBillingNext("invoiced", "unpaid", { ...byHand, paid_by_hand: false }), { kind: "mark_paid" });
+  assert.deepEqual(orderBillingNext("installed", "unpaid", { ready: true, invoices: [], can_create: true }), { kind: "create" });
+});

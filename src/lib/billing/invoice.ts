@@ -195,8 +195,15 @@ export interface OrderBilling {
   ready: boolean;
   /** The live invoice first, voided ones after. */
   invoices: InvoiceRow[];
-  /** Installed, with no live invoice: the same rule as "To invoice". */
+  /** No live invoice and installed, or marked "Invoiced / Paid" by hand. */
   can_create: boolean;
+  /** In "Invoiced / Paid" with no invoice in the system: billed in QuickBooks
+   *  before the app, or moved there by hand thinking that invoiced it. */
+  marked_by_hand?: boolean;
+  /** When it was marked (Odoo datetime string), if known. */
+  marked_at?: string | false;
+  /** It was also marked paid or partially paid by hand. */
+  paid_by_hand?: boolean;
 }
 
 /**
@@ -230,7 +237,9 @@ export function orderBillingNext(
   const open = live.find((i) => i.state === "posted" && i.residual > 0.005);
   if (open) return { kind: "collect", invoice: open };
   if (live.length) return { kind: "none" };
-  if (billing.can_create) return { kind: "create" };
+  // Only an installed order is nudged to be invoiced: one marked invoiced by
+  // hand may have been billed in QuickBooks (its card offers it, with a warning).
+  if (billing.can_create && stageCode === "installed") return { kind: "create" };
   if (stageCode === "invoiced" && paymentState !== "paid") return { kind: "mark_paid" };
   return { kind: "none" };
 }
