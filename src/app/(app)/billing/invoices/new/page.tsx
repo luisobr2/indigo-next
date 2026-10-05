@@ -50,6 +50,8 @@ function Editor() {
   const [invoiceDate, setInvoiceDate] = useState(shopDateString(new Date()));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The number of an issued invoice being corrected (it keeps it).
+  const [correcting, setCorrecting] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,7 +76,9 @@ function Editor() {
         }
         if (cancelled) return;
         if (!p && !detail) throw new Error("Pick orders from Billing first.");
-        setPreview(p);
+        // Editing: the orders are on THIS invoice, which isn't a problem to warn about.
+        setPreview(p && editId ? { ...p, warnings: p.warnings.filter((w) => !/is already on invoice/i.test(w)) } : p);
+        if (detail?.posted_before && detail.name) setCorrecting(detail.name);
         if (detail) {
           setLines(
             detail.lines.map((l) => ({
@@ -151,8 +155,10 @@ function Editor() {
       }
       qc.invalidateQueries({ queryKey: ["billing-to-invoice"] });
       qc.invalidateQueries({ queryKey: ["billing-invoices"] });
+      // The invoice page reads this one: without it, it showed the old total.
+      qc.invalidateQueries({ queryKey: ["billing-invoice", String(id)] });
       invalidateOrderViews(qc);
-      toast.success("Draft saved");
+      toast.success(correcting ? `Changes saved. Re-issue #${correcting} to finish.` : "Draft saved");
       router.push(`/billing/invoices/${id}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't save the draft");
@@ -174,8 +180,13 @@ function Editor() {
             <ArrowLeft size={12} /> Billing
           </Link>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-            {editId ? "Edit draft invoice" : "New invoice"}
+            {correcting ? `Correct invoice #${correcting}` : editId ? "Edit draft invoice" : "New invoice"}
           </h1>
+          {correcting && (
+            <p className="mt-1 text-sm text-amber-700">
+              Save your changes, then re-issue it from the invoice page: it keeps number #{correcting}.
+            </p>
+          )}
           <p className="mt-1 text-sm text-slate-500">
             {dealer ? (
               <>
@@ -194,7 +205,7 @@ function Editor() {
             <Input id="invoice-date" type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className="h-10 flex-1 sm:w-40 sm:flex-none" />
           </label>
           <Button size="lg" onClick={save} disabled={saving}>
-            <Save size={14} /> {saving ? "Saving…" : "Save draft"}
+            <Save size={14} /> {saving ? "Saving…" : correcting ? "Save changes" : "Save draft"}
           </Button>
         </div>
       </header>

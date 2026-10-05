@@ -15,7 +15,7 @@ import {
 } from "./invoices.ts";
 import { TOOL_DEFS, McpToolError } from "./tools.ts";
 
-const WRITE = ["create_invoice", "update_invoice", "delete_invoice", "issue_invoice", "void_invoice", "record_payment", "send_invoice"];
+const WRITE = ["create_invoice", "update_invoice", "delete_invoice", "issue_invoice", "correct_invoice", "void_invoice", "record_payment", "send_invoice"];
 const READ = ["orders_to_invoice", "find_invoices", "get_invoice", "invoice_pdf_link"];
 
 function rejects(fn: () => unknown, code: string) {

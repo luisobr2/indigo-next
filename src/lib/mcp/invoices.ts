@@ -3,7 +3,7 @@
  * (src/app/(app)/billing/invoices), for the agent. Four reads
  * (orders_to_invoice, find_invoices, get_invoice, invoice_pdf_link) and seven
  * writes (create_invoice, update_invoice, delete_invoice, issue_invoice,
- * void_invoice, record_payment, send_invoice).
+ * correct_invoice, void_invoice, record_payment, send_invoice).
  *
  * Every call goes to the Odoo service `indigo.billing` (addon
  * models/indigo_invoicing.py), the same one the panel's /api/invoicing
@@ -270,8 +270,8 @@ export function statusWord(status: InvoiceRow["status"]): string {
 function formatRow(r: InvoiceRow) {
   return {
     id: r.id,
-    number: r.state !== "draft" ? r.name || null : null,
-    status: statusWord(r.status),
+    number: r.state !== "draft" || r.posted_before ? r.name || null : null,
+    status: r.state === "draft" && r.posted_before ? "Being corrected" : statusWord(r.status),
     dealer: Array.isArray(r.dealer) ? r.dealer[1] : null,
     dealer_id: Array.isArray(r.dealer) ? r.dealer[0] : null,
     invoice_date: r.invoice_date || null,
@@ -299,8 +299,9 @@ function detailLines(inv: InvoiceDetail): DraftLine[] {
 }
 
 /** A draft is named by what it is: Odoo may give it a provisional name. */
-function invoiceLabel(inv: Pick<InvoiceRow, "name" | "state" | "dealer">): string {
+function invoiceLabel(inv: Pick<InvoiceRow, "name" | "state" | "dealer" | "posted_before">): string {
   const dealer = Array.isArray(inv.dealer) ? inv.dealer[1] : "sin dealer";
+  if (inv.state === "draft" && inv.posted_before && inv.name) return `la factura #${inv.name} de ${dealer} (EN CORRECCIÓN)`;
   return inv.state !== "draft" && inv.name ? `la factura #${inv.name} de ${dealer}` : `el BORRADOR de factura de ${dealer}`;
 }
 
@@ -425,7 +426,7 @@ export const INVOICE_TOOL_DEFS: ToolDef[] = [
     name: "update_invoice",
     title: "Change a draft invoice",
     description:
-      "Changes a DRAFT invoice: replaces its lines with the full list you pass (read them with get_invoice, edit, send them all back — lines left out are removed), and/or its photos or its date. An issued invoice can't be changed: void it with void_invoice and create the right one." +
+      "Changes a DRAFT invoice: replaces its lines with the full list you pass (read them with get_invoice, edit, send them all back — lines left out are removed), and/or its photos or its date. An issued invoice is changed by first reopening it with correct_invoice (it keeps its number); after the change, issue it again with issue_invoice." +
       WRITE_NOTE,
     inputSchema: {
       type: "object",
@@ -448,7 +449,7 @@ export const INVOICE_TOOL_DEFS: ToolDef[] = [
     name: "delete_invoice",
     title: "Delete a draft invoice",
     description:
-      "Deletes a DRAFT invoice that was never issued; its orders go back to the 'To invoice' list. It has no number, so nothing is skipped in the numbering. An issued invoice can't be deleted — void it with void_invoice." +
+      "Deletes a DRAFT invoice that was never issued; its orders go back to the 'To invoice' list. It has no number, so nothing is skipped in the numbering. An issued invoice can't be deleted — correct it with correct_invoice or void it with void_invoice." +
       WRITE_NOTE,
     inputSchema: {
       type: "object",
@@ -461,7 +462,7 @@ export const INVOICE_TOOL_DEFS: ToolDef[] = [
     name: "issue_invoice",
     title: "Issue a draft invoice",
     description:
-      "Issues a DRAFT invoice: it takes the next number of the QuickBooks sequence, goes into the accounts, and its orders move to 'Invoiced / Paid'. After that it can't be changed or deleted, only voided. It is NOT emailed: send it afterwards with send_invoice (or the Send button in the app)." +
+      "Issues a DRAFT invoice: it takes the next number of the QuickBooks sequence, goes into the accounts, and its orders move to 'Invoiced / Paid'. After that it can't be deleted; to change it, reopen it with correct_invoice. An invoice being corrected keeps its number when issued again. It is NOT emailed: send it afterwards with send_invoice (or the Send button in the app)." +
       WRITE_NOTE,
     inputSchema: {
       type: "object",
@@ -471,10 +472,27 @@ export const INVOICE_TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: "correct_invoice",
+    title: "Reopen an issued invoice to correct it",
+    description:
+      "Reopens an ISSUED invoice so a wrong detail can be fixed, like editing it in QuickBooks: it goes back to draft KEEPING its number, its orders stay invoiced, and any payments on it are linked again when it is re-issued. Then change it with update_invoice and issue it again with issue_invoice (same number), and send it again with send_invoice so the dealer has the right PDF. Ask the person what is wrong; it is recorded on the invoice." +
+      WRITE_NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoice_id: INVOICE_ID_PROPERTY,
+        reason: { type: "string", description: "What is wrong, in the person's words (e.g. 'misspelled client name'). Optional but recommended." },
+        confirm: CONFIRM_SCHEMA_PROPERTY,
+      },
+      required: ["invoice_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "void_invoice",
     title: "Void an issued invoice",
     description:
-      "Voids an ISSUED invoice that has no payments, like 'Void' in QuickBooks: it keeps its number but stops counting, and its orders go back to 'To invoice' so the right one can be made. Ask the person why; the reason is recorded on the invoice and its orders. With payments recorded it is refused (a manager removes them in Odoo first)." +
+      "Voids an ISSUED invoice (or one being corrected) that has no payments, like 'Void' in QuickBooks: it keeps its number but stops counting, and its orders go back to 'To invoice' so the right one can be made. For a wrong detail (price, name, address, quantity) use correct_invoice instead: it fixes the same invoice and keeps its number. Ask the person why; the reason is recorded on the invoice and its orders. With payments recorded it is refused (a manager removes them in Odoo first)." +
       WRITE_NOTE,
     inputSchema: {
       type: "object",
@@ -676,7 +694,7 @@ function notDraft(inv: InvoiceDetail, what: string): never {
   }
   throw mcpError(
     "RECHAZADO",
-    `La factura #${inv.name} ya está emitida: no se puede ${what}. Si está mal, anúlala con void_invoice y haz la correcta.`,
+    `La factura #${inv.name} ya está emitida: no se puede ${what}. Si tiene un dato mal, ábrela para corregir con correct_invoice (conserva el número); si no va, anúlala con void_invoice.`,
   );
 }
 
@@ -801,6 +819,9 @@ async function planDeleteInvoice(args: Record<string, unknown>, id: McpIdentity)
   await requireOfficeRole(id, "borrar facturas");
   const inv = await detailFor(id, moveId);
   if (inv.state !== "draft") notDraft(inv, "borrar");
+  if (inv.posted_before) {
+    throw mcpError("RECHAZADO", `La factura #${inv.name} ya se emitió una vez (está en corrección): no se borra. Reemítela con issue_invoice o anúlala con void_invoice.`);
+  }
   return {
     message:
       `borrar ${invoiceLabel(inv)} por ${usd(inv.total)} (${ordersLabel(inv.orders)}). ` +
@@ -826,6 +847,16 @@ async function planIssueInvoice(args: Record<string, unknown>, id: McpIdentity):
   const tail =
     ` Sus órdenes pasan a «Invoiced / Paid». Después ya no se puede cambiar ni borrar, solo anular.` +
     ` NO se envía al dealer: el envío es aparte (send_invoice o el botón Send de la app).`;
+  if (inv.posted_before && inv.name) {
+    const again = `REEMITIR la factura #${inv.name} (estaba en corrección): subtotal ${usd(inv.untaxed)}, impuesto ${usd(inv.tax)}, total ${usd(inv.total)}, con ${ordersLabel(inv.orders)}. Conserva su número #${inv.name}; si tenía pagos, vuelven a quedar enlazados. NO se envía: después reenvíala con send_invoice para que el dealer tenga el PDF corregido.`;
+    return {
+      message: again,
+      extra: { ...extra, number: inv.name },
+      execute: async () => {
+        await billing<InvoiceDetail>(id, "indigo_billing_post", [moveId]);
+      },
+    };
+  }
   const plan: WritePlan = {
     message: `${head} Toma el siguiente número de la numeración de QuickBooks (el ${status.next_number}, salvo que ya esté usado).${tail}`,
     extra,
@@ -840,6 +871,37 @@ async function planIssueInvoice(args: Record<string, unknown>, id: McpIdentity):
   return plan;
 }
 
+async function planCorrectInvoice(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
+  const moveId = requireId(args, "invoice_id", "correct_invoice");
+  if (args.reason !== undefined && typeof args.reason !== "string") invalid("'reason' tiene que ser texto.");
+  const reason = typeof args.reason === "string" ? args.reason.trim().slice(0, 500) : "";
+
+  await requireOfficeRole(id, "corregir facturas");
+  const inv = await detailFor(id, moveId);
+  if (inv.state === "draft") {
+    throw mcpError(
+      "RECHAZADO",
+      inv.posted_before
+        ? `La factura #${inv.name} ya está abierta para corregir: cámbiala con update_invoice y reemítela con issue_invoice.`
+        : "Es un borrador: se cambia directamente con update_invoice, no hace falta abrirlo.",
+    );
+  }
+  if (inv.state === "cancel") throw mcpError("RECHAZADO", `La factura #${inv.name} está anulada: no se puede corregir.`);
+  const paid = inv.payments.reduce((s, p) => s + p.amount, 0);
+  return {
+    message:
+      `ABRIR PARA CORREGIR la factura #${inv.name} de ${Array.isArray(inv.dealer) ? inv.dealer[1] : "sin dealer"} (total ${usd(inv.total)}). ` +
+      `Vuelve a borrador CONSERVANDO el número #${inv.name}; ${ordersLabel(inv.orders)} sigue${inv.orders.length === 1 ? "" : "n"} facturada${inv.orders.length === 1 ? "" : "s"}. ` +
+      (paid ? `Tiene ${usd(paid)} en pagos: se vuelven a enlazar al reemitirla. ` : "") +
+      `Después: cámbiala con update_invoice, reemítela con issue_invoice (mismo número) y reenvíala con send_invoice.` +
+      (reason ? ` Motivo: "${reason}".` : ""),
+    extra: { invoice_id: inv.id, number: inv.name },
+    execute: async () => {
+      await billing(id, "indigo_billing_reopen", [moveId, reason || null]);
+    },
+  };
+}
+
 async function planVoidInvoice(args: Record<string, unknown>, id: McpIdentity): Promise<WritePlan> {
   const moveId = requireId(args, "invoice_id", "void_invoice");
   const reason = typeof args.reason === "string" ? args.reason.trim().slice(0, 500) : "";
@@ -847,7 +909,7 @@ async function planVoidInvoice(args: Record<string, unknown>, id: McpIdentity): 
 
   await requireOfficeRole(id, "anular facturas");
   const inv = await detailFor(id, moveId);
-  if (inv.state === "draft") {
+  if (inv.state === "draft" && !inv.posted_before) {
     throw mcpError("RECHAZADO", "Es un borrador, no una factura emitida: no se anula, se borra con delete_invoice.");
   }
   if (inv.state === "cancel") throw mcpError("RECHAZADO", `La factura #${inv.name} ya está anulada.`);
@@ -1009,6 +1071,8 @@ export async function runInvoiceTool(
       return runWriteTool(name, args, id, () => planDeleteInvoice(args, id), now);
     case "issue_invoice":
       return runWriteTool(name, args, id, () => planIssueInvoice(args, id), now);
+    case "correct_invoice":
+      return runWriteTool(name, args, id, () => planCorrectInvoice(args, id), now);
     case "void_invoice":
       return runWriteTool(name, args, id, () => planVoidInvoice(args, id), now);
     case "record_payment":

@@ -41,6 +41,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
+  const [correctOpen, setCorrectOpen] = useState(false);
+  const [correctReason, setCorrectReason] = useState("");
   const [sendOpen, setSendOpen] = useState(false);
   // The same dialog sends an issued invoice, or issues a draft and sends it
   // in one go: what reaches a dealer always carries its number.
@@ -106,6 +108,14 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     if (await act(`/api/invoicing/invoices/${id}/void`, { reason: voidReason.trim() || null }, "Invoice voided")) {
       setVoidOpen(false);
       setVoidReason("");
+    }
+  }
+  // Corregir: vuelve a borrador con su numero y se edita como cualquier borrador.
+  async function correctInvoice() {
+    if (await act(`/api/invoicing/invoices/${id}/reopen`, { reason: correctReason.trim() || null }, "Invoice open for correction")) {
+      setCorrectOpen(false);
+      setCorrectReason("");
+      router.push(`/billing/invoices/new?edit=${id}`);
     }
   }
   function openSend(mode: "send" | "issue-send" = "send") {
@@ -184,7 +194,10 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   }
 
   const isDraft = inv.state === "draft";
-  const title = !isDraft && inv.name ? `Invoice #${inv.name}` : "Draft invoice";
+  // Una factura emitida que se esta corrigiendo: borrador, pero con su numero.
+  const isCorrection = isDraft && !!inv.posted_before && !!inv.name;
+  const title = (!isDraft || isCorrection) && inv.name ? `Invoice #${inv.name}` : "Draft invoice";
+  const issueVerb = isCorrection ? "Re-issue" : "Issue";
   const pdfUrl = `/api/invoicing/invoices/${inv.id}/pdf?v=${pdfKey}`;
   const nextNumber = billingStatus.data?.data.next_number;
   const pdfDownload = (
@@ -205,7 +218,11 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           </Link>
           <h1 className="flex flex-wrap items-center gap-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             {title}
-            <InvoiceStatusBadge status={inv.status} className="text-xs" />
+            {isCorrection ? (
+              <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">Being corrected</span>
+            ) : (
+              <InvoiceStatusBadge status={inv.status} className="text-xs" />
+            )}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             {inv.dealer && (
@@ -220,9 +237,21 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         <div className="flex flex-wrap items-center gap-2">
           {isDraft ? (
             <>
-              <Button variant="outline" size="lg" onClick={() => setConfirmDelete(true)} disabled={busy}>
-                <Trash2 size={14} /> Delete draft
-              </Button>
+              {isCorrection ? (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => setVoidOpen(true)}
+                  disabled={busy}
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                >
+                  <Ban size={14} /> Void
+                </Button>
+              ) : (
+                <Button variant="outline" size="lg" onClick={() => setConfirmDelete(true)} disabled={busy}>
+                  <Trash2 size={14} /> Delete draft
+                </Button>
+              )}
               <Button variant="outline" size="lg" onClick={() => router.push(`/billing/invoices/new?edit=${inv.id}`)} disabled={busy}>
                 <Pencil size={14} /> Edit
               </Button>
@@ -234,15 +263,20 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 disabled={busy}
                 className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
               >
-                <CheckCircle2 size={14} /> Issue invoice
+                <CheckCircle2 size={14} /> {`${issueVerb} invoice`}
               </Button>
               <Button size="lg" onClick={() => openSend("issue-send")} disabled={busy} className="bg-emerald-600 text-white hover:bg-emerald-700">
-                <Mail size={14} /> Issue &amp; send
+                <Mail size={14} /> {`${issueVerb} & send`}
               </Button>
             </>
           ) : (
             <>
               {pdfDownload}
+              {inv.state === "posted" && (
+                <Button variant="outline" size="lg" onClick={() => setCorrectOpen(true)} disabled={busy}>
+                  <Pencil size={14} /> Correct
+                </Button>
+              )}
               {inv.state === "posted" && !inv.payments.length && (
                 <Button
                   variant="outline"
@@ -335,7 +369,13 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-slate-400">{isDraft ? "Issue the invoice to record payments." : "No payments yet."}</p>
+              <p className="text-sm text-slate-400">
+                {isCorrection
+                  ? "Any payments it had are linked again when you re-issue it."
+                  : isDraft
+                    ? "Issue the invoice to record payments."
+                    : "No payments yet."}
+              </p>
             )}
           </section>
 
@@ -352,11 +392,20 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       <Dialog open={confirmIssue} onOpenChange={setConfirmIssue}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Issue this invoice?</DialogTitle>
+            <DialogTitle>{isCorrection ? `Re-issue invoice #${inv.name}?` : "Issue this invoice?"}</DialogTitle>
             <DialogDescription>
-              It gets the next invoice number{nextNumber ? ` (normally #${nextNumber})` : ""} and can no longer be edited or
-              deleted, only voided. Its orders move to Invoiced. Total {money(inv.total)}. It isn&apos;t emailed: use
-              Send afterwards, or Issue &amp; send.
+              {isCorrection ? (
+                <>
+                  It keeps its number #{inv.name}, with the changes you made. Total {money(inv.total)}. It isn&apos;t
+                  emailed: use Send afterwards, or Re-issue &amp; send, so the dealer gets the corrected PDF.
+                </>
+              ) : (
+                <>
+                  It gets the next invoice number{nextNumber ? ` (normally #${nextNumber})` : ""} and can no longer be
+                  edited or deleted, only corrected or voided. Its orders move to Invoiced. Total {money(inv.total)}. It
+                  isn&apos;t emailed: use Send afterwards, or Issue &amp; send.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2">
@@ -364,7 +413,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               Not yet
             </Button>
             <Button onClick={issue} disabled={busy} className="bg-emerald-600 text-white hover:bg-emerald-700">
-              {busy ? "Issuing…" : "Issue invoice"}
+              {busy ? "Issuing…" : `${issueVerb} invoice`}
             </Button>
           </div>
         </DialogContent>
@@ -382,6 +431,39 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             </Button>
             <Button onClick={remove} disabled={busy} className="bg-rose-600 text-white hover:bg-rose-700">
               Delete draft
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Corregir: vuelve a borrador con su numero; al reemitirla lo conserva. */}
+      <Dialog open={correctOpen} onOpenChange={setCorrectOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Correct invoice #{inv.name}?</DialogTitle>
+            <DialogDescription>
+              It goes back to draft so you can fix it, and keeps its number: when you re-issue it, it&apos;s still #
+              {inv.name}. Its orders stay invoiced
+              {inv.payments.length ? " and the payments on it are linked again when you re-issue it" : ""}. Send it again
+              afterwards so the dealer has the right PDF.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="block text-sm font-medium text-slate-700" htmlFor="correct-reason">
+            What&apos;s wrong (optional)
+          </label>
+          <Textarea
+            id="correct-reason"
+            value={correctReason}
+            onChange={(e) => setCorrectReason(e.target.value)}
+            rows={2}
+            placeholder="Wrong price, misspelled name, wrong address…"
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setCorrectOpen(false)}>
+              Keep it
+            </Button>
+            <Button onClick={correctInvoice} disabled={busy}>
+              <Pencil size={14} /> {busy ? "Opening…" : "Correct it"}
             </Button>
           </div>
         </DialogContent>
@@ -421,9 +503,11 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{sendMode === "issue-send" ? "Issue & send this invoice" : `Send invoice #${inv.name}`}</DialogTitle>
+            <DialogTitle>{sendMode === "issue-send" ? `${issueVerb} & send this invoice` : `Send invoice #${inv.name}`}</DialogTitle>
             <DialogDescription>
-              {sendMode === "issue-send"
+              {sendMode === "issue-send" && isCorrection
+                ? `It keeps its number #${inv.name}, with your changes, and is emailed with the PDF and the installation photos attached. Separate addresses with commas.`
+                : sendMode === "issue-send"
                 ? `It gets the next invoice number${nextNumber ? ` (normally #${nextNumber})` : ""} and can no longer be edited or deleted, only voided. Then it's emailed with the PDF and the installation photos attached. Separate addresses with commas.`
                 : "The PDF goes attached, with the installation photos. Separate addresses with commas."}
             </DialogDescription>
@@ -445,7 +529,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             </Button>
             <Button onClick={send} disabled={busy} className={sendMode === "issue-send" ? "bg-emerald-600 text-white hover:bg-emerald-700" : undefined}>
               <Mail size={14} />{" "}
-              {busy ? (sendMode === "issue-send" ? "Issuing & sending…" : "Sending…") : sendMode === "issue-send" ? "Issue & send" : "Send"}
+              {busy ? (sendMode === "issue-send" ? "Issuing & sending…" : "Sending…") : sendMode === "issue-send" ? `${issueVerb} & send` : "Send"}
             </Button>
           </div>
         </DialogContent>

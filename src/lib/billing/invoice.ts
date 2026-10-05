@@ -65,6 +65,9 @@ export interface InvoiceRow {
   residual: number;
   order_names: string[];
   sent_at: string | false;
+  /** A draft with this set is an issued invoice being corrected: it has its
+   *  number already and keeps it when issued again. Missing on an older Odoo. */
+  posted_before?: boolean;
 }
 
 export interface InvoiceDetail extends InvoiceRow {
