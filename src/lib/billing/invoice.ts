@@ -204,6 +204,10 @@ export interface OrderBilling {
   marked_at?: string | false;
   /** It was also marked paid or partially paid by hand. */
   paid_by_hand?: boolean;
+  /** Someone checked: it was invoiced in QuickBooks (not offered again). */
+  invoiced_outside?: boolean;
+  /** That QuickBooks invoice's number, when it was given. */
+  outside_ref?: string | false;
 }
 
 /**

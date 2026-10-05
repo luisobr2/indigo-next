@@ -1,10 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { Download, Plus, Receipt } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { BookCheck, Download, Plus, Receipt } from "lucide-react";
+import { toast } from "sonner";
 import { cn, fmtDate } from "@/lib/utils";
+import { fetchJson } from "@/lib/fetch-json";
 import type { InvoiceRow, OrderBilling } from "@/lib/billing/invoice";
-import { InvoiceStatusBadge, money } from "@/components/billing/invoice-bits";
+import { InvoiceStatusBadge, invalidateOrderViews, money } from "@/components/billing/invoice-bits";
+import { Input } from "@/components/ui/input";
 
 /**
  * The order's invoice, on the order page: which one it is on, what is still
@@ -71,23 +76,10 @@ function Body({
         </ul>
       )}
 
-      {billing.can_create && billing.marked_by_hand ? (
-        <div className="space-y-2">
-          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            This order was marked Invoiced / Paid by hand
-            {billing.marked_at ? ` on ${fmtDate(billing.marked_at)}` : ""}, but it has no invoice here. If it was already
-            invoiced in QuickBooks, don&apos;t invoice it again.
-            {billing.paid_by_hand
-              ? " It was also marked as paid: once you issue the invoice, record the payment that was collected."
-              : ""}
-          </p>
-          <Link
-            href={`/billing/invoices/new?orders=${orderId}`}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white shadow shadow-indigo-700/30 hover:bg-indigo-800"
-          >
-            <Plus size={14} /> Create invoice
-          </Link>
-        </div>
+      {billing.invoiced_outside ? (
+        <OutsideInvoice orderId={orderId} outsideRef={billing.outside_ref || null} />
+      ) : billing.can_create && billing.marked_by_hand ? (
+        <MarkedByHand orderId={orderId} billing={billing} />
       ) : billing.can_create ? (
         <div className="space-y-2">
           <p className="text-sm text-slate-500">
@@ -107,6 +99,118 @@ function Body({
             : "It can be invoiced once the door is installed."}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Marked "Invoiced / Paid" by hand with no invoice here. The system can't
+ * know whether it was invoiced in QuickBooks, so the person who checks says
+ * which: make the invoice here, or record that it was done in QuickBooks.
+ */
+function MarkedByHand({ orderId, billing }: { orderId: number; billing: OrderBilling }) {
+  const qc = useQueryClient();
+  const [asking, setAsking] = useState(false);
+  const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function markOutside() {
+    setBusy(true);
+    try {
+      await fetchJson(`/api/invoicing/orders/${orderId}/external`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ref: ref.trim() || null }),
+      });
+      toast.success("Marked as invoiced in QuickBooks");
+      invalidateOrderViews(qc);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save it");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        This order was moved to Invoiced / Paid by hand{billing.marked_at ? ` on ${fmtDate(billing.marked_at)}` : ""}, and it
+        has no invoice here. The system can&apos;t tell whether it was invoiced outside the app (QuickBooks): check
+        before you create one.
+        {billing.paid_by_hand ? " It was also marked as paid: if you create the invoice, record the payment that was collected." : ""}
+      </p>
+      <Link
+        href={`/billing/invoices/new?orders=${orderId}`}
+        className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white shadow shadow-indigo-700/30 hover:bg-indigo-800"
+      >
+        <Plus size={14} /> Not invoiced yet: create invoice
+      </Link>
+      {asking ? (
+        <div className="space-y-2 rounded-lg border border-slate-200 p-3">
+          <label className="block text-sm font-medium text-slate-700" htmlFor={`qb-ref-${orderId}`}>
+            QuickBooks invoice # (if you know it)
+          </label>
+          <Input
+            id={`qb-ref-${orderId}`}
+            value={ref}
+            onChange={(e) => setRef(e.target.value)}
+            placeholder="e.g. 1290"
+            className="h-10"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={markOutside}
+              disabled={busy}
+              className="flex-1 rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-60"
+            >
+              {busy ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setAsking(false)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAsking(true)}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          <BookCheck size={14} /> Already invoiced in QuickBooks
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Someone checked: it was invoiced in QuickBooks. Undo for a mistake. */
+function OutsideInvoice({ orderId, outsideRef }: { orderId: number; outsideRef: string | null }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  async function undo() {
+    setBusy(true);
+    try {
+      await fetchJson(`/api/invoicing/orders/${orderId}/external`, { method: "DELETE" });
+      invalidateOrderViews(qc);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't undo it");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+      <span className="text-slate-600">
+        Invoiced in QuickBooks{outsideRef ? ` #${outsideRef}` : ""}.
+      </span>
+      <button type="button" onClick={undo} disabled={busy} className="text-xs font-medium text-indigo-700 hover:underline disabled:opacity-60">
+        {busy ? "Undoing…" : "Undo"}
+      </button>
     </div>
   );
 }
