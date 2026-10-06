@@ -62,6 +62,7 @@ export default function DealerStatementPage({ params }: { params: Promise<{ id: 
     { value: "client", label: "Client name" },
     { value: "client_address", label: "Client name + address" },
     { value: "po", label: "REF: PO + client + PO number" },
+    { value: "po_address", label: "REF: PO + client + PO number + address" },
   ];
 
   return (
@@ -212,6 +213,8 @@ function DealerInvoiceSettings({
           <p className="text-xs text-slate-500">
             {template === "po"
               ? "Example: REF: PO FRANKLIN 102868"
+              : template === "po_address"
+                ? "Example: REF: PO FRANKLIN 102868, and the install address underneath"
               : template === "client_address"
                 ? "Example: client name, and the install address underneath"
                 : "Example: Maria Williams - 4989 (client, and the dealer's reference if there is one)"}
