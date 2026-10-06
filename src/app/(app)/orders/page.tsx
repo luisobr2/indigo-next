@@ -75,6 +75,7 @@ const STAGE_OPTIONS = [
   { code: "installed", label: "Installed" },
   { code: "invoiced", label: "Invoiced / Paid" },
   { code: "closed", label: "Closed" },
+  { code: "cancelled", label: "Cancelled" },
 ] as const;
 
 interface OrderRow {
@@ -210,12 +211,22 @@ const ORDER_COLUMNS: OrderCol[] = [
     // and Payment off-screen on a 1440 px laptop.
     cell: (r) => (
       <div className="flex max-w-[170px] flex-wrap gap-1">
-        <Badge
-          variant="secondary"
-          className={`whitespace-normal text-left text-[10px] font-bold uppercase tracking-wide ${STAGE_BADGE[r.stage_code] ?? "bg-slate-100 text-slate-700"}`}
-        >
-          {m2o(r.stage_id)?.name ?? "?"}
-        </Badge>
+        {r.cancelled_at ? (
+          <Badge
+            variant="secondary"
+            className="whitespace-normal bg-rose-100 text-left text-[10px] font-bold uppercase tracking-wide text-rose-700"
+            title={`Cancelled. It was in ${m2o(r.stage_id)?.name ?? "?"}.`}
+          >
+            Cancelled
+          </Badge>
+        ) : (
+          <Badge
+            variant="secondary"
+            className={`whitespace-normal text-left text-[10px] font-bold uppercase tracking-wide ${STAGE_BADGE[r.stage_code] ?? "bg-slate-100 text-slate-700"}`}
+          >
+            {m2o(r.stage_id)?.name ?? "?"}
+          </Badge>
+        )}
         {r.on_hold && (
           <Badge variant="secondary" className="bg-amber-100 text-[10px] font-bold uppercase text-amber-800">
             On hold
@@ -228,7 +239,7 @@ const ORDER_COLUMNS: OrderCol[] = [
         )}
       </div>
     ),
-    print: (r) => m2o(r.stage_id)?.name ?? "",
+    print: (r) => (r.cancelled_at ? "Cancelled" : m2o(r.stage_id)?.name ?? ""),
   },
   {
     key: "days",

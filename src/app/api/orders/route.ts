@@ -84,8 +84,15 @@ export async function GET(req: NextRequest) {
     const domain: unknown[] = [];
     const stage = sp.get("stage");
     const stages = sp.get("stages");
-    if (stage) domain.push(["stage_id.code", "=", stage]);
+    // Cancelling doesn't move the stage (it stamps cancelled_at), so a
+    // cancelled order still "is" in New Order. "cancelled" is its own filter,
+    // and asking for a stage means the live orders in it (Majela, 6-oct).
+    if (stage === "cancelled") domain.push(["cancelled_at", "!=", false]);
+    else if (stage) domain.push(["stage_id.code", "=", stage]);
     else if (stages) domain.push(["stage_id.code", "in", stages.split(",")]);
+    if (((stage && stage !== "cancelled") || stages) && sp.get("substatus") !== "cancelled") {
+      domain.push(["cancelled_at", "=", false]);
+    }
 
     const dealer = sp.get("dealer");
     if (dealer) domain.push(["dealer_id", "=", Number(dealer)]);

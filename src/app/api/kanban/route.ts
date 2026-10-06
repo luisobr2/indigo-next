@@ -49,9 +49,10 @@ export async function GET(req: Request) {
       incidence?: boolean;
       payment_state: "paid" | "partial" | "unpaid";
     }
+    // A cancelled order keeps its stage: it isn't work on the board.
     const domain: unknown[] = includeArchived
       ? []
-      : [["stage_id.code", "not in", ["closed", "invoiced"]]];
+      : [["stage_id.code", "not in", ["closed", "invoiced"]], ["cancelled_at", "=", false]];
 
     const cards = await call<Card[]>({
       session: s.session,
