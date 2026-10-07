@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Link2, Unlink } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
-import { fmtDateTime } from "@/lib/utils";
+import { cn, fmtDateTime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useQboStatus } from "@/components/billing/qbo-badge";
 import {
@@ -32,6 +32,9 @@ export interface QboStatus {
   errors?: number;
   mismatches?: number;
   last_push_at?: string | false;
+  auto_close?: boolean;
+  last_payment_at?: string | false;
+  payments_from_qbo?: boolean;
 }
 
 const INTUIT_ORIGIN = "https://appcenter.intuit.com";
@@ -108,6 +111,27 @@ export function QuickBooksSettings() {
 
   const st = q.data?.data;
 
+  async function saveAutoClose(on: boolean) {
+    const before = qc.getQueryData<{ data: QboStatus } | null>(["qbo-status"]);
+    // Tick it now; put it back if Odoo refuses.
+    if (before) qc.setQueryData(["qbo-status"], { data: { ...before.data, auto_close: on } });
+    setBusy(true);
+    try {
+      const r = await fetchJson<{ data: QboStatus }>("/api/quickbooks/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto_close: on }),
+      });
+      qc.setQueryData(["qbo-status"], { data: r.data });
+      toast.success(on ? "Paid orders will close by themselves" : "Orders stay open after they're paid");
+    } catch (e) {
+      if (before) qc.setQueryData(["qbo-status"], before);
+      toast.error(e instanceof Error ? e.message : "Couldn't save");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Back from Intuit (or a #quickbooks link): bring the card into view once
   // it has something to show; it renders nothing while loading.
   const scrolled = useRef(false);
@@ -143,7 +167,7 @@ export function QuickBooksSettings() {
           </h2>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Invoices issued here are copied to QuickBooks Online with the same number. Corrections and voids are
-            copied too.
+            copied too. Payments are recorded in QuickBooks and show up here by themselves.
           </p>
         </div>
         {st.connected ? (
@@ -201,6 +225,10 @@ export function QuickBooksSettings() {
             </dd>
           </div>
           <div>
+            <dt className="text-slate-500">Last payment received</dt>
+            <dd className="text-slate-800">{st.last_payment_at ? fmtDateTime(st.last_payment_at) : "None yet"}</dd>
+          </div>
+          <div>
             <dt className="text-slate-500">Connected</dt>
             <dd className="text-slate-800">
               {st.connected_at ? fmtDateTime(st.connected_at) : "—"}
@@ -217,6 +245,29 @@ export function QuickBooksSettings() {
             <span className="ml-1 text-amber-700">This server is set to the sandbox (test company).</span>
           )}
         </p>
+      )}
+
+      {st.connected && (
+        <label
+          htmlFor="qbo-auto-close"
+          className={cn("mt-4 flex items-start gap-2 text-sm text-slate-700", !st.can_connect && "opacity-60")}
+        >
+          <input
+            id="qbo-auto-close"
+            type="checkbox"
+            className="mt-0.5 h-4 w-4"
+            checked={!!st.auto_close}
+            disabled={busy || !st.can_connect}
+            onChange={(e) => saveAutoClose(e.target.checked)}
+          />
+          <span>
+            Close the order when QuickBooks says it&apos;s paid
+            <span className="block text-xs text-slate-500">
+              An installed order whose invoice is paid in full moves to Closed by itself.
+              {!st.can_connect && " Only a manager can change this."}
+            </span>
+          </span>
+        </label>
       )}
 
       {st.connected && (

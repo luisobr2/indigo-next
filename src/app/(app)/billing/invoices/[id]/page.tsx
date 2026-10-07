@@ -312,7 +312,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                   <Ban size={14} /> Void
                 </Button>
               )}
-              {inv.state === "posted" && inv.residual > 0 && (
+              {inv.state === "posted" && inv.residual > 0 && !inv.payments_from_qbo && (
                 <Button variant="outline" size="lg" onClick={openPay} disabled={busy}>
                   <Wallet size={14} /> Record payment
                 </Button>
@@ -415,6 +415,9 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
 
           <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
             <h2 className="mb-2 text-sm font-semibold text-slate-800">Payments</h2>
+            {inv.payments_from_qbo && inv.state === "posted" && (
+              <p className="mb-2 text-xs text-slate-500">Payments are recorded in QuickBooks and show up here by themselves.</p>
+            )}
             {inv.payments.length ? (
               <ul className="space-y-1.5 text-sm">
                 {inv.payments.map((p) => (

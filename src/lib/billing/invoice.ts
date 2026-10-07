@@ -89,6 +89,9 @@ export interface InvoiceDetail extends InvoiceRow {
   sent_to: string | false;
   dealer_emails: string[];
   dealer_address: string;
+  /** QuickBooks connected: payments are recorded there and arrive by
+   *  themselves, so "Record payment" isn't offered. Missing without the module. */
+  payments_from_qbo?: boolean;
 }
 
 export interface InvoiceSummary {

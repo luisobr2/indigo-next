@@ -509,7 +509,7 @@ export const INVOICE_TOOL_DEFS: ToolDef[] = [
     name: "record_payment",
     title: "Record a payment on an invoice",
     description:
-      "Records money received on an ISSUED invoice — the whole balance or part of it, never more. The orders' payment state follows (partial / paid). A payment can't be removed from the app or from here afterwards (only in Odoo), so check the amount, the date and the method with the person." +
+      "Records money received on an ISSUED invoice — the whole balance or part of it, never more. The orders' payment state follows (partial / paid). When QuickBooks is connected (get_invoice shows payments_from_qbo) payments are recorded in QuickBooks and arrive by themselves, so this is refused: tell the person to record it in QuickBooks. A payment can't be removed from the app or from here afterwards (only in Odoo), so check the amount, the date and the method with the person." +
       WRITE_NOTE,
     inputSchema: {
       type: "object",
@@ -699,6 +699,7 @@ async function getInvoice(args: Record<string, unknown>, id: McpIdentity) {
     sent_to: inv.sent_to || null,
     dealer_emails: inv.dealer_emails,
     quickbooks: quickbooksInfo(inv),
+    payments_from_qbo: !!inv.payments_from_qbo,
   };
 }
 
@@ -975,6 +976,12 @@ async function planRecordPayment(args: Record<string, unknown>, id: McpIdentity)
 
   await requireOfficeRole(id, "registrar pagos");
   const inv = await detailFor(id, moveId);
+  if (inv.payments_from_qbo) {
+    throw mcpError(
+      "RECHAZADO",
+      "Los cobros se registran en QuickBooks y llegan solos a la app. Que la oficina registre este pago en QuickBooks; aparecerá en la factura en unos minutos.",
+    );
+  }
   if (inv.state !== "posted") {
     throw mcpError(
       "RECHAZADO",
