@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Link2, Unlink } from "lucide-react";
@@ -159,6 +160,12 @@ export function QuickBooksSettings() {
             <span className="ml-1 text-amber-700">This server is set to the sandbox (test company).</span>
           )}
         </p>
+      )}
+
+      {st.connected && (
+        <Link href="/billing/quickbooks" className="mt-4 inline-block text-sm font-medium text-indigo-700 hover:underline">
+          Match dealers and products with QuickBooks →
+        </Link>
       )}
 
       {st.can_connect && (
