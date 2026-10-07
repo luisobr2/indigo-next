@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import type { QboStatus } from "@/components/billing/quickbooks-settings";
+import { QboBackfill } from "@/components/billing/qbo-backfill";
 
 interface MappingRow {
   id: number;
@@ -253,6 +254,8 @@ export default function QuickBooksMappingsPage() {
             onSet={(row, qboId) => setMatch("product", row, qboId)}
             onCreate={(row) => create("product", row)}
           />
+
+          <QboBackfill canSend={!!st?.can_connect} />
         </>
       )}
     </div>
