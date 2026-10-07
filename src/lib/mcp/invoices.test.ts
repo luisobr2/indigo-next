@@ -7,6 +7,7 @@ import {
   describeLines,
   optionalDate,
   parseInvoiceLines,
+  quickbooksInfo,
   requireEmails,
   requireOrderIds,
   statusWord,
@@ -158,4 +159,17 @@ test("billingRefusal: a broken rule is RECHAZADO, a role problem PERMISO_DENEGAD
   assert.equal((denied as McpToolError).code, "PERMISO_DENEGADO");
   const other = new Error("boom");
   assert.equal(billingRefusal(other), other);
+});
+
+test("get_invoice says where the invoice stands in QuickBooks", () => {
+  const base = { id: 1, name: "1400", state: "posted", total: 100 } as unknown as Parameters<typeof quickbooksInfo>[0];
+  assert.equal(quickbooksInfo(base), null);
+  assert.equal(quickbooksInfo({ ...base, qbo_state: "none" }), null);
+  assert.deepEqual(quickbooksInfo({ ...base, qbo_state: "synced" }), {
+    estado: "en QuickBooks", motivo: null, total_en_quickbooks: null, se_puede_reintentar: false,
+  });
+  const m = quickbooksInfo({ ...base, qbo_state: "mismatch", qbo_error: "Totals differ", qbo_total: 107 });
+  assert.equal(m?.motivo, "Totals differ");
+  assert.equal(m?.total_en_quickbooks, 107);
+  assert.equal(m?.se_puede_reintentar, true);
 });

@@ -386,7 +386,7 @@ export const INVOICE_TOOL_DEFS: ToolDef[] = [
     name: "get_invoice",
     title: "Read one invoice",
     description:
-      "Reads ONE invoice in full: its lines (with product, description, price and whether each is taxed), totals, balance due, orders, payments, and who it was sent to. Read it before update_invoice, issue_invoice, void_invoice or record_payment. Office/manager only.",
+      "Reads ONE invoice in full: its lines (with product, description, price and whether each is taxed), totals, balance due, orders, payments, who it was sent to, and where it stands in QuickBooks (`quickbooks`, null when it isn't there). A QuickBooks problem is fixed by the office in the panel (Retry on the invoice). Read it before update_invoice, issue_invoice, void_invoice or record_payment. Office/manager only.",
     inputSchema: {
       type: "object",
       properties: { invoice_id: INVOICE_ID_PROPERTY },
@@ -656,6 +656,27 @@ async function findInvoices(args: Record<string, unknown>, id: McpIdentity) {
   };
 }
 
+const QBO_WORDS: Record<string, string> = {
+  pending: "pendiente: va a QuickBooks en unos minutos",
+  synced: "en QuickBooks",
+  linked: "en QuickBooks (ya estaba metida a mano allí; se enlazó)",
+  mismatch: "no coincide con QuickBooks",
+  error: "no se pudo enviar a QuickBooks",
+  voided: "anulada también en QuickBooks",
+};
+
+/** Where the invoice stands in QuickBooks; null when it isn't in play. */
+export function quickbooksInfo(inv: InvoiceRow) {
+  const st = inv.qbo_state;
+  if (!st || st === "none" || !QBO_WORDS[st]) return null;
+  return {
+    estado: QBO_WORDS[st],
+    motivo: st === "mismatch" || st === "error" ? inv.qbo_error || null : null,
+    total_en_quickbooks: st === "mismatch" && typeof inv.qbo_total === "number" ? inv.qbo_total : null,
+    se_puede_reintentar: st === "pending" || st === "error" || st === "mismatch",
+  };
+}
+
 async function getInvoice(args: Record<string, unknown>, id: McpIdentity) {
   const moveId = requireId(args, "invoice_id", "get_invoice");
   await requireOfficeRole(id, "ver las facturas");
@@ -677,6 +698,7 @@ async function getInvoice(args: Record<string, unknown>, id: McpIdentity) {
     photos: inv.photo_ids.length,
     sent_to: inv.sent_to || null,
     dealer_emails: inv.dealer_emails,
+    quickbooks: quickbooksInfo(inv),
   };
 }
 

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/skeleton";
 import { EmptyState, ErrorState } from "@/components/state-cards";
 import { InvoiceStatusBadge, money } from "@/components/billing/invoice-bits";
+import { QboBadge, useQboStatus } from "@/components/billing/qbo-badge";
 
 type Status = "all" | "open" | "overdue" | "paid" | "draft";
 const STATUS_TABS: Array<{ key: Status; label: string }> = [
@@ -34,6 +35,11 @@ export default function InvoicesPage() {
   const [status, setStatus] = useState<Status>("all");
   const [dealer, setDealer] = useState("");
   const [q, setQ] = useState("");
+  const [qbo, setQbo] = useState<"" | "problems" | "missing">("");
+  const qboStatus = useQboStatus();
+  // QuickBooks shows up only once it's set up on this server.
+  const qboOn = !!qboStatus.data?.data.configured;
+  const qboConnected = !!qboStatus.data?.data.connected;
 
   const params = useMemo(() => {
     const p = new URLSearchParams({ status });
@@ -41,8 +47,9 @@ export default function InvoicesPage() {
     if (range.to) p.set("to", range.to);
     if (dealer) p.set("dealer", dealer);
     if (q.trim()) p.set("q", q.trim());
+    if (qbo && qboOn) p.set("qbo", qbo);
     return p.toString();
-  }, [range, status, dealer, q]);
+  }, [range, status, dealer, q, qbo, qboOn]);
 
   const listQ = useQuery<{ data: { rows: InvoiceRow[]; summary: InvoiceSummary } }>({
     queryKey: ["billing-invoices", params],
@@ -124,6 +131,19 @@ export default function InvoicesPage() {
             </option>
           ))}
         </select>
+        {qboOn && (
+          <select
+            id="inv-qbo"
+            aria-label="QuickBooks"
+            value={qbo}
+            onChange={(e) => setQbo(e.target.value as typeof qbo)}
+            className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm"
+          >
+            <option value="">QuickBooks: all</option>
+            <option value="problems">QuickBooks: needs attention</option>
+            <option value="missing">Not in QuickBooks</option>
+          </select>
+        )}
         <div className="relative ml-auto w-full sm:w-64">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <Input id="inv-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Number, dealer or client…" className="h-9 pl-8" />
@@ -172,6 +192,7 @@ export default function InvoicesPage() {
                   <th className="px-3 py-2.5 text-right">Total</th>
                   <th className="px-3 py-2.5 text-right">Balance</th>
                   <th className="px-3 py-2.5">Status</th>
+                  {qboOn && <th className="px-3 py-2.5">QuickBooks</th>}
                 </tr>
               </thead>
               <tbody>
@@ -200,6 +221,11 @@ export default function InvoicesPage() {
                     <td className="px-3 py-2.5">
                       <InvoiceStatusBadge status={r.status} />
                     </td>
+                    {qboOn && (
+                      <td className="px-3 py-2.5">
+                        <QboBadge row={r} showMissing={qboConnected} />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

@@ -4,7 +4,7 @@ import { use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Ban, CheckCircle2, Download, FileText, Mail, Pencil, Trash2, Wallet } from "lucide-react";
+import { ArrowLeft, Ban, CheckCircle2, Download, ExternalLink, FileText, Mail, Pencil, RefreshCw, Trash2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
@@ -17,6 +17,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Skeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { InvoiceStatusBadge, invalidateOrderViews, money, useBillingStatus } from "@/components/billing/invoice-bits";
+import { QboBadge, useQboStatus } from "@/components/billing/qbo-badge";
+import { qboBadge } from "@/lib/quickbooks/badge";
 
 const METHODS = [
   { value: "check", label: "Check" },
@@ -48,6 +50,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   // in one go: what reaches a dealer always carries its number.
   const [sendMode, setSendMode] = useState<"send" | "issue-send">("send");
   const billingStatus = useBillingStatus();
+  const qboStatus = useQboStatus();
   const [emails, setEmails] = useState("");
   const [message, setMessage] = useState("");
   const [payOpen, setPayOpen] = useState(false);
@@ -171,6 +174,25 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       refresh();
     }
   }
+  async function retryQbo() {
+    setBusy(true);
+    try {
+      const r = await fetchJson<{ data: { qbo_state: string; qbo_error: string | false } }>(`/api/quickbooks/retry/${id}`, {
+        method: "POST",
+      });
+      const st = r.data?.qbo_state;
+      if (st === "synced" || st === "linked") toast.success("It's in QuickBooks now");
+      else if (st === "pending") toast.success("Sent to the queue: it will go to QuickBooks shortly");
+      else toast.error(r.data?.qbo_error || "QuickBooks still has a problem with it");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't reach QuickBooks");
+    } finally {
+      setBusy(false);
+      qc.invalidateQueries({ queryKey: ["billing-invoice", id] });
+      qc.invalidateQueries({ queryKey: ["billing-invoices"] });
+      qc.invalidateQueries({ queryKey: ["qbo-status"] });
+    }
+  }
   function openPay() {
     setPay({ amount: String(inv?.residual ?? ""), date: shopDateString(new Date()), method: "check", reference: "" });
     setPayOpen(true);
@@ -200,6 +222,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const issueVerb = isCorrection ? "Re-issue" : "Issue";
   const pdfUrl = `/api/invoicing/invoices/${inv.id}/pdf?v=${pdfKey}`;
   const nextNumber = billingStatus.data?.data.next_number;
+  const qboConnected = !!qboStatus.data?.data.connected;
+  const qbo = qboStatus.data?.data.configured ? qboBadge(inv, { showMissing: qboConnected }) : null;
   const pdfDownload = (
     <a
       href={`/api/invoicing/invoices/${inv.id}/pdf?download=1`}
@@ -319,6 +343,41 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         </section>
 
         <aside className="space-y-4 lg:col-span-4">
+          {qbo && (
+            <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100" aria-label="QuickBooks">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <QboBadge row={inv} showMissing={qboConnected} className="text-xs" />
+                {inv.qbo_url && (
+                  <a
+                    href={inv.qbo_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:underline"
+                  >
+                    Open in QuickBooks <ExternalLink size={12} />
+                  </a>
+                )}
+              </div>
+              {qbo.detail && <p className="mt-2 text-sm text-slate-600">{qbo.detail}</p>}
+              {inv.qbo_state === "mismatch" && typeof inv.qbo_total === "number" && (
+                <p className="mt-1 text-sm text-slate-600">
+                  QuickBooks total: <span className="font-semibold tabular-nums">{money(inv.qbo_total)}</span> · here:{" "}
+                  <span className="font-semibold tabular-nums">{money(inv.total)}</span>
+                </p>
+              )}
+              {inv.qbo_synced_at && (
+                <p className="mt-1 text-xs text-slate-400">Last checked {fmtDateTime(inv.qbo_synced_at)}</p>
+              )}
+              {qbo.canRetry && (
+                <Button variant="outline" size="sm" className="mt-3" onClick={retryQbo} disabled={busy || !qboConnected}>
+                  <RefreshCw size={13} /> {inv.qbo_state === "pending" ? "Send now" : "Retry"}
+                </Button>
+              )}
+              {qbo.canRetry && !qboConnected && (
+                <p className="mt-2 text-xs text-rose-700">QuickBooks isn&apos;t connected: a manager can reconnect it in Settings.</p>
+              )}
+            </section>
+          )}
           <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
             <dl className="grid grid-cols-2 gap-y-1.5 text-sm">
               <dt className="text-slate-500">Subtotal</dt>

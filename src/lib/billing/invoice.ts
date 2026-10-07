@@ -8,6 +8,8 @@
  * and turning what someone typed in an email box into a list of addresses.
  */
 
+import type { QboFields } from "@/lib/quickbooks/badge";
+
 export type LineKind = "door" | "fee" | "free";
 
 export interface DraftLine {
@@ -50,7 +52,7 @@ export interface InvoicePreview {
 
 export type InvoiceStatus = "Draft" | "Balance due" | "Overdue" | "Paid" | "Cancelled";
 
-export interface InvoiceRow {
+export interface InvoiceRow extends QboFields {
   id: number;
   name: string | false;
   state: "draft" | "posted" | "cancel";

@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Link2, Unlink } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
 import { fmtDateTime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useQboStatus } from "@/components/billing/qbo-badge";
 import {
   Dialog,
   DialogContent,
@@ -51,16 +52,7 @@ const RETURN_MESSAGES: Record<string, { ok: boolean; text: string }> = {
 export function QuickBooksSettings() {
   const qc = useQueryClient();
   const router = useRouter();
-  const q = useQuery<{ data: QboStatus } | null>({
-    queryKey: ["qbo-status"],
-    queryFn: async () => {
-      const res = await fetch("/api/quickbooks/status");
-      if (res.status === 404 || res.status === 403) return null;
-      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Couldn't load QuickBooks");
-      return res.json();
-    },
-    retry: false,
-  });
+  const q = useQboStatus();
   const [busy, setBusy] = useState(false);
   const [confirmOff, setConfirmOff] = useState(false);
 
