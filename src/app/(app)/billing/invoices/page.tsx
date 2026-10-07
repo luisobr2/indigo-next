@@ -182,12 +182,13 @@ export default function InvoicesPage() {
         )}
         {!!rows.length && (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+            <table className="w-full min-w-[900px] text-sm">
               <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-3 py-2.5">Invoice</th>
                   <th className="px-3 py-2.5">Date</th>
                   <th className="px-3 py-2.5">Dealer</th>
+                  <th className="px-3 py-2.5">Client / PO</th>
                   <th className="px-3 py-2.5">Orders</th>
                   <th className="px-3 py-2.5 text-right">Total</th>
                   <th className="px-3 py-2.5 text-right">Balance</th>
@@ -204,13 +205,27 @@ export default function InvoicesPage() {
                       </Link>
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{r.invoice_date ? fmtDate(r.invoice_date) : "—"}</td>
-                    <td className="px-3 py-2.5">
+                    <td className="whitespace-nowrap px-3 py-2.5">
                       {r.dealer ? (
                         <Link href={`/billing/dealers/${r.dealer[0]}`} className="text-slate-700 hover:text-indigo-700 hover:underline">
                           {r.dealer[1]}
                         </Link>
                       ) : (
                         "—"
+                      )}
+                    </td>
+                    <td className="max-w-[320px] px-3 py-2.5">
+                      {r.clients?.length ? (
+                        <div className="space-y-0.5">
+                          {r.clients.map((c, i) => (
+                            <div key={i} className="truncate" title={[c.client_name, c.po && `PO ${c.po}`].filter(Boolean).join(" · ")}>
+                              <span className="text-slate-700">{c.client_name || "—"}</span>
+                              {c.po && <span className="ml-2 text-xs text-slate-500">PO {c.po}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">—</span>
                       )}
                     </td>
                     <td className="max-w-[260px] truncate px-3 py-2.5 text-xs text-slate-500" title={r.order_names.join(", ")}>

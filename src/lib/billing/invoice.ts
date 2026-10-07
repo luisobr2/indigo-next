@@ -70,6 +70,8 @@ export interface InvoiceRow extends QboFields {
   /** A draft with this set is an issued invoice being corrected: it has its
    *  number already and keeps it when issued again. Missing on an older Odoo. */
   posted_before?: boolean;
+  /** Client and PO of each of its orders (added by the list route). */
+  clients?: Array<{ client_name: string; po: string }>;
 }
 
 export interface InvoiceDetail extends InvoiceRow {
