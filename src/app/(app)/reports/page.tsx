@@ -53,7 +53,7 @@ interface ReportsData {
   contractorPerformance: Array<{
     id: number;
     name: string;
-    type: "painter" | "installer" | "other";
+    type: "painter" | "installer" | "digitizer" | "other";
     payoutCount: number;
     paid: number;
   }>;

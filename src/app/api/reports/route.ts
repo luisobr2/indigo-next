@@ -113,7 +113,7 @@ export async function GET() {
     interface PayoutRow {
       id: number;
       contractor_id: [number, string] | false;
-      contractor_type: "painter" | "installer" | "other";
+      contractor_type: "painter" | "installer" | "digitizer" | "other";
       amount: number;
       state: "draft" | "approved" | "paid";
       date: string;
@@ -265,7 +265,7 @@ export async function GET() {
     const contractorMap = new Map<number, {
       id: number;
       name: string;
-      type: "painter" | "installer" | "other";
+      type: "painter" | "installer" | "digitizer" | "other";
       payoutCount: number;
       paid: number;
     }>();

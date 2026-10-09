@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, FileText, Receipt } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, FileText, Receipt } from "lucide-react";
 import { fetchJson } from "@/lib/fetch-json";
 import { fmtDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState, ErrorState } from "@/components/state-cards";
 import { Skeleton } from "@/components/skeleton";
 import { money } from "./invoice-bits";
+import type { DealerBalance } from "@/app/api/invoicing/dealer-balances/route";
 
 interface Group {
   dealer: [number, string] | false;
@@ -42,6 +43,13 @@ export function ToInvoicePanel() {
     queryFn: () => fetchJson("/api/invoicing/to-invoice"),
   });
   const [picked, setPicked] = useState<{ dealer: number; ids: Set<number> } | null>(null);
+  // Folded by dealer: only the name and its figures until someone opens it.
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const balancesQ = useQuery<{ data: DealerBalance[] }>({
+    queryKey: ["billing-dealer-balances"],
+    queryFn: () => fetchJson("/api/invoicing/dealer-balances"),
+  });
+  const balances = new Map((balancesQ.data?.data ?? []).map((b) => [b.dealerId, b]));
 
   function toggle(dealerId: number, orderId: number) {
     setPicked((prev) => {
@@ -92,22 +100,61 @@ export function ToInvoicePanel() {
         {groups.map((g) => {
           const dealerId = g.dealer ? g.dealer[0] : 0;
           const allPicked = picked?.dealer === dealerId && picked.ids.size === g.orders.length;
+          const isOpen = open.has(dealerId);
+          const bal = balances.get(dealerId);
           return (
             <section key={dealerId} className="rounded-xl border border-slate-100">
-              <header className="flex flex-wrap items-center gap-3 border-b border-slate-100 bg-slate-50/60 px-3 py-2">
-                <Checkbox checked={allPicked} onCheckedChange={() => toggleAll(g)} aria-label="Select all of this dealer" />
-                <Link
-                  href={`/billing/dealers/${dealerId}`}
-                  className="flex-1 font-semibold text-indigo-800 underline decoration-indigo-200 underline-offset-2 hover:decoration-indigo-700"
-                  title="Billing details: where its invoices are emailed, tax, statement"
+              <header className={`flex flex-wrap items-center gap-3 bg-slate-50/60 px-3 py-2 ${isOpen ? "border-b border-slate-100" : ""}`}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpen((s0) => {
+                      const n = new Set(s0);
+                      if (n.has(dealerId)) n.delete(dealerId);
+                      else n.add(dealerId);
+                      return n;
+                    })
+                  }
+                  aria-expanded={isOpen}
+                  aria-label={`${isOpen ? "Hide" : "Show"} the orders of ${g.dealer ? g.dealer[1] : "no dealer"}`}
+                  className="-m-1 flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-slate-500 hover:bg-slate-100"
                 >
-                  {g.dealer ? g.dealer[1] : "No dealer"}
-                </Link>
-                <span className="text-sm font-semibold tabular-nums text-slate-700">{money(g.total)}</span>
+                  {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={`/billing/dealers/${dealerId}`}
+                    className="font-semibold text-indigo-800 underline decoration-indigo-200 underline-offset-2 hover:decoration-indigo-700"
+                    title="Billing details: where its invoices are emailed, tax, statement"
+                  >
+                    {g.dealer ? g.dealer[1] : "No dealer"}
+                  </Link>
+                  <div className="text-xs text-slate-500">
+                    {g.orders.length} to invoice · <span className="tabular-nums">{money(g.total)}</span>
+                    {bal && bal.open > 0.005 && (
+                      <span className="font-semibold text-rose-700">
+                        {" "}
+                        · Unpaid <span className="tabular-nums">{money(bal.open)}</span>
+                        {bal.overdue > 0.005 && (
+                          <>
+                            {" "}
+                            (<span className="tabular-nums">{money(bal.overdue)}</span> overdue)
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
                 <Button size="sm" variant="outline" onClick={() => create(g.orders.map((o) => o.id))}>
                   Invoice all ({g.orders.length})
                 </Button>
               </header>
+              {isOpen && (
+              <>
+              <div className="flex items-center gap-2 border-b border-slate-50 px-3 py-1.5 text-xs text-slate-500">
+                <Checkbox checked={allPicked} onCheckedChange={() => toggleAll(g)} aria-label="Select all of this dealer" />
+                Select all
+              </div>
               <ul>
                 {g.orders.map((o) => {
                   const on = picked?.dealer === dealerId && picked.ids.has(o.id);
@@ -137,6 +184,8 @@ export function ToInvoicePanel() {
                   );
                 })}
               </ul>
+              </>
+              )}
             </section>
           );
         })}

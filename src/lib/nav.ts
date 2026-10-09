@@ -49,7 +49,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/installations", label: "Installations", icon: Truck, show: allManagerOrOffice },
   // Pay is gated the same as Installations: it puts every installer's
   // compensation side by side, which specialists must not see.
-  { href: "/installers", label: "Installers", icon: Wrench, show: allManagerOrOffice },
+  { href: "/installers", label: "Labor", icon: Wrench, show: allManagerOrOffice },
   { href: "/calendar", label: "Calendar", icon: CalendarDays, show: allManagerOrOffice },
   { href: "/route-planner", label: "Route Planner", icon: Map, show: allManagerOrOffice },
   { href: "/billing", label: "Billing", icon: Receipt, show: allManagerOrOffice },

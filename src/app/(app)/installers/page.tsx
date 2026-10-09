@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ErrorState } from "@/components/state-cards";
+import { DigitizationSection } from "@/components/labor/digitization-section";
 import { BoardSkeleton } from "@/components/skeleton";
 import { Button } from "@/components/ui/button";
 import {
@@ -292,9 +293,9 @@ export default function InstallersPage() {
     <div className="mx-auto max-w-[1500px]">
       <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Installers</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Labor</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Daily activity and payments, by the day each installer worked.
+            Internal labor: what each installer earned by the day, and after-hours digitization.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -789,6 +790,8 @@ export default function InstallersPage() {
 
       {/* Marcar pagado mueve plata: el dialogo dice cuanto y cuantos dias
           ANTES de confirmar, y de donde no sale (lo agendado). */}
+      <DigitizationSection from={from} to={to} />
+
       <Dialog open={settling !== null} onOpenChange={(o) => !o && setSettling(null)}>
         <DialogContent>
           <DialogHeader>

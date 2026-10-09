@@ -8,7 +8,7 @@ interface Payout {
   id: number;
   name: string;
   contractor_id: [number, string] | false;
-  contractor_type: "painter" | "installer" | "other";
+  contractor_type: "painter" | "installer" | "digitizer" | "other";
   date: string;
   period_start: string | false;
   period_end: string | false;

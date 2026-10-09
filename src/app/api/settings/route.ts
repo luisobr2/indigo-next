@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 interface RateRow {
   id: number;
   name: string;
-  contractor_type: "painter" | "installer" | "other";
+  contractor_type: "painter" | "installer" | "digitizer" | "other";
   /** partner this rule belongs to; false = the fallback rule for the type. */
   partner_id: [number, string] | false;
   rate: number;

@@ -25,7 +25,7 @@ export const runtime = "nodejs";
 interface RateRow {
   id: number;
   name: string;
-  contractor_type: "painter" | "installer" | "other";
+  contractor_type: "painter" | "installer" | "digitizer" | "other";
   partner_id: [number, string] | false;
   rate: number;
   rate_unit: "sqf" | "piece";

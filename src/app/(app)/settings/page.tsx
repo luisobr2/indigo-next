@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Wand2,
   Mail,
+  ScanLine,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -41,7 +42,7 @@ import {
 interface RateRow {
   id: number;
   name: string;
-  contractor_type: "painter" | "installer" | "other";
+  contractor_type: "painter" | "installer" | "digitizer" | "other";
   partner_id: [number, string] | false;
   rate: number;
   rate_unit: "sqf" | "piece";
@@ -68,7 +69,7 @@ interface DraftRate {
   _tempId?: number;
   _delete?: boolean;
   name: string;
-  contractor_type: "painter" | "installer" | "other";
+  contractor_type: "painter" | "installer" | "digitizer" | "other";
   /** null = the fallback rule, used by anyone without one of their own. */
   partner_id: number | null;
   rate: number;
@@ -105,6 +106,7 @@ export default function SettingsPage() {
     painters: ContractorOption[];
     installers: ContractorOption[];
     painterCandidates?: ContractorOption[];
+    designers?: ContractorOption[];
   }>({
     queryKey: ["contractors"],
     queryFn: async () => {
@@ -144,15 +146,16 @@ export default function SettingsPage() {
     setDirty(true);
   }
 
-  function addRate(type: "painter" | "installer" | "other") {
+  function addRate(type: "painter" | "installer" | "digitizer" | "other") {
     setRates((prev) => [
       ...prev,
       {
         _tempId: Math.max(0, ...prev.map((r) => r._tempId ?? 0)) + 1,
-        name: type === "painter" ? "New painter" : type === "installer" ? "New installer" : "New rate",
+        name:
+          type === "painter" ? "New painter" : type === "installer" ? "New installer" : type === "digitizer" ? "Choose who" : "New rate",
         contractor_type: type,
         partner_id: null,
-        rate: type === "painter" ? 8 : type === "installer" ? 35 : 0,
+        rate: type === "painter" ? 8 : type === "installer" ? 35 : type === "digitizer" ? 7.5 : 0,
         rate_unit: type === "painter" ? "sqf" : "piece",
         // A new installer rule starts with the shop's usual day floor rather
         // than 0 — forgetting to set it is how someone gets underpaid.
@@ -172,7 +175,9 @@ export default function SettingsPage() {
         ? (people?.painterCandidates ?? people?.painters ?? [])
         : r.contractor_type === "installer"
           ? (people?.installers ?? [])
-          : [];
+          : r.contractor_type === "digitizer"
+            ? (people?.designers ?? [])
+            : [];
     return list.find((p) => p.id === r.partner_id)?.name;
   }
 
@@ -195,6 +200,11 @@ export default function SettingsPage() {
     if (noShop.length) {
       const names = noShop.map((r) => personName(r) ?? r.name).join(", ");
       toast.error(`Choose where ${names} paint${noShop.length === 1 ? "s" : ""}: Michel or Indigo.`);
+      return;
+    }
+    // Digitization is always one person's pay (there's no "everyone else").
+    if (rates.some((r) => !r._delete && r.contractor_type === "digitizer" && r.partner_id == null)) {
+      toast.error("Choose who each Digitization line is for.");
       return;
     }
     setSaving(true);
@@ -263,6 +273,7 @@ export default function SettingsPage() {
   const painters = visibleRates.filter(({ r }) => r.contractor_type === "painter");
   const installers = visibleRates.filter(({ r }) => r.contractor_type === "installer");
   const others = visibleRates.filter(({ r }) => r.contractor_type === "other");
+  const digitizers = visibleRates.filter(({ r }) => r.contractor_type === "digitizer");
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-6">
@@ -401,6 +412,18 @@ export default function SettingsPage() {
           onAdd={() => addRate("installer")}
           people={people?.installers ?? []}
           showDayRule
+        />
+        <RateGroup
+          title="Digitization after hours"
+          icon={ScanLine}
+          color="text-indigo-700"
+          rates={digitizers}
+          onUpdate={updateRate}
+          onDelete={deleteRate}
+          onAdd={() => addRate("digitizer")}
+          people={people?.designers ?? []}
+          personOnly
+          hint="Paid per door when this person is chosen as the order's designer. Designers who digitize in office hours (Indigo, Elio) aren't paid extra: leave them out."
         />
         {(others.length > 0) && (
           <RateGroup
@@ -625,6 +648,8 @@ function RateGroup({
   people = [],
   showDayRule = false,
   showPaintShop = false,
+  personOnly = false,
+  hint,
 }: {
   title: string;
   icon: typeof Settings;
@@ -641,6 +666,9 @@ function RateGroup({
   /** Painters: the shop each person paints in (Michel or Indigo). A painter
    *  with a shop is one of the painters offered on an order. */
   showPaintShop?: boolean;
+  /** Every line is one person's, always per piece: no "Everyone else" and no unit choice. */
+  personOnly?: boolean;
+  hint?: string;
 }) {
   return (
     <div className="mt-6 first:mt-0">
@@ -654,6 +682,7 @@ function RateGroup({
           Add
         </Button>
       </div>
+      {hint && <p className="mb-2 text-xs text-slate-500">{hint}</p>}
       {showPaintShop && !rates.some(({ r }) => r.partner_id != null && r.paint_shop) && (
         <p className="mb-2 rounded-lg border border-amber-700/30 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Painting has two stages, Michel and Indigo. Add one line per painter: <b>Add</b>, pick the
@@ -693,6 +722,9 @@ function RateGroup({
                 className="w-20 tabular-nums"
               />
               <span className="text-xs text-slate-500">per</span>
+              {personOnly ? (
+                <span className="text-xs text-slate-700">door</span>
+              ) : (
               <Select
                 value={r.rate_unit}
                 onValueChange={(v) => onUpdate(i, { rate_unit: v as "sqf" | "piece" })}
@@ -705,6 +737,7 @@ function RateGroup({
                   <SelectItem value="piece">piece</SelectItem>
                 </SelectContent>
               </Select>
+              )}
               {showDayRule && (
                 <>
                   <span className="text-slate-300">|</span>
@@ -769,15 +802,20 @@ function RateGroup({
                       });
                     }}
                   >
-                    <SelectTrigger className="h-8 w-auto text-xs">
+                    <SelectTrigger
+                      className={`h-8 w-auto text-xs ${personOnly && r.partner_id == null ? "border-amber-700/40 text-amber-700" : ""}`}
+                      aria-label="Person"
+                    >
                       <SelectValue>
                         {r.partner_id == null
-                          ? "Everyone else"
+                          ? personOnly
+                            ? "Choose who"
+                            : "Everyone else"
                           : (people.find((p) => p.id === r.partner_id)?.name ?? `Contact #${r.partner_id}`)}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__default__">Everyone else</SelectItem>
+                      {!personOnly && <SelectItem value="__default__">Everyone else</SelectItem>}
                       {people.map((p) => (
                         <SelectItem key={p.id} value={String(p.id)}>
                           {p.name}

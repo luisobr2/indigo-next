@@ -21,7 +21,7 @@ export async function GET() {
 
     interface RateRow {
       id: number;
-      contractor_type: "painter" | "installer" | "other";
+      contractor_type: "painter" | "installer" | "digitizer" | "other";
       active: boolean;
     }
     const rates = await call<RateRow[]>({
@@ -82,6 +82,18 @@ export async function GET() {
       })
       .map((g) => g.id);
 
+    // Designers: who digitizes. A Digitization rule pins pay to one of them
+    // (Amado after hours); the in-house ones simply have no rule.
+    const designerGroupIds = groups
+      .filter((g) => {
+        const label = norm(g.name).toLowerCase();
+        return label.includes("dise") || label.includes("designer");
+      })
+      .map((g) => g.id);
+    const designers = users
+      .filter((u) => u.partner_id && u.groups_id.some((g) => designerGroupIds.includes(g)))
+      .map((u) => ({ id: (u.partner_id as [number, string])[0], name: u.name }));
+
     const painters = users
       .filter((u) => u.partner_id && u.groups_id.some((g) => painterGroupIds.includes(g)))
       .map((u) => ({
@@ -123,6 +135,7 @@ export async function GET() {
       painters: configured.length ? configured : painters,
       installers,
       painterCandidates,
+      designers,
       rateCount: rates.length,
     });
   } catch (e) {
