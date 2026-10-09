@@ -37,7 +37,8 @@ export async function GET(req: NextRequest) {
       kwargs: {},
     });
     const names = [...new Set(data.rows.flatMap((r) => r.order_names))];
-    if (names.length) {
+    // Una columna de ayuda: si falla, la lista sale igual, sin ella.
+    if (names.length) try {
       const orders = await call<Array<{ name: string; client_name: string | false; customer_po: string | false }>>({
         session: s.session,
         model: "indigo.order",
@@ -52,6 +53,8 @@ export async function GET(req: NextRequest) {
           .filter((o): o is NonNullable<typeof o> => !!o)
           .map((o) => ({ client_name: o.client_name || "", po: o.customer_po || "" }));
       }
+    } catch (e) {
+      console.warn("invoice list: client/PO lookup failed", e instanceof Error ? e.message : e);
     }
     return NextResponse.json({ data });
   } catch (e) {

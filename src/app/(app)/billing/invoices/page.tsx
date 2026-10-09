@@ -146,7 +146,7 @@ export default function InvoicesPage() {
         )}
         <div className="relative ml-auto w-full sm:w-64">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <Input id="inv-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Number, dealer or client…" className="h-9 pl-8" />
+          <Input id="inv-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Number, dealer, client or PO…" className="h-9 pl-8" />
         </div>
       </section>
 

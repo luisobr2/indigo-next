@@ -19,7 +19,7 @@ export function CostRatesSettings() {
   const q = useQuery<{ data: CostRate[] }>({
     queryKey: ["cost-rates"],
     queryFn: () => fetchJson("/api/costing/settings"),
-    retry: false,
+    retry: 1,
   });
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -31,15 +31,32 @@ export function CostRatesSettings() {
     if (rates) setDraft(Object.fromEntries(rates.map((r) => [r.key, String(r.value)])));
   }, [rates]);
 
-  if (q.isError || !rates) return null;
+  if (q.isError) {
+    return (
+      <section id="cost-rates" className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+          <Calculator size={16} className="text-indigo-700" /> Cost per door
+        </h2>
+        <p className="mt-2 text-sm text-rose-700">
+          Couldn&apos;t load the cost rates{q.error instanceof Error ? `: ${q.error.message}` : ""}.{" "}
+          <button type="button" onClick={() => q.refetch()} className="font-semibold underline">
+            Try again
+          </button>
+        </p>
+      </section>
+    );
+  }
+  if (!rates) return null;
   const dirty = rates.some((r) => Number(draft[r.key]) !== r.value);
 
   async function save() {
     const body: Record<string, number> = {};
     for (const r of rates ?? []) {
-      const n = Number(draft[r.key]);
-      if (!Number.isFinite(n) || n < 0) {
-        toast.error(`${r.label}: write a number.`);
+      const raw = (draft[r.key] ?? "").trim();
+      const n = Number(raw);
+      // Una casilla vacia no es 0: guardaria todos los costos de menos.
+      if (!raw || !Number.isFinite(n) || n < 0 || (r.key === "acm_sheet_sqf" && n <= 0)) {
+        toast.error(`${r.label}: write a number${r.key === "acm_sheet_sqf" ? " above 0" : ""}.`);
         return;
       }
       body[r.key] = n;
@@ -54,6 +71,7 @@ export function CostRatesSettings() {
       qc.setQueryData(["cost-rates"], res);
       qc.invalidateQueries({ queryKey: ["order-cost"] });
       qc.invalidateQueries({ queryKey: ["invoice-profit"] });
+      qc.invalidateQueries({ queryKey: ["cost-month"] });
       toast.success("Cost rates saved");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't save");

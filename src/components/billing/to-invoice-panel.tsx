@@ -51,6 +51,16 @@ export function ToInvoicePanel() {
   });
   const balances = new Map((balancesQ.data?.data ?? []).map((b) => [b.dealerId, b]));
 
+  function toggleOpen(dealerId: number) {
+    const closing = open.has(dealerId);
+    const n = new Set(open);
+    if (closing) n.delete(dealerId);
+    else n.add(dealerId);
+    setOpen(n);
+    // Plegado no quedan elegidas ordenes que no se ven.
+    if (closing && picked?.dealer === dealerId) setPicked(null);
+  }
+
   function toggle(dealerId: number, orderId: number) {
     setPicked((prev) => {
       const same = prev && prev.dealer === dealerId ? new Set(prev.ids) : new Set<number>();
@@ -71,6 +81,8 @@ export function ToInvoicePanel() {
   }
 
   const groups = q.data?.data ?? [];
+  const pickedDealer = picked ? groups.find((g) => (g.dealer ? g.dealer[0] : 0) === picked.dealer)?.dealer : false;
+  const pickedName = pickedDealer ? pickedDealer[1] : "this dealer";
   const count = groups.reduce((t, g) => t + g.orders.length, 0);
 
   return (
@@ -83,7 +95,8 @@ export function ToInvoicePanel() {
         <div className="flex items-center gap-2">
           {picked && (
             <Button size="sm" onClick={() => create([...picked.ids])} className="bg-emerald-600 text-white hover:bg-emerald-700">
-              <FileText size={13} /> Create invoice ({picked.ids.size})
+              <FileText size={13} />{" "}
+              {`Create invoice for ${pickedName} (${picked.ids.size})`}
             </Button>
           )}
           <Link href="/billing/invoices" className="text-xs font-medium text-indigo-700 hover:underline">
@@ -92,6 +105,14 @@ export function ToInvoicePanel() {
         </div>
       </div>
       {q.isLoading && <Skeleton className="h-40 rounded-xl" />}
+      {balancesQ.isError && !!groups.length && (
+        <p className="mb-2 text-xs text-amber-700">
+          Couldn&apos;t load what each dealer owes.{" "}
+          <button type="button" onClick={() => balancesQ.refetch()} className="font-semibold underline">
+            Try again
+          </button>
+        </p>
+      )}
       {q.error && <ErrorState title="Couldn't load orders to invoice" onRetry={() => q.refetch()} />}
       {!q.isLoading && !q.error && !groups.length && (
         <EmptyState title="All caught up" message="No installed orders waiting for an invoice." />
@@ -107,14 +128,7 @@ export function ToInvoicePanel() {
               <header className={`flex flex-wrap items-center gap-3 bg-slate-50/60 px-3 py-2 ${isOpen ? "border-b border-slate-100" : ""}`}>
                 <button
                   type="button"
-                  onClick={() =>
-                    setOpen((s0) => {
-                      const n = new Set(s0);
-                      if (n.has(dealerId)) n.delete(dealerId);
-                      else n.add(dealerId);
-                      return n;
-                    })
-                  }
+                  onClick={() => toggleOpen(dealerId)}
                   aria-expanded={isOpen}
                   aria-label={`${isOpen ? "Hide" : "Show"} the orders of ${g.dealer ? g.dealer[1] : "no dealer"}`}
                   className="-m-1 flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-slate-500 hover:bg-slate-100"
@@ -122,13 +136,24 @@ export function ToInvoicePanel() {
                   {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </button>
                 <div className="min-w-0 flex-1">
-                  <Link
-                    href={`/billing/dealers/${dealerId}`}
-                    className="font-semibold text-indigo-800 underline decoration-indigo-200 underline-offset-2 hover:decoration-indigo-700"
-                    title="Billing details: where its invoices are emailed, tax, statement"
+                  {/* Tocar el nombre abre la lista (en el telefono la flecha es chica);
+                      los datos de facturacion del dealer van en su propio enlace. */}
+                  <button
+                    type="button"
+                    onClick={() => toggleOpen(dealerId)}
+                    className="text-left font-semibold text-indigo-800 hover:underline"
                   >
                     {g.dealer ? g.dealer[1] : "No dealer"}
-                  </Link>
+                  </button>
+                  {g.dealer && (
+                    <Link
+                      href={`/billing/dealers/${dealerId}`}
+                      className="ml-2 text-xs text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-indigo-700"
+                      title="Where its invoices are emailed, tax, statement"
+                    >
+                      Billing details
+                    </Link>
+                  )}
                   <div className="text-xs text-slate-500">
                     {g.orders.length} to invoice · <span className="tabular-nums">{money(g.total)}</span>
                     {bal && bal.open > 0.005 && (

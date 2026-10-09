@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
 import { cn, fmtMoney, fmtNum } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { DigitizationPerson } from "@/app/api/labor/digitization/route";
 
 /**
@@ -24,6 +25,8 @@ export function DigitizationSection({ from, to }: { from: string; to: string }) 
   });
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState<number | null>(null);
+  // Marcar pagado mueve plata: se confirma primero, como con los instaladores.
+  const [confirming, setConfirming] = useState<DigitizationPerson | null>(null);
 
   async function markPaid(p: DigitizationPerson) {
     setBusy(p.partnerId);
@@ -36,7 +39,9 @@ export function DigitizationSection({ from, to }: { from: string; to: string }) 
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `Request failed (${r.status})`);
       toast.success(`${p.name}: ${fmtMoney(p.pending)} marked paid`);
+      setConfirming(null);
       qc.invalidateQueries({ queryKey: ["labor-digitization"] });
+      qc.invalidateQueries({ queryKey: ["cost-month"] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't mark it paid");
     } finally {
@@ -54,7 +59,15 @@ export function DigitizationSection({ from, to }: { from: string; to: string }) 
       <p className="mt-1 text-sm text-slate-500">
         Paid per door when the person is chosen as the order&apos;s designer. The rate is in Settings → Contractor rates.
       </p>
-      {q.error && <p className="mt-3 text-sm text-rose-700">Couldn&apos;t load digitization pay.</p>}
+      {q.isLoading && <p className="mt-3 text-sm text-slate-400">Loading…</p>}
+      {q.error && (
+        <p className="mt-3 text-sm text-rose-700">
+          Couldn&apos;t load digitization pay{q.error instanceof Error ? `: ${q.error.message}` : ""}.{" "}
+          <button type="button" onClick={() => q.refetch()} className="font-semibold underline">
+            Try again
+          </button>
+        </p>
+      )}
       {q.data && !people.length && (
         <p className="mt-3 text-sm text-slate-400">No after-hours digitization in these dates.</p>
       )}
@@ -86,8 +99,8 @@ export function DigitizationSection({ from, to }: { from: string; to: string }) 
                   </button>
                   <span className="font-semibold tabular-nums text-slate-900">{fmtMoney(p.total)}</span>
                   {p.pending > 0 ? (
-                    <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => markPaid(p)}>
-                      {busy === p.partnerId ? "Marking…" : `Mark ${fmtMoney(p.pending)} paid`}
+                    <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => setConfirming(p)}>
+                      {`Mark ${fmtMoney(p.pending)} paid`}
                     </Button>
                   ) : (
                     <span className="text-xs font-semibold text-emerald-700">Paid</span>
@@ -121,6 +134,26 @@ export function DigitizationSection({ from, to }: { from: string; to: string }) 
           })}
         </ul>
       )}
+
+      <Dialog open={confirming !== null} onOpenChange={(o) => !o && setConfirming(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mark digitization as paid?</DialogTitle>
+            <DialogDescription>
+              {confirming &&
+                `${confirming.name}: ${fmtMoney(confirming.pending)} for ${confirming.orders.filter((o) => !o.paid).length} order(s) in these dates.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setConfirming(null)} disabled={busy !== null}>
+              Cancel
+            </Button>
+            <Button onClick={() => confirming && markPaid(confirming)} disabled={busy !== null}>
+              {busy !== null ? "Marking…" : "Mark as paid"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

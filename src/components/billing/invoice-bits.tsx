@@ -58,7 +58,7 @@ export function useOrderBilling(orderId: number, enabled: boolean) {
  * history. Those queries live 30 s, so they are dropped here.
  */
 export function invalidateOrderViews(qc: QueryClient) {
-  for (const key of ["order", "order-invoices", "order-activity", "orders"]) {
+  for (const key of ["order", "order-invoices", "order-activity", "orders", "order-cost", "invoice-profit", "labor-digitization", "cost-month"]) {
     qc.invalidateQueries({ queryKey: [key] });
   }
 }

@@ -3,6 +3,7 @@ import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 import { deriveRole } from "@/lib/odoo/types";
 import { resolveRange, daysBetween, MAX_RANGE_DAYS } from "@/lib/installers/pay-data";
+import { billingError } from "@/lib/billing/server";
 
 export const runtime = "nodejs";
 
@@ -104,7 +105,6 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json({ people: [...people.values()].sort((a, b) => a.name.localeCompare(b.name)) });
   } catch (e) {
-    if (e instanceof Response) return e;
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Error" }, { status: 500 });
+    return billingError(e);
   }
 }

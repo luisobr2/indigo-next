@@ -13,21 +13,28 @@ import type { OrderCost } from "@/lib/costing/types";
  * paid. An estimate: the real figures are per month, on Billing → Costs.
  * Office and managers only (the page passes it only to them).
  */
-export function OrderCostCard({ orderId }: { orderId: number }) {
+export function OrderCostCard({ orderId, version = "" }: { orderId: number; version?: string }) {
   const q = useQuery<{ data: OrderCost }>({
-    queryKey: ["order-cost", orderId],
+    queryKey: ["order-cost", orderId, version],
     queryFn: () => fetchJson(`/api/costing/orders/${orderId}`),
     staleTime: 60_000,
+    placeholderData: (prev) => prev,
   });
   const c = q.data?.data;
-  if (q.isError || (!q.isLoading && !c)) return null;
 
   return (
     <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm" aria-labelledby={`order-cost-${orderId}`}>
       <h2 id={`order-cost-${orderId}`} className="flex items-center gap-2 text-sm font-semibold text-slate-800">
         <Calculator size={15} className="text-indigo-700" /> Estimated cost
       </h2>
-      {!c ? (
+      {q.isError && !c ? (
+        <p className="mt-2 text-sm text-rose-700">
+          Couldn&apos;t calculate the cost{q.error instanceof Error ? `: ${q.error.message}` : ""}.{" "}
+          <button type="button" onClick={() => q.refetch()} className="font-semibold underline">
+            Try again
+          </button>
+        </p>
+      ) : !c ? (
         <p className="mt-2 text-sm text-slate-400">Calculating…</p>
       ) : (
         <>

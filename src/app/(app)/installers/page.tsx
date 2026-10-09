@@ -788,10 +788,10 @@ export default function InstallersPage() {
         </>
       )}
 
-      {/* Marcar pagado mueve plata: el dialogo dice cuanto y cuantos dias
-          ANTES de confirmar, y de donde no sale (lo agendado). */}
       <DigitizationSection from={from} to={to} />
 
+      {/* Marcar pagado mueve plata: el dialogo dice cuanto y cuantos dias
+          ANTES de confirmar, y de donde no sale (lo agendado). */}
       <Dialog open={settling !== null} onOpenChange={(o) => !o && setSettling(null)}>
         <DialogContent>
           <DialogHeader>

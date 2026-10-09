@@ -85,6 +85,8 @@ export function AssignmentCard({
         if (!r.ok || !j.ok) throw new Error(j.error || "Failed");
         qc.invalidateQueries({ queryKey: ["order", String(orderId)] });
         qc.invalidateQueries({ queryKey: ["dashboard"] });
+        // El pintor cambia la pintura estimada del costo.
+        qc.invalidateQueries({ queryKey: ["order-cost"] });
         setEditing(false);
       })
       .finally(() => setBusy(false));

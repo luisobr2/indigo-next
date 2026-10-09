@@ -65,7 +65,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     qc.invalidateQueries({ queryKey: ["billing-to-invoice"] });
     // The next number, the Billing summary, what's outstanding and the
     // dealer's statement all change when an invoice is issued, paid or sent.
-    for (const key of ["billing-status", "billing-summary", "billing-outstanding", "billing-dealer", "billing-dealer-balances"]) {
+    for (const key of ["billing-status", "billing-summary", "billing-outstanding", "billing-dealer", "billing-dealer-balances", "invoice-profit", "cost-month"]) {
       qc.invalidateQueries({ queryKey: [key] });
     }
     invalidateOrderViews(qc);

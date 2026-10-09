@@ -413,6 +413,9 @@ export default function OrderDetailPage({
               onSuccess={() => {
                 qc.invalidateQueries({ queryKey: ["order", id] });
                 qc.invalidateQueries({ queryKey: ["order-activity", id] });
+                // El disenador decide el pago por digitalizar y entra en el costo.
+                qc.invalidateQueries({ queryKey: ["order-cost"] });
+                qc.invalidateQueries({ queryKey: ["labor-digitization"] });
               }}
             />
           )}
@@ -1024,7 +1027,13 @@ export default function OrderDetailPage({
             />
           )}
 
-          {canAssign && <OrderCostCard orderId={o.id} />}
+          {canAssign && (
+            <OrderCostCard
+              orderId={o.id}
+              // Se recalcula cuando cambia lo que entra en el costo.
+              version={[o.door_count, o.total_sqf, Array.isArray(o.designer_id) ? o.designer_id[0] : 0, Array.isArray(o.painter_id) ? o.painter_id[0] : 0].join("|")}
+            />
+          )}
 
           <AssignmentCard
             orderId={o.id}

@@ -10,7 +10,7 @@ import { cn, fmtMoney } from "@/lib/utils";
 import { shopDateString } from "@/lib/shop-time";
 import {
   EXPENSE_CATEGORIES,
-  monthOf,
+  isMonth,
   shiftMonth,
   type Expense,
   type ExpenseCategory,
@@ -21,6 +21,9 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
+// Under the 10 MB a request can carry through the proxy, with room for the form.
+const MAX_UPLOAD = 9 * 1024 * 1024;
 
 const CATEGORY_LABEL = Object.fromEntries(EXPENSE_CATEGORIES.map((c) => [c.value, c.label])) as Record<ExpenseCategory, string>;
 
@@ -37,7 +40,9 @@ function monthLabel(m: string) {
  */
 export default function CostsPage() {
   const qc = useQueryClient();
-  const [month, setMonth] = useState(() => monthOf(new Date()));
+  // El mes de la tienda (Miami), no el del navegador.
+  const thisMonth = shopDateString(new Date()).slice(0, 7);
+  const [month, setMonth] = useState(thisMonth);
   const monthQ = useQuery<{ data: MonthCosts }>({
     queryKey: ["cost-month", month],
     queryFn: () => fetchJson(`/api/costing/month?month=${month}`),
@@ -48,6 +53,7 @@ export default function CostsPage() {
   });
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState<Expense | null>(null);
   const [form, setForm] = useState({ date: shopDateString(new Date()), supplier: "", category: "acm" as ExpenseCategory, amount: "", note: "" });
   const [file, setFile] = useState<File | null>(null);
 
@@ -56,10 +62,18 @@ export default function CostsPage() {
     qc.invalidateQueries({ queryKey: ["expenses"] });
   }
 
+  function openAdd() {
+    // La fecha de hoy al abrir, no la de cuando se cargo la pagina.
+    setForm((f) => ({ ...f, date: shopDateString(new Date()) }));
+    setAdding(true);
+  }
+
   async function addExpense() {
     const amount = Number(form.amount);
     if (!form.supplier.trim()) return toast.error("Write who the purchase was from.");
-    if (!Number.isFinite(amount) || amount <= 0) return toast.error("Write the total of the bill.");
+    if (!form.amount.trim() || !Number.isFinite(amount) || amount <= 0) return toast.error("Write the total of the bill.");
+    if (!isMonth(form.date.slice(0, 7))) return toast.error("Choose the date of the bill.");
+    if (file && file.size > MAX_UPLOAD) return toast.error("The file is larger than 9 MB. Take the photo again or send a smaller PDF.");
     const fd = new FormData();
     Object.entries(form).forEach(([k, v]) => fd.append(k, String(v)));
     if (file) fd.append("file", file);
@@ -71,7 +85,7 @@ export default function CostsPage() {
       setForm((f) => ({ ...f, supplier: "", amount: "", note: "" }));
       setFile(null);
       // The bill may belong to another month than the one on screen.
-      setMonth(form.date.slice(0, 7));
+      if (isMonth(form.date.slice(0, 7))) setMonth(form.date.slice(0, 7));
       refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't save it");
@@ -80,14 +94,18 @@ export default function CostsPage() {
     }
   }
 
-  async function remove(e: Expense) {
-    if (!window.confirm(`Delete the ${fmtMoney(e.amount)} bill from ${e.supplier}?`)) return;
+  async function remove() {
+    if (!deleting) return;
+    setBusy(true);
     try {
-      await fetchJson(`/api/costing/expenses/${e.id}`, { method: "DELETE" });
+      await fetchJson(`/api/costing/expenses/${deleting.id}`, { method: "DELETE" });
       toast.success("Purchase deleted");
+      setDeleting(null);
       refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't delete it");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -113,11 +131,17 @@ export default function CostsPage() {
               <ChevronLeft size={16} />
             </button>
             <span className="min-w-36 text-center text-sm font-semibold text-slate-800">{monthLabel(month)}</span>
-            <button type="button" aria-label="Next month" onClick={() => setMonth((x) => shiftMonth(x, 1))} className="p-2 hover:bg-slate-50">
+            <button
+              type="button"
+              aria-label="Next month"
+              disabled={month >= thisMonth}
+              onClick={() => setMonth((x) => shiftMonth(x, 1))}
+              className="p-2 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent"
+            >
               <ChevronRight size={16} />
             </button>
           </div>
-          <Button onClick={() => setAdding(true)}>
+          <Button onClick={openAdd}>
             <Plus size={14} /> Add purchase
           </Button>
         </div>
@@ -143,7 +167,7 @@ export default function CostsPage() {
               empty="No purchase bills this month yet."
             />
             <Breakdown
-              title="Pay"
+              title="Pay (owed or paid)"
               total={m.people_total}
               rows={[
                 { label: "Installers", amount: m.people.installer },
@@ -177,6 +201,14 @@ export default function CostsPage() {
         <h2 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Purchase bills · {monthLabel(month)}</h2>
         {expQ.isLoading ? (
           <Skeleton className="m-4 h-24 rounded-xl" />
+        ) : expQ.error ? (
+          <div className="p-4">
+            <ErrorState
+              title="Couldn't load the purchase bills"
+              message={expQ.error instanceof Error ? expQ.error.message : undefined}
+              onRetry={() => expQ.refetch()}
+            />
+          </div>
         ) : !expenses.length ? (
           <p className="px-4 py-6 text-center text-sm text-slate-400">None yet. &ldquo;Add purchase&rdquo; to enter a bill with its photo.</p>
         ) : (
@@ -212,7 +244,7 @@ export default function CostsPage() {
                       )}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <button type="button" onClick={() => remove(e)} aria-label={`Delete the bill from ${e.supplier}`} className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-700">
+                      <button type="button" onClick={() => setDeleting(e)} aria-label={`Delete the bill from ${e.supplier}`} className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-700">
                         <Trash2 size={14} />
                       </button>
                     </td>
@@ -260,7 +292,7 @@ export default function CostsPage() {
               <Input id="exp-note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className="mt-1" />
             </label>
             <label htmlFor="exp-file" className="block text-sm text-slate-700">
-              Photo or PDF of the bill <span className="text-slate-400">(optional)</span>
+              Photo or PDF of the bill <span className="text-slate-400">(optional, up to 9 MB)</span>
               <input id="exp-file" type="file" accept="image/*,application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="mt-1 block w-full text-sm" />
             </label>
           </div>
@@ -270,6 +302,24 @@ export default function CostsPage() {
             </Button>
             <Button onClick={addExpense} disabled={busy}>
               {busy ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete this purchase?</DialogTitle>
+            <DialogDescription>
+              {deleting && `The ${fmtMoney(deleting.amount)} bill from ${deleting.supplier} (${deleting.date}) and its file are removed.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setDeleting(null)}>
+              Keep it
+            </Button>
+            <Button onClick={remove} disabled={busy} className="bg-rose-600 text-white hover:bg-rose-700">
+              {busy ? "Deleting…" : "Delete"}
             </Button>
           </div>
         </DialogContent>

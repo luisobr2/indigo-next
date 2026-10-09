@@ -14,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const type = data.mimetype || "application/octet-stream";
   // Only photos and PDFs are shown in the browser (never SVG, which can carry
   // script); anything else downloads.
-  const inline = /^(image\/(png|jpeg|gif|webp|heic|heif)|application\/pdf)$/.test(type);
+  const inline = /^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(type);
   const safeName = data.name.replace(/[^\w.\- ]+/g, "_");
   return new NextResponse(Buffer.from(data.datas, "base64"), {
     headers: {
