@@ -43,6 +43,7 @@ import { ErrorState } from "@/components/state-cards";
 import { AssignmentCard } from "@/components/assignment-card";
 import { NextActionCard } from "@/components/next-action-card";
 import { OrderInvoiceCard } from "@/components/billing/order-invoice-card";
+import { OrderCostCard } from "@/components/costing/order-cost-card";
 import { useOrderBilling } from "@/components/billing/invoice-bits";
 import { orderBillingNext, type BillingNext } from "@/lib/billing/invoice";
 import { isPaintStage } from "@/lib/stages";
@@ -1022,6 +1023,8 @@ export default function OrderDetailPage({
               failed={billingQ.isError}
             />
           )}
+
+          {canAssign && <OrderCostCard orderId={o.id} />}
 
           <AssignmentCard
             orderId={o.id}

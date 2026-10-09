@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { InvoiceStatusBadge, invalidateOrderViews, money, useBillingStatus } from "@/components/billing/invoice-bits";
 import { QboBadge, useQboStatus } from "@/components/billing/qbo-badge";
+import { InvoiceProfitCard } from "@/components/costing/invoice-profit-card";
 import { qboBadge } from "@/lib/quickbooks/badge";
 
 const METHODS = [
@@ -343,6 +344,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         </section>
 
         <aside className="space-y-4 lg:col-span-4">
+          {inv.state === "posted" && <InvoiceProfitCard invoiceId={inv.id} />}
           {qbo && (
             <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100" aria-label="QuickBooks">
               <div className="flex flex-wrap items-center justify-between gap-2">
