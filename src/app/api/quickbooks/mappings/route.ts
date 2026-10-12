@@ -13,6 +13,7 @@ export async function GET() {
  *   { action: "auto" }                                   match by name what's empty
  *   { action: "set", kind, local_id, qbo_id }            choose (qbo_id null = clear)
  *   { action: "create", kind, local_id, income_account_id? }  create it in QuickBooks
+ *   { action: "tax", tax_code_id }                      sales tax code for taxed invoices (null = none)
  * kind is "dealer" or "product".
  */
 export async function POST(req: NextRequest) {
@@ -28,6 +29,8 @@ export async function POST(req: NextRequest) {
     case "create":
       if (!kind || !Number.isInteger(localId)) return NextResponse.json({ error: "Bad request" }, { status: 400 });
       return qboCall("qbo_mapping_create_remote", [kind, localId, body.income_account_id ? String(body.income_account_id) : false]);
+    case "tax":
+      return qboCall("qbo_tax_code_set", [body.tax_code_id ? String(body.tax_code_id) : false]);
     default:
       return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }

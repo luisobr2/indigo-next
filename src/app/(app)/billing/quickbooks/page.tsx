@@ -25,6 +25,7 @@ interface MappingRow {
 interface Mappings {
   dealers: MappingRow[];
   products: MappingRow[];
+  tax_code?: { id: string | false; name: string | false };
 }
 interface Remote {
   id: string;
@@ -62,6 +63,8 @@ export default function QuickBooksMappingsPage() {
   const customersQ = useQboRemote("customers", connected);
   const itemsQ = useQboRemote("items", connected);
   const accountsQ = useQboRemote("accounts", connected);
+  const taxCodesQ = useQboRemote("taxcodes", connected);
+  const [taxDraft, setTaxDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [account, setAccount] = useState("");
   const remoteError = [customersQ, itemsQ, accountsQ].find((q) => q.error)?.error;
@@ -88,9 +91,17 @@ export default function QuickBooksMappingsPage() {
   /** set and create answer with the whole list: use it instead of reloading. */
   function keep(res: unknown) {
     if (!res || typeof res !== "object" || !("dealers" in res)) return false;
-    const { dealers, products } = res as Mappings;
-    qc.setQueryData<{ data: Mappings }>(["qbo-mappings"], { data: { dealers, products } });
+    const { dealers, products, tax_code } = res as Mappings;
+    qc.setQueryData<{ data: Mappings }>(["qbo-mappings"], { data: { dealers, products, tax_code } });
     return true;
+  }
+
+  async function saveTax(code: string) {
+    const res = await post({ action: "tax", tax_code_id: code || null }, "tax");
+    if (keep(res)) {
+      setTaxDraft(null);
+      toast.success(code ? "Sales tax code saved" : "No sales tax code: QuickBooks gets only the tax amount");
+    }
   }
 
   async function setMatch(kind: Kind, row: MappingRow, qboId: string) {
@@ -225,6 +236,48 @@ export default function QuickBooksMappingsPage() {
             onCreate={(row) => create("dealer", row)}
           />
 
+          <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100" aria-labelledby="qbo-tax-title">
+            <h2 id="qbo-tax-title" className="text-sm font-semibold text-slate-800">
+              Sales tax
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm text-slate-500">
+              The tax on each invoice is Indigo&apos;s (7% on the doors) and goes to QuickBooks as it is, so both totals
+              match. If QuickBooks doesn&apos;t calculate sales tax by itself, choose the Florida tax code it should use.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <label htmlFor="qbo-tax-code" className="text-sm text-slate-700">
+                Tax code
+              </label>
+              <select
+                id="qbo-tax-code"
+                value={taxDraft ?? (m.tax_code?.id || "")}
+                disabled={busy !== null || taxCodesQ.isLoading}
+                onChange={(e) => setTaxDraft(e.target.value)}
+                className="h-10 max-w-full rounded-lg border border-slate-200 bg-white px-2 text-sm"
+              >
+                <option value="">None (QuickBooks calculates it)</option>
+                {m.tax_code?.id && !(taxCodesQ.data?.data ?? []).some((t) => t.id === m.tax_code?.id) && (
+                  <option value={m.tax_code.id}>{m.tax_code.name || `#${m.tax_code.id}`}</option>
+                )}
+                {(taxCodesQ.data?.data ?? []).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              {taxDraft !== null && taxDraft !== (m.tax_code?.id || "") && (
+                <>
+                  <Button size="sm" disabled={busy !== null} onClick={() => saveTax(taxDraft)}>
+                    {busy === "tax" ? "Saving…" : "Save"}
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => setTaxDraft(null)}>
+                    Cancel
+                  </Button>
+                </>
+              )}
+            </div>
+          </section>
+
           <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
             <label className="flex flex-wrap items-center gap-2 text-sm text-slate-700" htmlFor="qbo-income-account">
               Income account for products created from here
@@ -263,7 +316,7 @@ export default function QuickBooksMappingsPage() {
 }
 
 /** What exists in QuickBooks (customers, products or income accounts), to choose from. */
-function useQboRemote(kind: "customers" | "items" | "accounts", enabled: boolean) {
+function useQboRemote(kind: "customers" | "items" | "accounts" | "taxcodes", enabled: boolean) {
   return useQuery<{ data: Remote[] }>({
     queryKey: ["qbo-remote", kind],
     queryFn: () => fetchJson(`/api/quickbooks/remote?kind=${kind}`),
