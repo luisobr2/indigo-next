@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { SETTINGS_TABS, tabFromLocation, type SettingsTab } from "@/lib/settings-tabs";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/state-cards";
 import { InvoicingSettings } from "@/components/billing/invoicing-settings";
@@ -92,6 +93,22 @@ interface SettingsData {
 
 export default function SettingsPage() {
   const qc = useQueryClient();
+  const [tab, setTab] = useState<SettingsTab>("general");
+  // La pestana sale del #hash (los enlaces viejos #quickbooks, #invoicing y
+  // #cost-rates abren la suya) y de la vuelta de Intuit (?qbo=...).
+  useEffect(() => {
+    const sync = () => {
+      const t = tabFromLocation(window.location.hash, window.location.search);
+      if (t) setTab(t);
+    };
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+  function pickTab(t: SettingsTab) {
+    setTab(t);
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${t}`);
+  }
   const { data, isLoading, error, refetch } = useQuery<SettingsData>({
     queryKey: ["settings"],
     queryFn: async () => {
@@ -284,199 +301,213 @@ export default function SettingsPage() {
             Settings
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Production capacities, contractor rates and admin shortcuts.
+            Capacities, pay rates, costs, invoicing and QuickBooks.
           </p>
         </div>
-        <Button
-          type="button"
-          size="lg"
-          onClick={save}
-          disabled={!dirty || saving || isLoading}
-        >
-          <Save size={14} />
-          {saving ? "Saving..." : dirty ? "Save changes" : "Saved"}
-        </Button>
+        {(tab === "general" || tab === "pay" || dirty) && (
+          <Button
+            type="button"
+            size="lg"
+            onClick={save}
+            disabled={!dirty || saving || isLoading}
+          >
+            <Save size={14} />
+            {saving ? "Saving..." : dirty ? "Save changes" : "Saved"}
+          </Button>
+        )}
       </header>
 
-      {/* ---------- Capacities ---------- */}
-      <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Production capacity per day</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              These values drive the Dashboard capacity bars. Set realistic daily throughput
-              of CNC orders, painting SQF and installations.
-            </p>
-          </div>
+      <SettingsTabs tab={tab} onChange={pickTab} />
+
+      {tab === "general" && (
+        <div className="space-y-6">
+          {/* ---------- Capacities ---------- */}
+          <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Production capacity per day</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  These values drive the Dashboard capacity bars. Set realistic daily throughput
+                  of CNC orders, painting SQF and installations.
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <CapacityInput
+                label="CNC capacity"
+                icon={Factory}
+                color="text-indigo-700"
+                value={caps.cnc}
+                unit="orders/day"
+                onChange={(v) => { setCaps((c) => ({ ...c, cnc: v })); setDirty(true); }}
+              />
+              <CapacityInput
+                label="Painting capacity"
+                icon={Brush}
+                color="text-orange-600"
+                value={caps.painting}
+                unit="SQF/day"
+                onChange={(v) => { setCaps((c) => ({ ...c, painting: v })); setDirty(true); }}
+              />
+              <CapacityInput
+                label="Installation capacity"
+                icon={Wrench}
+                color="text-emerald-600"
+                value={caps.install}
+                unit="orders/day"
+                onChange={(v) => { setCaps((c) => ({ ...c, install: v })); setDirty(true); }}
+              />
+            </div>
+          </section>
+
+          {/* ---------- Avisos al dealer ---------- */}
+          <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+            <div className="mb-4">
+              <h2 className="text-base font-semibold text-slate-900">
+                Automatic emails to the dealer
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                One automatic email to the dealer when an order reaches a
+                milestone. One-off notices are still sent by hand from the{" "}
+                <strong className="text-slate-700">Notify</strong> button on each
+                order, whether this is on or off.
+              </p>
+            </div>
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+              <Checkbox
+                checked={notifyOnStage}
+                onCheckedChange={(v) => {
+                  setNotifyOnStage(v === true);
+                  setDirty(true);
+                }}
+                className="mt-0.5"
+              />
+              <span className="text-sm">
+                <span className="flex items-center gap-1.5 font-medium text-slate-900">
+                  <Mail size={14} className="text-indigo-600" />
+                  Notify the dealer at milestones
+                </span>
+                <span className="mt-1 block text-xs text-slate-500">
+                  Four of the thirteen stages:{" "}
+                  <strong className="text-slate-700">CNC</strong> (in production),{" "}
+                  <strong className="text-slate-700">Ready for Installation</strong>,{" "}
+                  <strong className="text-slate-700">Installation Scheduled</strong> and{" "}
+                  <strong className="text-slate-700">Installed</strong>. The other
+                  nine are internal work and send nothing.
+                </span>
+                <span className="mt-1.5 block text-xs text-slate-500">
+                  Goes to the dealer&apos;s email, not the homeowner&apos;s. Dealers with
+                  no email get nothing and the order moves on regardless — set one
+                  in Admin → Dealers.
+                </span>
+              </span>
+            </label>
+          </section>
+
+          {/* ---------- Admin shortcuts ---------- */}
+          <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+            <h2 className="mb-4 text-base font-semibold text-slate-900">Admin shortcuts</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ShortcutCard
+                icon={Building2}
+                title="Dealers & Catalog"
+                description="Dealers, brands, door designs and codes."
+                href="/catalog"
+              />
+              <ShortcutCard
+                icon={Layers}
+                title="Orders"
+                description="Filter, search and inspect every active order."
+                href="/orders"
+              />
+            </div>
+          </section>
+
         </div>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <CapacityInput
-            label="CNC capacity"
-            icon={Factory}
-            color="text-indigo-700"
-            value={caps.cnc}
-            unit="orders/day"
-            onChange={(v) => { setCaps((c) => ({ ...c, cnc: v })); setDirty(true); }}
-          />
-          <CapacityInput
-            label="Painting capacity"
-            icon={Brush}
-            color="text-orange-600"
-            value={caps.painting}
-            unit="SQF/day"
-            onChange={(v) => { setCaps((c) => ({ ...c, painting: v })); setDirty(true); }}
-          />
-          <CapacityInput
-            label="Installation capacity"
-            icon={Wrench}
-            color="text-emerald-600"
-            value={caps.install}
-            unit="orders/day"
-            onChange={(v) => { setCaps((c) => ({ ...c, install: v })); setDirty(true); }}
-          />
+      )}
+
+      {tab === "pay" && (
+        <div className="space-y-6">
+          {/* ---------- Contractor rates ---------- */}
+          <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Contractor rates</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Each rate drives the Painter Sheet totals and weekly installer settlement.
+                </p>
+              </div>
+            </div>
+
+            <RateGroup
+              title="Painters"
+              icon={Brush}
+              color="text-orange-600"
+              rates={painters}
+              onUpdate={updateRate}
+              onDelete={deleteRate}
+              onAdd={() => addRate("painter")}
+              people={people?.painterCandidates ?? people?.painters ?? []}
+              showPaintShop
+            />
+            <RateGroup
+              title="Installers"
+              icon={Wrench}
+              color="text-emerald-600"
+              rates={installers}
+              onUpdate={updateRate}
+              onDelete={deleteRate}
+              onAdd={() => addRate("installer")}
+              people={people?.installers ?? []}
+              showDayRule
+            />
+            <RateGroup
+              title="Digitization after hours"
+              icon={ScanLine}
+              color="text-indigo-700"
+              rates={digitizers}
+              onUpdate={updateRate}
+              onDelete={deleteRate}
+              onAdd={() => addRate("digitizer")}
+              people={people?.designers ?? []}
+              personOnly
+              hint="Paid per door when this person is chosen as the order's designer. Designers who digitize in office hours (Indigo, Elio) aren't paid extra: leave them out."
+            />
+            {(others.length > 0) && (
+              <RateGroup
+                title="Other"
+                icon={Tag}
+                color="text-slate-600"
+                rates={others}
+                onUpdate={updateRate}
+                onDelete={deleteRate}
+                onAdd={() => addRate("other")}
+              />
+            )}
+            {others.length === 0 && (
+              <div className="mt-4 flex justify-end">
+                <Button
+                  type="button"
+                  variant="link"
+                  size="xs"
+                  onClick={() => addRate("other")}
+                  className="text-slate-500 hover:text-slate-700"
+                >
+                  + Other contractor type
+                </Button>
+              </div>
+            )}
+          </section>
+
+          {/* ---------- Orphan assignments ---------- */}
+          <OrphanAssignmentCard />
+
         </div>
-      </section>
+      )}
 
-      {/* ---------- Avisos al dealer ---------- */}
-      <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-        <div className="mb-4">
-          <h2 className="text-base font-semibold text-slate-900">
-            Automatic emails to the dealer
-          </h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            One automatic email to the dealer when an order reaches a
-            milestone. One-off notices are still sent by hand from the{" "}
-            <strong className="text-slate-700">Notify</strong> button on each
-            order, whether this is on or off.
-          </p>
-        </div>
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-          <Checkbox
-            checked={notifyOnStage}
-            onCheckedChange={(v) => {
-              setNotifyOnStage(v === true);
-              setDirty(true);
-            }}
-            className="mt-0.5"
-          />
-          <span className="text-sm">
-            <span className="flex items-center gap-1.5 font-medium text-slate-900">
-              <Mail size={14} className="text-indigo-600" />
-              Notify the dealer at milestones
-            </span>
-            <span className="mt-1 block text-xs text-slate-500">
-              Four of the thirteen stages:{" "}
-              <strong className="text-slate-700">CNC</strong> (in production),{" "}
-              <strong className="text-slate-700">Ready for Installation</strong>,{" "}
-              <strong className="text-slate-700">Installation Scheduled</strong> and{" "}
-              <strong className="text-slate-700">Installed</strong>. The other
-              nine are internal work and send nothing.
-            </span>
-            <span className="mt-1.5 block text-xs text-slate-500">
-              Goes to the dealer&apos;s email, not the homeowner&apos;s. Dealers with
-              no email get nothing and the order moves on regardless — set one
-              in Admin → Dealers.
-            </span>
-          </span>
-        </label>
-      </section>
-
-      {/* ---------- Contractor rates ---------- */}
-      <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Contractor rates</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Each rate drives the Painter Sheet totals and weekly installer settlement.
-            </p>
-          </div>
-        </div>
-
-        <RateGroup
-          title="Painters"
-          icon={Brush}
-          color="text-orange-600"
-          rates={painters}
-          onUpdate={updateRate}
-          onDelete={deleteRate}
-          onAdd={() => addRate("painter")}
-          people={people?.painterCandidates ?? people?.painters ?? []}
-          showPaintShop
-        />
-        <RateGroup
-          title="Installers"
-          icon={Wrench}
-          color="text-emerald-600"
-          rates={installers}
-          onUpdate={updateRate}
-          onDelete={deleteRate}
-          onAdd={() => addRate("installer")}
-          people={people?.installers ?? []}
-          showDayRule
-        />
-        <RateGroup
-          title="Digitization after hours"
-          icon={ScanLine}
-          color="text-indigo-700"
-          rates={digitizers}
-          onUpdate={updateRate}
-          onDelete={deleteRate}
-          onAdd={() => addRate("digitizer")}
-          people={people?.designers ?? []}
-          personOnly
-          hint="Paid per door when this person is chosen as the order's designer. Designers who digitize in office hours (Indigo, Elio) aren't paid extra: leave them out."
-        />
-        {(others.length > 0) && (
-          <RateGroup
-            title="Other"
-            icon={Tag}
-            color="text-slate-600"
-            rates={others}
-            onUpdate={updateRate}
-            onDelete={deleteRate}
-            onAdd={() => addRate("other")}
-          />
-        )}
-        {others.length === 0 && (
-          <div className="mt-4 flex justify-end">
-            <Button
-              type="button"
-              variant="link"
-              size="xs"
-              onClick={() => addRate("other")}
-              className="text-slate-500 hover:text-slate-700"
-            >
-              + Other contractor type
-            </Button>
-          </div>
-        )}
-      </section>
-
-      {/* ---------- Orphan assignments ---------- */}
-      <OrphanAssignmentCard />
-
-      {/* ---------- Admin shortcuts ---------- */}
-      <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-base font-semibold text-slate-900">Admin shortcuts</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ShortcutCard
-            icon={Building2}
-            title="Dealers & Catalog"
-            description="Dealers, brands, door designs and codes."
-            href="/catalog"
-          />
-          <ShortcutCard
-            icon={Layers}
-            title="Orders"
-            description="Filter, search and inspect every active order."
-            href="/orders"
-          />
-        </div>
-      </section>
-
-      <CostRatesSettings />
-      <InvoicingSettings />
-      <QuickBooksSettings />
+      {tab === "costs" && <CostRatesSettings />}
+      {tab === "invoicing" && <InvoicingSettings />}
+      {tab === "quickbooks" && <QuickBooksSettings />}
     </div>
   );
 }
@@ -904,5 +935,31 @@ function ShortcutCard({
       </div>
       <ArrowRight size={14} className="text-slate-400 group-hover:text-indigo-600" />
     </Link>
+  );
+}
+
+function SettingsTabs({ tab, onChange }: { tab: SettingsTab; onChange: (t: SettingsTab) => void }) {
+  return (
+    <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+      <div role="tablist" aria-label="Settings sections" className="flex min-w-max gap-1 border-b border-slate-200">
+        {SETTINGS_TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            id={`settings-tab-${t.key}`}
+            aria-selected={tab === t.key}
+            onClick={() => onChange(t.key)}
+            className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-600 ${
+              tab === t.key
+                ? "border-indigo-700 text-indigo-700"
+                : "border-transparent text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
