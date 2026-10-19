@@ -31,6 +31,7 @@ export interface LineEditValues {
   qty?: unknown;
   custom_price?: unknown;
   design_tier?: unknown;
+  sqf?: unknown;
 }
 
 /**
@@ -75,6 +76,12 @@ export function validateLineEdit(
   if ("custom_price" in vals) {
     const p = Number(vals.custom_price);
     if (!Number.isFinite(p) || p < 0) return `${label}: custom price can't be negative.`;
+  }
+  if ("sqf" in vals) {
+    const sq = Number(vals.sqf);
+    if (vals.sqf === "" || vals.sqf === null || !Number.isFinite(sq) || sq < 0 || sq > 1000) {
+      return `${label}: SQF must be a number from 0 to 1000.`;
+    }
   }
   return null;
 }

@@ -26,6 +26,9 @@ const EDITABLE_FIELDS = [
   "paint_sides",
   "sidelite_margin_left",
   "sidelite_margin_right",
+  // Majela (19-oct-2026): el SQF se carga o corrige en cualquier etapa. Odoo
+  // ajusta solo el pago del pintor si sigue en borrador.
+  "sqf",
 ] as const;
 
 /**
@@ -94,6 +97,7 @@ export async function PATCH(
           "material",
           "thickness",
           "paint_sides",
+          "sqf",
         ],
       ],
       kwargs: { limit: 1 },
@@ -117,17 +121,14 @@ export async function PATCH(
       material: "Material",
       thickness: "Thickness",
       paint_sides: "Sides to paint",
+      sqf: "SQF",
     };
-    const escapeHtml = (s: string) =>
-      s
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
+    // Texto plano: por RPC Odoo 17 escapa el cuerpo, asi que las etiquetas
+    // HTML salian escritas tal cual en el historial ("&lt;br/&gt;").
     const fmt = (v: unknown) => {
       if (v === null || v === undefined || v === false || v === "") return "—";
-      if (Array.isArray(v) && v.length === 2) return escapeHtml(String(v[1]));
-      return escapeHtml(String(v));
+      if (Array.isArray(v) && v.length === 2) return String(v[1]);
+      return String(v);
     };
     const diffs: string[] = [];
     for (const k of Object.keys(vals)) {
@@ -142,7 +143,7 @@ export async function PATCH(
       } else if (before === after) {
         continue;
       }
-      diffs.push(`<b>${escapeHtml(label)}</b>: ${fmt(before)} → ${fmt(after)}`);
+      diffs.push(`${label}: ${fmt(before)} → ${fmt(after)}`);
     }
     if (diffs.length) {
       await call({
@@ -151,7 +152,7 @@ export async function PATCH(
         method: "message_post",
         args: [[orderId]],
         kwargs: {
-          body: `Order line edited:<br/>${diffs.join("<br/>")}`,
+          body: `Order line edited — ${diffs.join("; ")}`,
           message_type: "comment",
         },
       }).catch(() => undefined);

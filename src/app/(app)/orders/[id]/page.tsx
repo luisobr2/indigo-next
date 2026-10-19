@@ -89,6 +89,9 @@ export default function OrderDetailPage({
   const [schedTarget, setSchedTarget] = useState<ScheduleTarget | null>(null);
   const [unscheduling, setUnscheduling] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
+  // SQF por pieza, editable en cualquier etapa (Majela, 19-oct-2026).
+  const [sqfDraft, setSqfDraft] = useState<Record<number, string> | null>(null);
+  const [savingSqf, setSavingSqf] = useState(false);
   const router = useRouter();
   const qc = useQueryClient();
   const { data, isLoading, isError, error, refetch } = useQuery<OrderDetail>({
@@ -240,6 +243,44 @@ export default function OrderDetailPage({
     sqf: number;
     is_privacy_glass: boolean;
   }>;
+
+  async function saveSqf() {
+    if (!sqfDraft) return;
+    const changed = lines.filter((l) => (sqfDraft[l.id] ?? "") !== (l.sqf ? String(l.sqf) : ""));
+    for (const l of changed) {
+      const raw = (sqfDraft[l.id] ?? "").trim();
+      const n = Number(raw);
+      if (!raw || !Number.isFinite(n) || n < 0 || n > 1000) {
+        toast.error(`${m2o(l.design_id)?.name ?? "A piece"}: write the SQF (0 to 1000).`);
+        return;
+      }
+    }
+    if (!changed.length) {
+      setSqfDraft(null);
+      return;
+    }
+    setSavingSqf(true);
+    try {
+      for (const l of changed) {
+        const r = await fetch(`/api/orders/${id}/lines/${l.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sqf: Number(sqfDraft[l.id]) }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || `Couldn't save the SQF (${r.status})`);
+      }
+      toast.success(changed.length === 1 ? "SQF saved" : `SQF saved on ${changed.length} pieces`);
+      setSqfDraft(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save the SQF");
+    } finally {
+      setSavingSqf(false);
+      qc.invalidateQueries({ queryKey: ["order", id] });
+      qc.invalidateQueries({ queryKey: ["order-activity", id] });
+      qc.invalidateQueries({ queryKey: ["order-cost"] });
+    }
+  }
 
   const dealer = m2o(o.dealer_id);
   const currentStage = data.stages.find((s) => s.code === o.stage_code);
@@ -837,9 +878,36 @@ export default function OrderDetailPage({
 
           {/* Pieces */}
           <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="mb-3 font-semibold text-slate-800">Pieces</div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="font-semibold text-slate-800">Pieces</div>
+              {canAssign &&
+                (sqfDraft ? (
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setSqfDraft(null)} disabled={savingSqf}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={saveSqf} disabled={savingSqf}>
+                      {savingSqf ? "Saving…" : "Save SQF"}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setSqfDraft(Object.fromEntries(lines.map((l) => [l.id, l.sqf ? String(l.sqf) : ""])))}
+                  >
+                    Edit SQF
+                  </Button>
+                ))}
+            </div>
+            {sqfDraft && (
+              <p className="mb-2 text-xs text-slate-500">
+                SQF can be entered at any stage. If the painting is already in a pay sheet that isn&apos;t paid yet,
+                it follows the new SQF.
+              </p>
+            )}
             <div className="-mx-2 overflow-x-auto scrollbar-thin sm:mx-0">
-            <table className="w-full min-w-[800px] text-sm">
+            <table className="w-full min-w-[680px] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase text-slate-500">
                   <th className="py-2">Design</th>
@@ -897,7 +965,20 @@ export default function OrderDetailPage({
                       <td className="py-2 text-right">{l.qty}</td>
                       <td className="py-2 text-right">{l.parts_count ?? 1}</td>
                       <td className="py-2 text-right font-semibold">
-                        {fmtNum(l.sqf)}
+                        {sqfDraft ? (
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step={0.01}
+                            aria-label={`SQF of ${m2o(l.design_id)?.name ?? "piece"}`}
+                            value={sqfDraft[l.id] ?? ""}
+                            onChange={(e) => setSqfDraft((d) => ({ ...(d ?? {}), [l.id]: e.target.value }))}
+                            className="h-9 w-20 rounded-lg border border-slate-300 bg-white px-2 text-right tabular-nums"
+                          />
+                        ) : (
+                          fmtNum(l.sqf)
+                        )}
                       </td>
                     </tr>
                   );
