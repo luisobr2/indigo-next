@@ -244,6 +244,10 @@ export default function OrderDetailPage({
     is_privacy_glass: boolean;
   }>;
 
+  function startSqfEdit() {
+    setSqfDraft(Object.fromEntries(lines.map((l) => [l.id, l.sqf ? String(l.sqf) : ""])));
+  }
+
   async function saveSqf() {
     if (!sqfDraft) return;
     const changed = lines.filter((l) => (sqfDraft[l.id] ?? "") !== (l.sqf ? String(l.sqf) : ""));
@@ -856,28 +860,35 @@ export default function OrderDetailPage({
                   {o.notes || "No notes yet."}
                 </div>
               )}
-              {/* Use `value` (controlled) instead of `defaultValue` so this
-                  display follows the order's computed total_sqf as it
-                  updates (e.g. after the SQF wizard runs, after Edit Order
-                  saves new line dimensions). With `defaultValue` the input
-                  would freeze at whatever total_sqf was on first mount —
-                  which is why this box was showing 0 while the Order
-                  Summary on the right showed the correct figure. */}
-              <div className="mt-4 flex items-center gap-2 text-sm">
-                <span className="text-slate-500">SQF</span>
-                <input
-                  type="text"
-                  value={fmtNum(o.total_sqf)}
-                  className="w-20 rounded-lg border border-input bg-background px-2 py-1 text-right text-sm shadow-xs"
-                  readOnly
-                />
-                <span className="text-slate-500">SQFT</span>
+              {/* El total del SQF es la suma de las piezas: se muestra como
+                  texto (antes parecia una casilla editable y no lo era) y se
+                  edita pieza a pieza en "Pieces". */}
+              <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                <span className="text-slate-500">Total SQF</span>
+                <span className="font-semibold tabular-nums text-slate-900">{fmtNum(o.total_sqf)}</span>
+                {canAssign && (
+                  <>
+                    <span className="text-slate-300" aria-hidden>
+                      ·
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        startSqfEdit();
+                        document.getElementById("pieces")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                      className="font-medium text-indigo-700 hover:underline"
+                    >
+                      Edit it in Pieces
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
 
           {/* Pieces */}
-          <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <div id="pieces" className="scroll-mt-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="font-semibold text-slate-800">Pieces</div>
               {canAssign &&
@@ -894,7 +905,7 @@ export default function OrderDetailPage({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setSqfDraft(Object.fromEntries(lines.map((l) => [l.id, l.sqf ? String(l.sqf) : ""])))}
+                    onClick={startSqfEdit}
                   >
                     Edit SQF
                   </Button>
