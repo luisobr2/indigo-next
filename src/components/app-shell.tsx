@@ -1,5 +1,6 @@
 "use client";
 
+import { AnotaWidget } from "@/components/anota-widget";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -490,6 +491,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      <AnotaWidget />
     </div>
   );
 }

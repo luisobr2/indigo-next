@@ -27,6 +27,7 @@ import { ErrorState } from "@/components/state-cards";
 import { InvoicingSettings } from "@/components/billing/invoicing-settings";
 import { QuickBooksSettings } from "@/components/billing/quickbooks-settings";
 import { CostRatesSettings } from "@/components/costing/cost-rates-settings";
+import { AnotaSettings } from "@/components/anota-settings";
 import { BoardSkeleton } from "@/components/skeleton";
 import { fetchJson } from "@/lib/fetch-json";
 import { Button } from "@/components/ui/button";
@@ -403,6 +404,8 @@ export default function SettingsPage() {
               </span>
             </label>
           </section>
+
+          <AnotaSettings />
 
           {/* ---------- Admin shortcuts ---------- */}
           <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
