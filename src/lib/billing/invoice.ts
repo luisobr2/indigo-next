@@ -254,3 +254,24 @@ export function orderBillingNext(
   if (stageCode === "invoiced" && paymentState !== "paid") return { kind: "mark_paid" };
   return { kind: "none" };
 }
+
+/** How a payment came in (same list as Odoo's `indigo_billing_register_payment`). */
+export const PAYMENT_METHODS: Array<{ value: string; label: string }> = [
+  { value: "check", label: "Check" },
+  { value: "transfer", label: "Bank transfer" },
+  { value: "zelle", label: "Zelle" },
+  { value: "card", label: "Card" },
+  { value: "cash", label: "Cash" },
+  { value: "other", label: "Other" },
+];
+
+/** Can this row go in "mark several as paid"? Issued and with a balance left. */
+export function payable(r: Pick<InvoiceRow, "state" | "residual">): boolean {
+  return r.state === "posted" && r.residual > 0.005;
+}
+
+/** What the picked rows add up to, from the ones still in the list and payable. */
+export function pickedTotals(rows: InvoiceRow[], picked: ReadonlySet<number>) {
+  const sel = rows.filter((r) => picked.has(r.id) && payable(r));
+  return { ids: sel.map((r) => r.id), count: sel.length, total: Math.round(sel.reduce((t, r) => t + r.residual, 0) * 100) / 100 };
+}

@@ -6,6 +6,8 @@ import {
   presetRange,
   freeLine,
   orderBillingNext,
+  payable,
+  pickedTotals,
   type DraftLine,
   type InvoiceRow,
   type OrderBilling,
@@ -129,4 +131,14 @@ test("orderBillingNext: an order marked invoiced by hand doesn't push Create inv
   assert.deepEqual(orderBillingNext("invoiced", "paid", byHand), { kind: "none" });
   assert.deepEqual(orderBillingNext("invoiced", "unpaid", { ...byHand, paid_by_hand: false }), { kind: "mark_paid" });
   assert.deepEqual(orderBillingNext("installed", "unpaid", { ready: true, invoices: [], can_create: true }), { kind: "create" });
+});
+
+test("only issued invoices with a balance can be marked paid together", () => {
+  const row = (id: number, state: InvoiceRow["state"], residual: number) => ({ id, state, residual }) as InvoiceRow;
+  assert.equal(payable(row(1, "posted", 321)), true);
+  assert.equal(payable(row(2, "posted", 0)), false);
+  assert.equal(payable(row(3, "draft", 321)), false);
+  const rows = [row(1, "posted", 321.1), row(2, "posted", 0), row(3, "posted", 100.2), row(4, "cancel", 50)];
+  // picked ids that left the list (another filter) or aren't payable don't count
+  assert.deepEqual(pickedTotals(rows, new Set([1, 2, 3, 4, 99])), { ids: [1, 3], count: 2, total: 421.3 });
 });

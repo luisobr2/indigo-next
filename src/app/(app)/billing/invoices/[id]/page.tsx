@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 import { shopDateString } from "@/lib/shop-time";
-import { parseEmails, type InvoiceDetail } from "@/lib/billing/invoice";
+import { PAYMENT_METHODS, parseEmails, type InvoiceDetail } from "@/lib/billing/invoice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,14 +21,7 @@ import { QboBadge, useQboStatus } from "@/components/billing/qbo-badge";
 import { InvoiceProfitCard } from "@/components/costing/invoice-profit-card";
 import { qboBadge } from "@/lib/quickbooks/badge";
 
-const METHODS = [
-  { value: "check", label: "Check" },
-  { value: "transfer", label: "Bank transfer" },
-  { value: "zelle", label: "Zelle" },
-  { value: "card", label: "Card" },
-  { value: "cash", label: "Cash" },
-  { value: "other", label: "Other" },
-];
+const METHODS = PAYMENT_METHODS;
 
 export default function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
