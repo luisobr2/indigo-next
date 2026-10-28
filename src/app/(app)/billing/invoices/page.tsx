@@ -238,22 +238,6 @@ export default function InvoicesPage() {
             </button>
           ))}
         </div>
-        {sel.count > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-100 bg-emerald-50/60 px-4 py-2.5">
-            <span className="text-sm text-emerald-900">
-              <span className="font-semibold">{sel.count}</span> {sel.count === 1 ? "invoice" : "invoices"} picked ·{" "}
-              <span className="font-semibold tabular-nums">{money(sel.total)}</span> to collect
-            </span>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => setPicked(new Set())}>
-                Clear
-              </Button>
-              <Button size="sm" onClick={openPay} className="bg-emerald-600 text-white hover:bg-emerald-700">
-                <Wallet size={14} /> Mark as paid
-              </Button>
-            </div>
-          </div>
-        )}
         {listQ.isLoading && <Skeleton className="m-4 h-40 rounded-xl" />}
         {listQ.error && <ErrorState title="Couldn't load invoices" onRetry={() => listQ.refetch()} />}
         {!listQ.isLoading && !listQ.error && !rows.length && (
@@ -354,6 +338,37 @@ export default function InvoicesPage() {
           </div>
         )}
       </section>
+
+      {/* Floats over the list while scrolling, from two invoices picked (Majela, 27-oct-2026). */}
+      {sel.count >= 2 && (
+        <div className="pointer-events-none sticky bottom-4 z-30 flex justify-center">
+          <div
+            role="region"
+            aria-label="Picked invoices"
+            className="pointer-events-auto flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl bg-slate-900 py-2 pl-4 pr-2 text-white shadow-xl ring-1 ring-black/10"
+          >
+            <span className="flex items-center gap-2 text-sm">
+              <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-xs font-bold tabular-nums">
+                {sel.count}
+              </span>
+              invoices picked ·<span className="font-semibold tabular-nums">{money(sel.total)}</span> to collect
+            </span>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setPicked(new Set())}
+                className="text-slate-300 hover:bg-white/10 hover:text-white"
+              >
+                Clear
+              </Button>
+              <Button size="sm" onClick={openPay} className="bg-emerald-500 text-white hover:bg-emerald-600">
+                <Wallet size={14} /> Mark {sel.count} as paid
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Dialog open={payOpen} onOpenChange={(o) => !paying && setPayOpen(o)}>
         <DialogContent className="sm:max-w-md">
