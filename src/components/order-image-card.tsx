@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ClipboardPaste } from "lucide-react";
+import { ClipboardPaste, Trash2 } from "lucide-react";
 import { colorDot } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { imageFromFiles, latestImage, pastedImage, screenshotName } from "@/lib/clipboard-image";
@@ -70,6 +70,24 @@ export function OrderImageCard({ orderId, design, color, doorType, editing }: Pr
     });
   }
 
+  // Majela, 30-oct-2026: a pasted picture could only be removed from Files & Documents.
+  async function remove(att: Attachment) {
+    if (busy || !confirm(`Remove ${att.name} from the order?`)) return;
+    setBusy(true);
+    const promise = fetch(`/api/orders/${orderId}/attachments?att=${att.id}`, { method: "DELETE" })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || "Couldn't remove the picture.");
+        qc.invalidateQueries({ queryKey: ["order-attachments", orderId] });
+      })
+      .finally(() => setBusy(false));
+    toast.promise(promise, {
+      loading: "Removing the picture…",
+      success: "Picture removed",
+      error: (e) => (e instanceof Error ? e.message : "Couldn't remove the picture."),
+    });
+  }
+
   // Re-bound on every render so it always uploads with the current state.
   useEffect(() => {
     if (!editing) return;
@@ -125,6 +143,17 @@ export function OrderImageCard({ orderId, design, color, doorType, editing }: Pr
           </>
         ) : (
           !editing && <span className="text-sm text-slate-300">No design image</span>
+        )}
+        {editing && shown && "open" in shown && photo && (
+          <button
+            type="button"
+            onClick={() => remove(photo)}
+            disabled={busy}
+            aria-label={`Remove ${photo.name}`}
+            className="absolute right-3 top-3 flex items-center gap-1.5 rounded-lg bg-white/90 px-2.5 py-1.5 text-xs font-semibold text-rose-700 shadow ring-1 ring-rose-200 hover:bg-rose-50"
+          >
+            <Trash2 size={13} /> Remove
+          </button>
         )}
         {editing && (
           <button
