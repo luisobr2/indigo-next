@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { ClipboardPaste } from "lucide-react";
 import { colorDot } from "@/lib/labels";
 import { cn } from "@/lib/utils";
-import { imageFromFiles, latestImage, screenshotName } from "@/lib/clipboard-image";
+import { imageFromFiles, latestImage, pastedImage, screenshotName } from "@/lib/clipboard-image";
 
 type Attachment = { id: number; name: string; mimetype: string };
 
@@ -74,8 +74,12 @@ export function OrderImageCard({ orderId, design, color, doorType, editing }: Pr
   useEffect(() => {
     if (!editing) return;
     function onPaste(e: ClipboardEvent) {
-      const img = imageFromFiles(e.clipboardData?.files);
-      if (!img) return; // text pastes go on to the field as usual
+      const el = e.target instanceof Element ? e.target : null;
+      const img = pastedImage(e.clipboardData?.files, Array.from(e.clipboardData?.types ?? []), {
+        editable: !!el?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'),
+        inDialog: !!el?.closest('[role="dialog"], [role="alertdialog"]'),
+      });
+      if (!img) return; // anything else pastes as usual
       e.preventDefault();
       upload(img, true);
     }
@@ -86,7 +90,7 @@ export function OrderImageCard({ orderId, design, color, doorType, editing }: Pr
   const shown = showCatalog
     ? { src: catalogUrl!, alt: `${design?.[1] ?? ""} — ${color ?? ""}` }
     : photo
-      ? { src: `/api/orders/${orderId}/attachments/${photo.id}`, alt: photo.name }
+      ? { src: `/api/orders/${orderId}/attachments/${photo.id}`, alt: photo.name, open: true }
       : null;
 
   return (
@@ -98,14 +102,27 @@ export function OrderImageCard({ orderId, design, color, doorType, editing }: Pr
         )}
       >
         {shown ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            key={shown.src}
-            src={shown.src}
-            alt={shown.alt}
-            className="h-full w-auto object-contain"
-            onError={() => showCatalog && setFailedUrl(catalogUrl)}
-          />
+          <>
+            {/* Fits both a tall door render and a wide screenshot. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              key={shown.src}
+              src={shown.src}
+              alt={shown.alt}
+              className="h-full w-full object-contain"
+              onError={() => showCatalog && setFailedUrl(catalogUrl)}
+            />
+            {"open" in shown && !editing && (
+              <a
+                href={shown.src}
+                target="_blank"
+                rel="noreferrer"
+                className="absolute inset-0"
+                aria-label={`Open ${shown.alt} full size`}
+                title="Open full size"
+              />
+            )}
+          </>
         ) : (
           !editing && <span className="text-sm text-slate-300">No design image</span>
         )}

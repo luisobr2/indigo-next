@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { imageFromFiles, latestImage, screenshotName } from "./clipboard-image.ts";
+import { imageFromFiles, latestImage, pastedImage, screenshotName } from "./clipboard-image.ts";
 
 test("imageFromFiles picks the first image and ignores the rest", () => {
   const pdf = new File(["x"], "a.pdf", { type: "application/pdf" });
@@ -26,4 +26,18 @@ test("latestImage skips files that are not pictures", () => {
   ];
   assert.equal(latestImage(rows)?.id, 2);
   assert.equal(latestImage([{ id: 1, mimetype: "text/plain" }]), null);
+});
+
+test("pastedImage leaves text pastes and dialogs alone", () => {
+  const png = new File(["x"], "image.png", { type: "image/png" });
+  const free = { editable: false, inDialog: false };
+  // A screenshot: only the image, taken even from a focused field.
+  assert.equal(pastedImage([png], ["Files"], free), png);
+  assert.equal(pastedImage([png], ["Files"], { editable: true, inDialog: false }), png);
+  // Cells copied from Excel bring text and a picture of them: into a field, it's text.
+  assert.equal(pastedImage([png], ["text/plain", "text/html", "Files"], { editable: true, inDialog: false }), null);
+  assert.equal(pastedImage([png], ["text/plain", "Files"], free), png);
+  // A paste inside another dialog belongs to that dialog.
+  assert.equal(pastedImage([png], ["Files"], { editable: false, inDialog: true }), null);
+  assert.equal(pastedImage([], ["text/plain"], free), null);
 });
