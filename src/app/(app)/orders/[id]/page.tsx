@@ -44,6 +44,7 @@ import { AssignmentCard } from "@/components/assignment-card";
 import { NextActionCard } from "@/components/next-action-card";
 import { OrderInvoiceCard } from "@/components/billing/order-invoice-card";
 import { OrderCostCard } from "@/components/costing/order-cost-card";
+import { OrderImageCard } from "@/components/order-image-card";
 import { useOrderBilling } from "@/components/billing/invoice-bits";
 import { orderBillingNext, type BillingNext } from "@/lib/billing/invoice";
 import { isPaintStage } from "@/lib/stages";
@@ -633,44 +634,13 @@ export default function OrderDetailPage({
         {/* LEFT col */}
         <div className="space-y-5 lg:col-span-9">
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            {/* Door image — single render matching the order's color.
-                The endpoint falls back to the design's cover image if
-                no color-tagged attachment exists. */}
-            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-              <div className="flex h-64 items-center justify-center overflow-hidden rounded-xl bg-slate-50">
-                {lines[0]?.design_id ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={`/api/catalog/designs/${(lines[0].design_id as [number, string])[0]}/image?${new URLSearchParams({ ...(lines[0]?.color ? { color: lines[0].color } : {}), ...(lines[0]?.door_type ? { type: lines[0].door_type } : {}) }).toString()}`}
-                    alt={`${(lines[0].design_id as [number, string])[1]} — ${lines[0]?.color ?? ""}`}
-                    className="h-full w-auto object-contain"
-                    onError={(e) => {
-                      const el = e.currentTarget;
-                      el.style.display = "none";
-                      const sibling = el.nextElementSibling as HTMLElement | null;
-                      if (sibling) sibling.style.display = "block";
-                    }}
-                  />
-                ) : null}
-                <span
-                  className="text-sm text-slate-300"
-                  style={{ display: lines[0]?.design_id ? "none" : "block" }}
-                >
-                  No design image
-                </span>
-              </div>
-              {lines[0]?.color && (
-                <div className="mt-2 flex items-center justify-center gap-2 text-xs text-slate-500">
-                  <span
-                    className="inline-block h-3 w-3 rounded-full border border-slate-300"
-                    style={{ background: colorDot(lines[0].color) }}
-                  />
-                  <span className="capitalize">
-                    {lines[0].color.replace("_", " ")}
-                  </span>
-                </div>
-              )}
-            </div>
+            <OrderImageCard
+              orderId={parseInt(id, 10)}
+              design={(lines[0]?.design_id as [number, string] | false | undefined) || null}
+              color={lines[0]?.color}
+              doorType={lines[0]?.door_type}
+              editing={editingOrder}
+            />
 
             {/* Order info */}
             <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
