@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { imageFromFiles, latestImage, pastedImage, screenshotName } from "./clipboard-image.ts";
+import { cardImage, imageFromFiles, pastedImage, screenshotName } from "./clipboard-image.ts";
 
 test("imageFromFiles picks the first image and ignores the rest", () => {
   const pdf = new File(["x"], "a.pdf", { type: "application/pdf" });
@@ -16,16 +16,21 @@ test("screenshotName stamps the time and keeps the format", () => {
   assert.equal(screenshotName("image/png", at), "screenshot-20261030-090507.png");
   assert.equal(screenshotName("image/jpeg", at), "screenshot-20261030-090507.jpg");
   assert.equal(screenshotName("", at), "screenshot-20261030-090507.png");
+  assert.equal(screenshotName("image/jpeg", at, "picture"), "picture-20261030-090507.jpg");
 });
 
-test("latestImage skips files that are not pictures", () => {
+test("cardImage takes only pictures added from the image card", () => {
   const rows = [
-    { id: 3, mimetype: "application/pdf" },
-    { id: 2, mimetype: "image/png" },
-    { id: 1, mimetype: "image/jpeg" },
+    { id: 5, name: "contract.jpg", mimetype: "image/jpeg" },
+    { id: 4, name: "screenshot-20261030-090507.pdf", mimetype: "application/pdf" },
+    { id: 3, name: "picture-20261101-120000.jpg", mimetype: "image/jpeg" },
+    { id: 2, name: "screenshot-20261030-090507.png", mimetype: "image/png" },
   ];
-  assert.equal(latestImage(rows)?.id, 2);
-  assert.equal(latestImage([{ id: 1, mimetype: "text/plain" }]), null);
+  // A contract photo from Files & Documents never covers the design.
+  assert.equal(cardImage(rows)?.id, 3);
+  assert.equal(cardImage(rows.slice(3))?.id, 2);
+  assert.equal(cardImage([{ id: 1, name: "install.png", mimetype: "image/png" }]), null);
+  assert.equal(cardImage([]), null);
 });
 
 test("pastedImage leaves text pastes and dialogs alone", () => {

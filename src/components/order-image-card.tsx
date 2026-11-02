@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ClipboardPaste, Trash2 } from "lucide-react";
+import { ClipboardPaste, Repeat, Trash2 } from "lucide-react";
 import { colorDot } from "@/lib/labels";
 import { cn } from "@/lib/utils";
-import { imageFromFiles, latestImage, pastedImage, screenshotName } from "@/lib/clipboard-image";
+import { cardImage, imageFromFiles, pastedImage, screenshotName } from "@/lib/clipboard-image";
 
 type Attachment = { id: number; name: string; mimetype: string };
 
@@ -20,23 +20,26 @@ type Props = {
 };
 
 /**
- * Door image of the order. The catalog render of its design wins; with no
- * design (or no render) it falls back to the newest picture attached to the
- * order. While editing, Ctrl+V anywhere on the page attaches the screenshot
- * in the clipboard (Majela, 30-oct-2026).
+ * Door image of the order. A picture added from this card (pasted or picked)
+ * wins over the catalog render of the design, with a switch to see the render
+ * too; other files of the order never show here. While editing, Ctrl+V
+ * anywhere on the page attaches the screenshot in the clipboard (Majela,
+ * 30-oct and 2-nov-2026).
  */
 export function OrderImageCard({ orderId, design, color, doorType, editing }: Props) {
   const qc = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
   // The catalog URL whose render failed to load (no render for that colour).
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  // With both a pasted picture and a catalog render, which one is on show.
+  const [view, setView] = useState<"photo" | "catalog">("photo");
   const [busy, setBusy] = useState(false);
 
   const { data } = useQuery<{ records: Attachment[] }>({
     queryKey: ["order-attachments", orderId],
     queryFn: () => fetch(`/api/orders/${orderId}/attachments`).then((r) => r.json()),
   });
-  const photo = latestImage(data?.records ?? []);
+  const photo = cardImage(data?.records ?? []);
 
   const designId = design?.[0];
   const catalogUrl = designId
@@ -45,12 +48,15 @@ export function OrderImageCard({ orderId, design, color, doorType, editing }: Pr
         ...(doorType ? { type: doorType } : {}),
       }).toString()}`
     : null;
-  const showCatalog = !!catalogUrl && catalogUrl !== failedUrl;
+  const hasCatalog = !!catalogUrl && catalogUrl !== failedUrl;
+  const showPhoto = !!photo && (view === "photo" || !hasCatalog);
+  const showCatalog = hasCatalog && !showPhoto;
 
   async function upload(file: File, pasted: boolean) {
     if (busy) return;
     setBusy(true);
-    const named = pasted ? new File([file], screenshotName(file.type, new Date()), { type: file.type }) : file;
+    const name = screenshotName(file.type, new Date(), pasted ? "screenshot" : "picture");
+    const named = new File([file], name, { type: file.type });
     const fd = new FormData();
     fd.append("file", named);
     const promise = fetch(`/api/orders/${orderId}/attachments`, { method: "POST", body: fd })
@@ -59,13 +65,12 @@ export function OrderImageCard({ orderId, design, color, doorType, editing }: Pr
         if (!r.ok) throw new Error(j.error || "Upload failed");
         qc.invalidateQueries({ queryKey: ["order-attachments", orderId] });
         qc.invalidateQueries({ queryKey: ["order-activity", orderId] });
+        setView("photo");
       })
       .finally(() => setBusy(false));
     toast.promise(promise, {
       loading: "Adding the picture…",
-      success: showCatalog
-        ? "Picture added to Files & Documents (the catalog image stays here)"
-        : "Picture added to the order",
+      success: "Picture added to the order",
       error: (e) => (e instanceof Error ? e.message : "Couldn't add the picture."),
     });
   }
@@ -105,10 +110,10 @@ export function OrderImageCard({ orderId, design, color, doorType, editing }: Pr
     return () => window.removeEventListener("paste", onPaste);
   });
 
-  const shown = showCatalog
-    ? { src: catalogUrl!, alt: `${design?.[1] ?? ""} — ${color ?? ""}` }
-    : photo
-      ? { src: `/api/orders/${orderId}/attachments/${photo.id}`, alt: photo.name, open: true }
+  const shown = showPhoto
+    ? { src: `/api/orders/${orderId}/attachments/${photo!.id}`, alt: photo!.name, open: true }
+    : showCatalog
+      ? { src: catalogUrl!, alt: `${design?.[1] ?? ""} — ${color ?? ""}` }
       : null;
 
   return (
@@ -144,7 +149,16 @@ export function OrderImageCard({ orderId, design, color, doorType, editing }: Pr
         ) : (
           !editing && <span className="text-sm text-slate-300">No design image</span>
         )}
-        {editing && shown && "open" in shown && photo && (
+        {photo && hasCatalog && (
+          <button
+            type="button"
+            onClick={() => setView(showPhoto ? "catalog" : "photo")}
+            className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-lg bg-white/90 px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow ring-1 ring-slate-200 hover:bg-slate-50"
+          >
+            <Repeat size={13} /> {showPhoto ? "Catalog" : "Pasted"}
+          </button>
+        )}
+        {editing && showPhoto && photo && (
           <button
             type="button"
             onClick={() => remove(photo)}
