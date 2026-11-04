@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
+import { deriveRole } from "@/lib/odoo/types";
 import { shopRangeBounds } from "@/lib/shop-time";
+import { ORDER_BILLING_FILTERS, type OrderBillingCell } from "@/lib/billing/order-row";
 
 export const runtime = "nodejs";
 
@@ -72,6 +74,7 @@ const ORDER_FIELDS_V2_EXTRA = [
  *   ?stages=cnc,painting  multiple stages
  *   ?dealer=12          filter by dealer id
  *   ?q=text             search client_name/name
+ *   ?billing=to_invoice|unpaid|qbo  por su factura (oficina y gerencia)
  *   ?from=&to=          rango de fechas de orden (dias de Miami)
  *   ?limit=N            default 80
  *   ?offset=N
@@ -80,8 +83,28 @@ export async function GET(req: NextRequest) {
   try {
     const s = await requireSession();
     const sp = req.nextUrl.searchParams;
+    const role = deriveRole(s.user.groups);
+    // Solo oficina y gerencia ven facturas: los demas ni piden la columna.
+    const seesBilling = role.isManager || role.isOffice || !!s.user.isAdmin;
 
     const domain: unknown[] = [];
+    // ?billing: Odoo resuelve que ordenes caen en el filtro (instaladas sin
+    // factura, con saldo, o mal en QuickBooks) y aqui se acota a esas ids, asi
+    // el total y la paginacion siguen siendo los de la tabla.
+    const billing = sp.get("billing");
+    if (billing && (ORDER_BILLING_FILTERS as readonly string[]).includes(billing)) {
+      if (!seesBilling) {
+        return NextResponse.json({ error: "Only the office or a manager can filter by invoice." }, { status: 403 });
+      }
+      const ids = await call<number[]>({
+        session: s.session,
+        model: "indigo.billing",
+        method: "indigo_billing_order_filter",
+        args: [billing],
+        kwargs: {},
+      });
+      domain.push(["id", "in", ids]);
+    }
     const stage = sp.get("stage");
     const stages = sp.get("stages");
     // Cancelling doesn't move the stage (it stamps cancelled_at), so a
@@ -308,6 +331,24 @@ export async function GET(req: NextRequest) {
         for (const rec of records) {
           rec.first_line = byOrder.get(rec.id as number) ?? null;
         }
+      }
+    }
+
+    // La factura de cada fila (columnas Invoice, Balance due y QuickBooks), en
+    // una llamada por pagina. Es una ayuda: si falla (Odoo sin el metodo
+    // todavia), la tabla sale igual, sin ella.
+    if (seesBilling && records.length) {
+      try {
+        const byOrder = await call<Record<string, OrderBillingCell>>({
+          session: s.session,
+          model: "indigo.billing",
+          method: "indigo_billing_orders_summary",
+          args: [records.map((r) => r.id as number)],
+          kwargs: {},
+        });
+        for (const rec of records) rec.billing = byOrder[String(rec.id)] ?? null;
+      } catch (e) {
+        console.warn("orders: invoice summary failed", e instanceof Error ? e.message : e);
       }
     }
 

@@ -49,6 +49,14 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import type { deriveRole } from "@/lib/odoo/types";
+import { InvoiceStatusBadge, money } from "@/components/billing/invoice-bits";
+import { QboBadge, useQboStatus } from "@/components/billing/qbo-badge";
+import {
+  balanceDue,
+  invoiceCellText,
+  qboCellText,
+  type OrderBillingCell,
+} from "@/lib/billing/order-row";
 
 interface Dealer {
   id: number;
@@ -104,6 +112,8 @@ interface OrderRow {
   days_in_current_stage: number;
   installation_date: string | false;
   create_date: string;
+  /** Its invoice; only for the office and managers (absent for other roles). */
+  billing?: OrderBillingCell | null;
 }
 
 const PAY_BADGE: Record<string, string> = {
@@ -311,7 +321,83 @@ const ORDER_COLUMNS: OrderCol[] = [
     ),
     print: (r) => paymentLabel(r.payment_state),
   },
+  // 4-nov: the invoice of each order, so the list tells "to invoice" from
+  // "invoiced, not paid" and shows what isn't right in QuickBooks.
+  {
+    key: "invoice",
+    label: "Invoice",
+    cell: (r) => <InvoiceCell r={r} />,
+    print: (r) => invoiceCellText(r.billing),
+  },
+  {
+    key: "balance",
+    label: "Balance due",
+    thClass: "text-right",
+    cell: (r) => {
+      const due = balanceDue(r.billing);
+      if (due === null) return <span className="text-slate-300">—</span>;
+      return (
+        <span className={`tabular-nums font-semibold ${due > 0.005 ? "text-orange-700" : "text-emerald-700"}`}>
+          {money(due)}
+        </span>
+      );
+    },
+    print: (r) => {
+      const due = balanceDue(r.billing);
+      return due === null ? "" : money(due);
+    },
+  },
+  {
+    key: "qbo",
+    label: "QuickBooks",
+    cell: (r) => <QboCell r={r} />,
+    // Print has no hook to ask: it says what is wrong, not what is missing.
+    print: (r) => qboCellText(r.billing, false),
+  },
 ];
+
+function InvoiceCell({ r }: { r: OrderRow }) {
+  const b = r.billing;
+  if (b?.invoice) {
+    return (
+      <Link
+        href={`/billing/invoices/${b.invoice.id}`}
+        className="inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-indigo-700 hover:underline"
+      >
+        {b.invoice.name ? `#${b.invoice.name}` : "Draft"}
+        {b.invoice.name && <InvoiceStatusBadge status={b.invoice.status} />}
+      </Link>
+    );
+  }
+  if (b?.to_invoice) {
+    return (
+      <Link
+        href={`/billing/invoices/new?orders=${r.id}`}
+        className="inline-flex whitespace-nowrap rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+        title="Installed and not invoiced yet: create its invoice"
+      >
+        To invoice
+      </Link>
+    );
+  }
+  if (b?.outside_ref) {
+    return <span className="whitespace-nowrap text-xs text-slate-500">{invoiceCellText(b)}</span>;
+  }
+  return <span className="text-slate-300">—</span>;
+}
+
+function QboCell({ r }: { r: OrderRow }) {
+  // Shared, cached query: one fetch for the whole table.
+  const connected = !!useQboStatus().data?.data?.connected;
+  if (!r.billing?.invoice || !qboCellText(r.billing, connected)) return <span className="text-slate-300">—</span>;
+  return <QboBadge row={r.billing.invoice} showMissing={connected} />;
+}
+
+const BILLING_FILTER_LABEL: Record<string, string> = {
+  to_invoice: "To invoice",
+  unpaid: "Invoiced, not paid",
+  qbo: "QuickBooks: to check",
+};
 
 const ORDER_COL_MAP = Object.fromEntries(ORDER_COLUMNS.map((c) => [c.key, c]));
 // Address is off by default: with it on, a 1440 px laptop pushed Total and
@@ -321,7 +407,7 @@ const DEFAULT_ORDER_COLS = ["order", "client", "dealer", "stage", "days", "doors
 const ORDER_COL_PRESETS: Record<string, string[]> = {
   "Call list": ["order", "code", "client", "phone", "note"],
   Production: ["order", "client", "dealer", "stage", "days", "doors"],
-  Billing: ["order", "client", "dealer", "total", "payment"],
+  Billing: ["order", "client", "dealer", "total", "invoice", "balance", "qbo"],
 };
 const ORDER_COLS_KEY = "indigo:order-cols";
 
@@ -392,6 +478,8 @@ function OrdersInner() {
   const [stage, setStage] = useState<string>(sp.get("stage") ?? "");
   const [dealer, setDealer] = useState<string>(sp.get("dealer") ?? "");
   const [payment, setPayment] = useState<string>(sp.get("payment") ?? "");
+  // By its invoice: to_invoice | unpaid | qbo (office and managers).
+  const [billing, setBilling] = useState<string>(sp.get("billing") ?? "");
   // Rango de fechas de la orden. null = sin filtro; la pantalla arranca
   // mostrandolo todo, que es lo que Majela espera al entrar.
   const [range, setRange] = useState<DateRange | null>(() => {
@@ -415,7 +503,7 @@ function OrdersInner() {
   // so a bulk action can never run against stale, off-view order ids.
   useEffect(() => {
     setSelected(new Set());
-  }, [stage, dealer, payment, flag, range, page]);
+  }, [stage, dealer, payment, billing, flag, range, page]);
 
   // Who am I? Gates the "New Order" button to roles allowed to create
   // orders (manager / office / admin) — the POST endpoint enforces the same.
@@ -432,6 +520,9 @@ function OrdersInner() {
   // Archive: manager/office/admin (write). Delete: manager/admin only (unlink).
   const canArchive = canCreate;
   const canDelete = !!(meQ.data?.role?.isManager || meQ.data?.user?.isAdmin);
+  // Invoices are the office's and managers' (the same roles that create orders).
+  const seesBilling = canCreate;
+  const qboConnected = !!useQboStatus().data?.data?.connected;
 
   async function bulkAction(
     action: "archive" | "unarchive" | "delete" | "cancel",
@@ -521,6 +612,7 @@ function OrdersInner() {
     if (stage) params.set("stage", stage);
     if (dealer) params.set("dealer", dealer);
     if (payment) params.set("payment", payment);
+    if (billing) params.set("billing", billing);
     if (flag === "overdue") params.set("overdue", "true");
     if (flag === "on_hold") params.set("on_hold", "true");
     if (flag === "incidence") params.set("incidence", "true");
@@ -531,12 +623,13 @@ function OrdersInner() {
     const qs = params.toString();
     const next = qs ? `?${qs}` : "";
     window.history.replaceState(null, "", `/orders${next}`);
-  }, [stage, dealer, payment, flag, range]);
+  }, [stage, dealer, payment, billing, flag, range]);
 
   const activeFilterCount =
     (stage ? 1 : 0) +
     (dealer ? 1 : 0) +
     (payment ? 1 : 0) +
+    (billing ? 1 : 0) +
     (flag ? 1 : 0) +
     (range ? 1 : 0);
 
@@ -544,6 +637,7 @@ function OrdersInner() {
     setStage("");
     setDealer("");
     setPayment("");
+    setBilling("");
     setFlag("");
     setRange(null);
   }
@@ -561,6 +655,7 @@ function OrdersInner() {
     if (stage) url.searchParams.set("stage", stage);
     if (dealer) url.searchParams.set("dealer", dealer);
     if (payment) url.searchParams.set("payment", payment);
+    if (billing) url.searchParams.set("billing", billing);
     if (flag === "overdue") url.searchParams.set("overdue", "true");
     if (flag === "on_hold") url.searchParams.set("on_hold", "true");
     if (flag === "incidence") url.searchParams.set("incidence", "true");
@@ -582,6 +677,7 @@ function OrdersInner() {
       stage,
       dealer,
       payment,
+      billing,
       flag,
       range?.from ?? "",
       range?.to ?? "",
@@ -629,6 +725,7 @@ function OrdersInner() {
       if (stage) parts.push(STAGE_OPTIONS.find((s) => s.code === stage)?.label ?? stage);
       if (dealer) parts.push(dealersQ.data?.records.find((d) => String(d.id) === dealer)?.name ?? "Dealer");
       if (payment) parts.push(paymentLabel(payment));
+      if (billing) parts.push(BILLING_FILTER_LABEL[billing] ?? billing);
       if (flag === "overdue") parts.push("Overdue");
       if (flag === "on_hold") parts.push("On hold");
       if (debouncedQ) parts.push(`“${debouncedQ}”`);
@@ -793,6 +890,8 @@ function OrdersInner() {
                 { header: "Total (USD)", value: (r) => r.total_dealer_charge },
                 { header: "Stage", value: (r) => m2o(r.stage_id)?.name ?? "" },
                 { header: "Payment", value: (r) => paymentLabel(r.payment_state) },
+                { header: "Invoice", value: (r) => invoiceCellText(r.billing) },
+                { header: "Balance due", value: (r) => balanceDue(r.billing) ?? "" },
                 { header: "Created", value: (r) => fmtDate(r.create_date) },
               ]);
               downloadCsv(`indigo-orders-${new Date().toISOString().slice(0, 10)}.csv`, csv);
@@ -940,6 +1039,22 @@ function OrdersInner() {
             onChange={setPayment}
             width="170px"
           />
+
+          {seesBilling && (
+            <FilterSelect
+              placeholder="Invoice"
+              value={billing}
+              options={[
+                { value: "to_invoice", label: BILLING_FILTER_LABEL.to_invoice },
+                { value: "unpaid", label: BILLING_FILTER_LABEL.unpaid },
+                // Only means something while QuickBooks is connected; kept
+                // while chosen so the select never shows a value it lacks.
+                ...(qboConnected || billing === "qbo" ? [{ value: "qbo", label: BILLING_FILTER_LABEL.qbo }] : []),
+              ]}
+              onChange={setBilling}
+              width="200px"
+            />
+          )}
 
           {/* Rango de fechas de la orden.
 
