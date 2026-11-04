@@ -3,6 +3,7 @@ import { call } from "@/lib/odoo/client";
 import { requireSession } from "@/lib/odoo/session";
 import { deriveRole } from "@/lib/odoo/types";
 import { shopRangeBounds } from "@/lib/shop-time";
+import { COLOR_LABEL } from "@/lib/labels";
 import { ORDER_BILLING_FILTERS, type OrderBillingCell } from "@/lib/billing/order-row";
 
 export const runtime = "nodejs";
@@ -73,6 +74,7 @@ const ORDER_FIELDS_V2_EXTRA = [
  *   ?stage=cnc          filter by stage code
  *   ?stages=cnc,painting  multiple stages
  *   ?dealer=12          filter by dealer id
+ *   ?color=black        ordenes con alguna puerta de ese color
  *   ?q=text             search client_name/name
  *   ?billing=to_invoice|unpaid|qbo  por su factura (oficina y gerencia)
  *   ?from=&to=          rango de fechas de orden (dias de Miami)
@@ -119,6 +121,12 @@ export async function GET(req: NextRequest) {
 
     const dealer = sp.get("dealer");
     if (dealer) domain.push(["dealer_id", "=", Number(dealer)]);
+
+    // ?color: el color es de cada puerta, no de la orden. Sale la orden si
+    // alguna de sus puertas es de ese color (Majela, 4-nov: "busco una puerta
+    // negra y no se de que cliente es").
+    const color = sp.get("color");
+    if (color && Object.hasOwn(COLOR_LABEL, color)) domain.push(["line_ids.color", "=", color]);
 
     const onHold = sp.get("on_hold");
     if (onHold === "true") domain.push(["on_hold", "=", true]);

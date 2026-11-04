@@ -20,7 +20,7 @@ import {
 import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { fmtDate, fmtMoney, fmtNum, m2o } from "@/lib/utils";
-import { paymentLabel, STAGE_BADGE } from "@/lib/labels";
+import { COLOR_LABEL, paymentLabel, STAGE_BADGE } from "@/lib/labels";
 import {
   DateRangePicker,
   type DateRange,
@@ -478,6 +478,8 @@ function OrdersInner() {
   const [stage, setStage] = useState<string>(sp.get("stage") ?? "");
   const [dealer, setDealer] = useState<string>(sp.get("dealer") ?? "");
   const [payment, setPayment] = useState<string>(sp.get("payment") ?? "");
+  // Door colour: orders with at least one door in it.
+  const [color, setColor] = useState<string>(sp.get("color") ?? "");
   // By its invoice: to_invoice | unpaid | qbo (office and managers).
   const [billing, setBilling] = useState<string>(sp.get("billing") ?? "");
   // Rango de fechas de la orden. null = sin filtro; la pantalla arranca
@@ -503,7 +505,7 @@ function OrdersInner() {
   // so a bulk action can never run against stale, off-view order ids.
   useEffect(() => {
     setSelected(new Set());
-  }, [stage, dealer, payment, billing, flag, range, page]);
+  }, [stage, dealer, payment, color, billing, flag, range, page]);
 
   // Who am I? Gates the "New Order" button to roles allowed to create
   // orders (manager / office / admin) — the POST endpoint enforces the same.
@@ -612,6 +614,7 @@ function OrdersInner() {
     if (stage) params.set("stage", stage);
     if (dealer) params.set("dealer", dealer);
     if (payment) params.set("payment", payment);
+    if (color) params.set("color", color);
     if (billing) params.set("billing", billing);
     if (flag === "overdue") params.set("overdue", "true");
     if (flag === "on_hold") params.set("on_hold", "true");
@@ -623,12 +626,13 @@ function OrdersInner() {
     const qs = params.toString();
     const next = qs ? `?${qs}` : "";
     window.history.replaceState(null, "", `/orders${next}`);
-  }, [stage, dealer, payment, billing, flag, range]);
+  }, [stage, dealer, payment, color, billing, flag, range]);
 
   const activeFilterCount =
     (stage ? 1 : 0) +
     (dealer ? 1 : 0) +
     (payment ? 1 : 0) +
+    (color ? 1 : 0) +
     (billing ? 1 : 0) +
     (flag ? 1 : 0) +
     (range ? 1 : 0);
@@ -637,6 +641,7 @@ function OrdersInner() {
     setStage("");
     setDealer("");
     setPayment("");
+    setColor("");
     setBilling("");
     setFlag("");
     setRange(null);
@@ -655,6 +660,7 @@ function OrdersInner() {
     if (stage) url.searchParams.set("stage", stage);
     if (dealer) url.searchParams.set("dealer", dealer);
     if (payment) url.searchParams.set("payment", payment);
+    if (color) url.searchParams.set("color", color);
     if (billing) url.searchParams.set("billing", billing);
     if (flag === "overdue") url.searchParams.set("overdue", "true");
     if (flag === "on_hold") url.searchParams.set("on_hold", "true");
@@ -677,6 +683,7 @@ function OrdersInner() {
       stage,
       dealer,
       payment,
+      color,
       billing,
       flag,
       range?.from ?? "",
@@ -725,6 +732,7 @@ function OrdersInner() {
       if (stage) parts.push(STAGE_OPTIONS.find((s) => s.code === stage)?.label ?? stage);
       if (dealer) parts.push(dealersQ.data?.records.find((d) => String(d.id) === dealer)?.name ?? "Dealer");
       if (payment) parts.push(paymentLabel(payment));
+      if (color) parts.push(`${COLOR_LABEL[color] ?? color} doors`);
       if (billing) parts.push(BILLING_FILTER_LABEL[billing] ?? billing);
       if (flag === "overdue") parts.push("Overdue");
       if (flag === "on_hold") parts.push("On hold");
@@ -1038,6 +1046,14 @@ function OrdersInner() {
             ]}
             onChange={setPayment}
             width="170px"
+          />
+
+          <FilterSelect
+            placeholder="Color"
+            value={color}
+            options={Object.entries(COLOR_LABEL).map(([value, label]) => ({ value, label }))}
+            onChange={setColor}
+            width="160px"
           />
 
           {seesBilling && (
