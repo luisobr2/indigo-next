@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Skeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { InvoiceStatusBadge, invalidateOrderViews, money, useBillingStatus } from "@/components/billing/invoice-bits";
-import { QboBadge, useQboStatus } from "@/components/billing/qbo-badge";
+import { QboBadge, useQboRetry, useQboStatus } from "@/components/billing/qbo-badge";
 import { InvoiceProfitCard } from "@/components/costing/invoice-profit-card";
 import { qboBadge } from "@/lib/quickbooks/badge";
 
@@ -45,6 +45,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [sendMode, setSendMode] = useState<"send" | "issue-send">("send");
   const billingStatus = useBillingStatus();
   const qboStatus = useQboStatus();
+  const { retry: retryQboNow, busyId: qboRetrying } = useQboRetry();
   const [emails, setEmails] = useState("");
   const [message, setMessage] = useState("");
   const [payOpen, setPayOpen] = useState(false);
@@ -166,25 +167,6 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       setSendOpen(false);
       setBusy(false);
       refresh();
-    }
-  }
-  async function retryQbo() {
-    setBusy(true);
-    try {
-      const r = await fetchJson<{ data: { qbo_state: string; qbo_error: string | false } }>(`/api/quickbooks/retry/${id}`, {
-        method: "POST",
-      });
-      const st = r.data?.qbo_state;
-      if (st === "synced" || st === "linked") toast.success("It's in QuickBooks now");
-      else if (st === "pending") toast.success("Sent to the queue: it will go to QuickBooks shortly");
-      else toast.error(r.data?.qbo_error || "QuickBooks still has a problem with it");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't reach QuickBooks");
-    } finally {
-      setBusy(false);
-      qc.invalidateQueries({ queryKey: ["billing-invoice", id] });
-      qc.invalidateQueries({ queryKey: ["billing-invoices"] });
-      qc.invalidateQueries({ queryKey: ["qbo-status"] });
     }
   }
   function openPay() {
@@ -364,7 +346,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 <p className="mt-1 text-xs text-slate-400">Last checked {fmtDateTime(inv.qbo_synced_at)}</p>
               )}
               {qbo.canRetry && (
-                <Button variant="outline" size="sm" className="mt-3" onClick={retryQbo} disabled={busy || !qboConnected}>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => retryQboNow(inv.id)} disabled={busy || qboRetrying !== null || !qboConnected}>
                   <RefreshCw size={13} /> {inv.qbo_state === "pending" ? "Send now" : "Retry"}
                 </Button>
               )}

@@ -10,6 +10,8 @@ import { fetchJson } from "@/lib/fetch-json";
 import type { InvoiceRow, OrderBilling } from "@/lib/billing/invoice";
 import { InvoiceStatusBadge, invalidateOrderViews, money } from "@/components/billing/invoice-bits";
 import { Input } from "@/components/ui/input";
+import { QboBadge, QboRetryButton, useQboStatus } from "@/components/billing/qbo-badge";
+import { qboBadge } from "@/lib/quickbooks/badge";
 
 /**
  * The order's invoice, on the order page: which one it is on, what is still
@@ -219,6 +221,9 @@ function InvoiceItem({ inv }: { inv: InvoiceRow }) {
   const voided = inv.state === "cancel";
   const draft = inv.state === "draft";
   const others = inv.order_names.length - 1;
+  const qboStatus = useQboStatus();
+  const qboConnected = !!qboStatus.data?.data?.connected;
+  const qbo = qboStatus.data?.data?.configured ? qboBadge(inv, { showMissing: qboConnected }) : null;
   return (
     <li className={cn("rounded-xl border border-slate-100 p-3", voided && "bg-slate-50")}>
       <div className="flex items-center justify-between gap-2">
@@ -259,6 +264,15 @@ function InvoiceItem({ inv }: { inv: InvoiceRow }) {
         {others > 0 ? ` · also ${others} other order${others === 1 ? "" : "s"}` : ""}
         {inv.sent_at ? " · sent" : ""}
       </p>
+      {qbo && (
+        <div className="mt-2 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <QboBadge row={inv} showMissing={qboConnected} />
+            <QboRetryButton row={inv} invoiceId={inv.id} />
+          </div>
+          {qbo.canRetry && qbo.detail && <p className="text-xs text-slate-600">{qbo.detail}</p>}
+        </div>
+      )}
       {inv.state === "posted" && (
         <a
           href={`/api/invoicing/invoices/${inv.id}/pdf`}

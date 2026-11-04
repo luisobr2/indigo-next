@@ -50,7 +50,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { deriveRole } from "@/lib/odoo/types";
 import { InvoiceStatusBadge, money } from "@/components/billing/invoice-bits";
-import { QboBadge, useQboStatus } from "@/components/billing/qbo-badge";
+import { QboBadge, QboRetryButton, useQboStatus } from "@/components/billing/qbo-badge";
 import {
   balanceDue,
   invoiceCellText,
@@ -390,7 +390,12 @@ function QboCell({ r }: { r: OrderRow }) {
   // Shared, cached query: one fetch for the whole table.
   const connected = !!useQboStatus().data?.data?.connected;
   if (!r.billing?.invoice || !qboCellText(r.billing, connected)) return <span className="text-slate-300">—</span>;
-  return <QboBadge row={r.billing.invoice} showMissing={connected} />;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <QboBadge row={r.billing.invoice} showMissing={connected} />
+      <QboRetryButton row={r.billing.invoice} invoiceId={r.billing.invoice.id} />
+    </span>
+  );
 }
 
 const BILLING_FILTER_LABEL: Record<string, string> = {

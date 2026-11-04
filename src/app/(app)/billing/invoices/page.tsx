@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Skeleton } from "@/components/skeleton";
 import { EmptyState, ErrorState } from "@/components/state-cards";
 import { InvoiceStatusBadge, invalidateOrderViews, money } from "@/components/billing/invoice-bits";
-import { QboBadge, useQboStatus } from "@/components/billing/qbo-badge";
+import { QboBadge, QboRetryButton, useQboStatus } from "@/components/billing/qbo-badge";
 
 type Status = "all" | "open" | "overdue" | "paid" | "draft";
 const STATUS_TABS: Array<{ key: Status; label: string }> = [
@@ -328,7 +328,10 @@ export default function InvoicesPage() {
                     </td>
                     {qboOn && (
                       <td className="px-3 py-2.5">
-                        <QboBadge row={r} showMissing={qboConnected} />
+                        <span className="inline-flex items-center gap-1.5">
+                          <QboBadge row={r} showMissing={qboConnected} />
+                          <QboRetryButton row={r} invoiceId={r.id} />
+                        </span>
                       </td>
                     )}
                   </tr>
