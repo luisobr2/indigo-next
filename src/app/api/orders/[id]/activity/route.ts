@@ -31,7 +31,8 @@ export async function GET(
           "subject",
           "message_type",
           "subtype_id",
-          "tracking_value_ids",
+          // Not tracking_value_ids: Odoo 17 lets only Settings admins read it,
+          // so asking for it answered 500 to everyone else (Anota #4, 9-nov).
         ],
       ],
       kwargs: { limit: 50, order: "date desc" },

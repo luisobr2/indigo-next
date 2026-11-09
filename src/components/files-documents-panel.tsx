@@ -43,6 +43,10 @@ export function FilesDocumentsPanel({ orderId, reports = [] }: Props) {
   const qc = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  // Files dragged over the card (Anota #4, 9-nov: the box said "Drop here"
+  // but nothing listened for a drop).
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
 
   const { data, isLoading } = useQuery<{ records: Attachment[] }>({
     queryKey: ["order-attachments", orderId],
@@ -51,27 +55,40 @@ export function FilesDocumentsPanel({ orderId, reports = [] }: Props) {
 
   const records = data?.records ?? [];
 
-  async function upload(file: File) {
-    setBusy(true);
+  async function uploadOne(file: File) {
     const fd = new FormData();
     fd.append("file", file);
     const promise = fetch(`/api/orders/${orderId}/attachments`, {
       method: "POST",
       body: fd,
-    })
-      .then(async (r) => {
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || "Upload failed");
-        qc.invalidateQueries({ queryKey: ["order-attachments", orderId] });
-        qc.invalidateQueries({ queryKey: ["order-activity", orderId] });
-        return j;
-      })
-      .finally(() => setBusy(false));
+    }).then(async (r) => {
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Upload failed");
+      return j;
+    });
     toast.promise(promise, {
       loading: `Uploading ${file.name}…`,
       success: `${file.name} uploaded`,
       error: (e) => (e instanceof Error ? e.message : "Failed"),
     });
+    await promise.catch(() => undefined);
+  }
+
+  /** One after the other, so a failed file doesn't stop the rest. */
+  async function upload(files: File[]) {
+    if (!files.length || busy) return;
+    setBusy(true);
+    try {
+      for (const f of files) await uploadOne(f);
+    } finally {
+      setBusy(false);
+      qc.invalidateQueries({ queryKey: ["order-attachments", orderId] });
+      qc.invalidateQueries({ queryKey: ["order-activity", orderId] });
+    }
+  }
+
+  function hasFiles(e: React.DragEvent) {
+    return Array.from(e.dataTransfer.types).includes("Files");
   }
 
   async function remove(att: Attachment) {
@@ -91,7 +108,40 @@ export function FilesDocumentsPanel({ orderId, reports = [] }: Props) {
   }
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+    <div
+      className={cn(
+        "relative rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition",
+        dragging && "border-indigo-400 ring-2 ring-indigo-400/60",
+      )}
+      onDragEnter={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        dragDepth.current += 1;
+        setDragging(true);
+      }}
+      onDragOver={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(e) => {
+        if (!hasFiles(e)) return;
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+        void upload(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-indigo-50/90 text-sm font-semibold text-indigo-700">
+          <UploadCloud size={18} className="mr-2" /> Drop to upload to this order
+        </div>
+      )}
       <header className="mb-4 flex items-center justify-between">
         <h3 className="flex items-center gap-2 font-semibold text-slate-800">
           <Paperclip size={16} className="text-indigo-700" />
@@ -111,11 +161,12 @@ export function FilesDocumentsPanel({ orderId, reports = [] }: Props) {
           ref={fileInput}
           id={`file-${orderId}`}
           type="file"
+          multiple
           className="sr-only"
           onChange={(e) => {
-            const f = e.currentTarget.files?.[0];
-            if (f) upload(f);
+            const files = Array.from(e.currentTarget.files ?? []);
             e.currentTarget.value = "";
+            void upload(files);
           }}
         />
       </header>
@@ -162,9 +213,15 @@ export function FilesDocumentsPanel({ orderId, reports = [] }: Props) {
             Loading…
           </div>
         ) : records.length === 0 ? (
-          <div className="rounded-xl bg-slate-50 p-6 text-center text-xs text-slate-400">
-            No files uploaded yet. Drop a contract, photo or measurement here.
-          </div>
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            disabled={busy}
+            className="flex w-full flex-col items-center gap-1.5 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-xs text-slate-500 transition hover:border-indigo-400 hover:bg-indigo-50/40 hover:text-indigo-700 disabled:opacity-60"
+          >
+            <UploadCloud size={18} />
+            {busy ? "Uploading…" : "No files uploaded yet. Drop a contract, photo or measurement here, or click to pick one."}
+          </button>
         ) : (
           <ul className="space-y-1.5">
             {records.map((att) => {

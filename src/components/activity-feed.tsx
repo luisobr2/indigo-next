@@ -12,7 +12,6 @@ interface ActivityMessage {
   subject: string | false;
   message_type: string;
   subtype_id: [number, string] | false;
-  tracking_value_ids: number[];
 }
 
 export function ActivityFeed({ orderId }: { orderId: number }) {
