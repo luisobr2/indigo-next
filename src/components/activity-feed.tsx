@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { MessageSquare, Activity as ActivityIcon, Mail, GitBranch } from "lucide-react";
+import { messageText } from "@/lib/message-text";
 import { fmtDateTime, m2o } from "@/lib/utils";
 
 interface ActivityMessage {
@@ -77,13 +78,12 @@ export function ActivityFeed({ orderId }: { orderId: number }) {
                       {m.subject}
                     </div>
                   )}
-                  {m.body && (
-                    <div
-                      className="prose-sm mt-1 max-w-none text-slate-600"
-                      // mail.message bodies are sanitized HTML on the
-                      // Odoo side; safe to render with a small CSS clamp.
-                      dangerouslySetInnerHTML={{ __html: m.body }}
-                    />
+                  {messageText(m.body) && (
+                    // As text: the notes the panel posts arrive escaped, so
+                    // rendering them as HTML showed their tags (Anota #5).
+                    <p className="mt-1 whitespace-pre-line break-words text-slate-600">
+                      {messageText(m.body)}
+                    </p>
                   )}
                 </div>
               </li>

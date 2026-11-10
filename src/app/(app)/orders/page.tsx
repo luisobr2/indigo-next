@@ -232,7 +232,7 @@ const ORDER_COLUMNS: OrderCol[] = [
         ) : (
           <Badge
             variant="secondary"
-            className={`whitespace-normal text-left text-[10px] font-bold uppercase tracking-wide ${STAGE_BADGE[r.stage_code] ?? "bg-slate-100 text-slate-700"}`}
+            className={`h-auto min-h-5 whitespace-normal text-left text-[10px] font-bold uppercase leading-tight tracking-wide ${STAGE_BADGE[r.stage_code] ?? "bg-slate-100 text-slate-700"}`}
           >
             {m2o(r.stage_id)?.name ?? "?"}
           </Badge>

@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ClipboardPaste, Repeat, Trash2 } from "lucide-react";
+import { ClipboardPaste, ExternalLink, Repeat, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { colorDot } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { cardImage, imageFromFiles, pastedImage, screenshotName } from "@/lib/clipboard-image";
@@ -111,13 +112,39 @@ export function OrderImageCard({ orderId, design, color, doorType, editing }: Pr
   });
 
   const shown = showPhoto
-    ? { src: `/api/orders/${orderId}/attachments/${photo!.id}`, alt: photo!.name, open: true }
+    ? { src: `/api/orders/${orderId}/attachments/${photo!.id}`, alt: photo!.name }
     : showCatalog
       ? { src: catalogUrl!, alt: `${design?.[1] ?? ""} — ${color ?? ""}` }
       : null;
+  // Click the picture to see it big, here, without a new tab (Anota #7,
+  // 9-nov-2026). Not while editing: then a click is for the edit tools.
+  const [zoomed, setZoomed] = useState(false);
 
   return (
     <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+      <Dialog open={zoomed && !!shown && !editing} onOpenChange={setZoomed}>
+        <DialogContent className="max-h-[94vh] w-auto max-w-[94vw] p-3 sm:max-w-[94vw]">
+          <DialogTitle className="truncate pr-10 text-sm">{shown?.alt}</DialogTitle>
+          {shown && (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={shown.src}
+                alt={shown.alt}
+                className="max-h-[80vh] max-w-[90vw] rounded-lg bg-white object-contain"
+              />
+              <a
+                href={shown.src}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 justify-self-start text-xs font-semibold text-indigo-700 hover:underline"
+              >
+                <ExternalLink size={12} /> Open in a new tab
+              </a>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
       <div
         className={cn(
           "relative flex h-64 items-center justify-center overflow-hidden rounded-xl bg-slate-50",
@@ -135,14 +162,13 @@ export function OrderImageCard({ orderId, design, color, doorType, editing }: Pr
               className="h-full w-full object-contain"
               onError={() => showCatalog && setFailedUrl(catalogUrl)}
             />
-            {"open" in shown && !editing && (
-              <a
-                href={shown.src}
-                target="_blank"
-                rel="noreferrer"
-                className="absolute inset-0"
-                aria-label={`Open ${shown.alt} full size`}
-                title="Open full size"
+            {!editing && (
+              <button
+                type="button"
+                onClick={() => setZoomed(true)}
+                className="absolute inset-0 cursor-zoom-in"
+                aria-label={`See ${shown.alt} bigger`}
+                title="Click to enlarge"
               />
             )}
           </>

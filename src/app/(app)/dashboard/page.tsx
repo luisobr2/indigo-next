@@ -18,6 +18,7 @@ import { KpiCard } from "@/components/kpi-card";
 import { DashboardSkeleton } from "@/components/skeleton";
 import { ErrorState } from "@/components/state-cards";
 import { fmtMoney, fmtNum, fmtDateTime, fmtAxisMoney } from "@/lib/utils";
+import { messageText } from "@/lib/message-text";
 import { SHOP_TIME_ZONE } from "@/lib/shop-time";
 import { isPaintStage } from "@/lib/stages";
 import {
@@ -589,14 +590,10 @@ export default function DashboardPage() {
                       {fmtDateTime(a.date)}
                     </span>
                   </div>
-                  <div
-                    className="prose prose-sm mt-0.5 max-w-none text-slate-600 line-clamp-2"
-                    dangerouslySetInnerHTML={{
-                      __html: a.subject
-                        ? `<strong>${a.subject}</strong> · ${a.body}`
-                        : a.body,
-                    }}
-                  />
+                  <p className="mt-0.5 line-clamp-2 break-words text-sm text-slate-600">
+                    {a.subject && <strong>{messageText(a.subject)} · </strong>}
+                    {messageText(a.body)}
+                  </p>
                 </div>
               </li>
             ))}

@@ -103,6 +103,17 @@ body {
   --color-rose-50:    #2d1420;  --color-rose-600:    #fb7185;
   --color-rose-700:   #fda4af;
   --color-sky-50:     #0d2233;  --color-sky-700:     #7dd3fc;
+  /* Naranja, y los pasos de cielo y rosa que faltaban: sin ellos la tarjeta
+     "Pending - Client" de Installations salia gris claro con texto oscuro en
+     modo oscuro (Anota #8, 9-nov-2026). Claros -> tintes, oscuros -> texto. */
+  --color-orange-50:  #2d1c0e;  --color-orange-100:  #3a2412;
+  --color-orange-200: #5c3a17;  --color-orange-600:  #fb923c;
+  --color-orange-700: #fdba74;  --color-orange-800:  #fed7aa;
+  --color-orange-900: #ffedd5;
+  --color-sky-100:    #11314a;  --color-sky-200:     #1c4866;
+  --color-sky-800:    #bae6fd;  --color-sky-900:     #e0f2fe;
+  --color-rose-100:   #3d1a28;  --color-rose-200:    #5a2236;
+  --color-rose-800:   #fecdd3;  --color-rose-900:    #ffe4e6;
   --color-violet-50:  #1e1733;  --color-violet-700:  #c4b5fd;
   --color-red-50:     #2d1418;  --color-red-600:     #fb7185;
 
