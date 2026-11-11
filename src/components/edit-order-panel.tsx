@@ -12,6 +12,7 @@ import { FractionalInchInput } from "@/components/fractional-inch-input";
 import { PhoneField } from "@/components/phone-field";
 import { cn } from "@/lib/utils";
 import { validateOrderEdit, validateLineEdit } from "@/lib/validation";
+import { PO_HINT } from "@/lib/customer-po";
 
 interface LineRow {
   id: number;
@@ -448,11 +449,12 @@ export function EditOrderPanel({
           <Field label="Customer PO">
             <Input
               value={orderForm.customer_po || ""}
-              placeholder="PO-784512"
+              placeholder="SMITH 123456"
               onChange={(e) =>
                 setOrderForm({ ...orderForm, customer_po: e.target.value })
               }
             />
+            <p className="text-[11px] text-slate-500">{PO_HINT}</p>
           </Field>
           <div className="md:col-span-2">
             <Field label="Address">

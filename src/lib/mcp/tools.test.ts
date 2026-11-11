@@ -666,6 +666,16 @@ test("hold_order's description requires 'cause' when holding and tells the model
   assert.deepEqual(props.cause?.enum, ["dealer", "client", "other"]);
 });
 
+test("create_order puts the code the dealer pays by in customer_po, not in dealer_ref", () => {
+  // 11-nov: reading the sheet, 'SURNAME 123456' went to dealer_ref and a quote
+  // number to customer_po — and customer_po is what the invoice prints.
+  const def = TOOL_DEFS.find((t) => t.name === "create_order")!;
+  const props = def.inputSchema.properties as Record<string, { description?: string }>;
+  assert.match(props.customer_po!.description!, /invoice/);
+  assert.match(props.customer_po!.description!, /SURNAME/);
+  assert.match(props.dealer_ref!.description!, /NOT the code the dealer pays by/);
+});
+
 // ---------------------------------------------------------------------
 // create_order — parseOrderDoors. The rules here exist because of what was
 // measured on a real dealer sheet (2026-09-15, the Sotelo sheet that is

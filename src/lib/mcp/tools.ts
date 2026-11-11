@@ -733,11 +733,11 @@ export const TOOL_DEFS: ToolDef[] = [
         },
         dealer_ref: {
           type: "string",
-          description: "Optional. The code or name the DEALER uses for this end client.",
+          description: "Optional. Any other number the dealer gives this job — its own order or quote number, for example. NOT the code the dealer pays by: that one goes in customer_po.",
         },
         customer_po: {
           type: "string",
-          description: "Optional. The dealer's own order/quote number for this job, usually printed on the sheet.",
+          description: "Optional. The code the dealer pays the invoice by — it is printed on the invoice line, and a wrong one leaves the invoice unpaid. It is usually the client's SURNAME with the dealer's number for the client ('SMITH 123456'): when the sheet prints that pair, copy both, surname first. A bare order or quote number goes in dealer_ref. If the sheet has several numbers and you can't tell which one the dealer pays by, ask.",
         },
         notes: {
           type: "string",

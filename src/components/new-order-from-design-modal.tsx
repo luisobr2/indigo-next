@@ -31,6 +31,7 @@ import { PhoneField } from "@/components/phone-field";
 import { Textarea } from "@/components/ui/textarea";
 import { FractionalInchInput } from "@/components/fractional-inch-input";
 import { cn } from "@/lib/utils";
+import { PO_HINT } from "@/lib/customer-po";
 
 interface FamilyVariant {
   id: number;
@@ -601,7 +602,7 @@ export function NewOrderFromDesignModal({
               Customer PO / Client PO
               <span
                 className="cursor-help text-slate-400"
-                title="Purchase order number from the end customer — printed on the invoice and used to reconcile payments."
+                title={PO_HINT}
               >
                 <Info size={12} />
               </span>
@@ -610,8 +611,9 @@ export function NewOrderFromDesignModal({
               id="no-po"
               value={customerPo}
               onChange={(e) => setCustomerPo(e.target.value)}
-              placeholder="PO-784512"
+              placeholder="SMITH 123456"
             />
+            <p className="text-[11px] text-slate-500">{PO_HINT}</p>
           </section>
 
           {/* Client */}
