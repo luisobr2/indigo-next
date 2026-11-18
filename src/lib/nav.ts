@@ -18,6 +18,7 @@ import {
   CalendarDays,
   Building2,
   UserCog,
+  History,
   DollarSign,
   type LucideIcon,
   Wrench,
@@ -68,6 +69,8 @@ export const NAV_ITEMS: NavItem[] = [
   // ----- Administration -----
   { href: "/admin/dealers", label: "Dealers", icon: Building2, show: allManagerOrOffice, section: "Administration" },
   { href: "/admin/users", label: "Users", icon: UserCog, show: (r) => r.isManager, section: "Administration" },
+  // Activity log: what every person did. Managers only (the API and Odoo check it too).
+  { href: "/admin/activity-log", label: "Activity log", icon: History, show: (r) => r.isManager, section: "Administration" },
 ];
 
 export function visibleNav(session: SessionPayload | null): NavItem[] {
