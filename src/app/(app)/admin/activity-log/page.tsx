@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, History, Search, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, FileSpreadsheet, History, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "@/lib/fetch-json";
-import { toCsv, downloadCsv } from "@/lib/csv";
+
 import {
   auditQuery,
   dayHeading,
@@ -122,30 +122,25 @@ export default function ActivityLogPage() {
     setView({ key: filterKey, page, open: next });
   }
 
-  async function exportCsv() {
-    const p = fetchJson<AuditPage>(`/api/admin/activity-log?${auditQuery({ ...filters, export: 1, limit: EXPORT_CAP })}`).then((res) => {
-      if (!res.rows.length) throw new Error("Nothing to export with these filters");
-      const csv = toCsv<AuditRow>(res.rows, [
-        { header: "Date", value: (r) => shopDay(new Date(r.date.replace(" ", "T") + "Z")) },
-        { header: "Time", value: (r) => rowTime(r) },
-        { header: "User", value: (r) => r.user_name },
-        { header: "Module", value: (r) => moduleLabel[r.module] ?? r.module },
-        { header: "Action", value: (r) => actionLabel[r.action] ?? r.action },
-        { header: "Type", value: (r) => r.record_type },
-        { header: "Record", value: (r) => r.res_name },
-        { header: "Summary", value: (r) => r.summary },
-        {
-          header: "Changes",
-          value: (r) => r.changes.map((c) => `${c.label}: ${c.old || "empty"} → ${c.new || "empty"}`).join("; "),
-        },
-      ]);
-      downloadCsv(`activity-log-${shopDay(new Date())}.csv`, csv);
-      return res;
+  // The workbook is built on the server (same search as the screen); here we
+  // only fetch it and hand it to the browser as a download.
+  async function exportExcel() {
+    const p = fetch(`/api/admin/activity-log/export?${auditQuery(filters)}`).then(async (r) => {
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error((j as { error?: string }).error || "Export failed");
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `activity-log-${shopDay(new Date())}.xlsx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
     toast.promise(p, {
-      loading: "Preparing the file…",
-      success: (res) =>
-        res.total > EXPORT_CAP ? `Exported the newest ${EXPORT_CAP} of ${res.total} actions` : `Exported ${res.rows.length} actions`,
+      loading: "Preparing the Excel file…",
+      success: total > EXPORT_CAP ? `Exported the newest ${EXPORT_CAP} of ${total} actions` : `Exported ${total} actions`,
       error: (e) => (e instanceof Error ? e.message : "Export failed"),
     });
   }
@@ -159,8 +154,8 @@ export default function ActivityLogPage() {
             Who did what and when: changes, notes, files and sign-ins across the system.
           </p>
         </div>
-        <Button variant="outline" size="lg" onClick={exportCsv} disabled={!total}>
-          <Download size={14} /> Export CSV
+        <Button variant="outline" size="lg" onClick={exportExcel} disabled={!total}>
+          <FileSpreadsheet size={14} /> Export to Excel
         </Button>
       </div>
 

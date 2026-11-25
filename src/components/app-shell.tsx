@@ -1,6 +1,7 @@
 "use client";
 
 import { AnotaWidget } from "@/components/anota-widget";
+import { CommandPalette } from "@/components/command-palette";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -364,6 +365,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Menu size={20} />
           </Button>
+          <CommandPalette pages={items} />
           <div className="ml-auto flex items-center gap-3">
             {canImpersonate && (
               <DropdownMenu>
