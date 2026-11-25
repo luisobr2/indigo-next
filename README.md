@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Indigo Decors — panel de operación
 
-## Getting Started
+El panel con el que trabaja el taller Indigo Decors (Miami): órdenes de los
+dealers, producción por etapas (diseño, CNC, pintura, instalación), rutas,
+facturación, pagos al equipo, catálogo y el registro de actividad.
+En producción: https://app.indigodecors.com
 
-First, run the development server:
+Es una interfaz sobre **Odoo 17** (repo `luisobr2/odoo-indigo`): toda la lógica y
+los datos viven en Odoo; el panel habla con él por JSON-RPC con la sesión de
+cada persona, así que los permisos son los de Odoo.
+
+## Stack
+
+Next.js 16 (App Router) · React 19 · Tailwind CSS 4 · shadcn/ui · TanStack
+Query · recharts · servidor MCP propio para el asistente IA.
+
+## Arrancar en local
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+# contra el Odoo LOCAL (docker compose del repo odoo-indigo):
+ODOO_URL=http://localhost:8069 npx next dev --webpack -p 5173
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`.env.local` apunta a producción: sin `ODOO_URL` local estarías trabajando sobre
+datos reales. `npm run dev` arranca en el puerto 4000 con webpack.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Pruebas
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm test              # node --test, lógica pura (src/**/*.test.ts)
+npx tsc --noEmit -p . # tipos
+```
 
-## Learn More
+## Documentación
 
-To learn more about Next.js, take a look at the following resources:
+- `CLAUDE.md` — cómo trabajar en este repo (también para agentes).
+- `DESIGN.md` — el sistema visual y la regla de no rediseñar.
+- `DEPLOY.md` — cómo se despliega, junto con Odoo.
+- Contexto del negocio y de Odoo: `CLAUDE.md` del repo `odoo-indigo`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Este repositorio es **público**: nada de contraseñas, tokens ni datos de
+clientes en el código, los commits o las pruebas.
