@@ -4,7 +4,22 @@
  * component (src/components/command-palette.tsx) only draws and navigates.
  */
 
-export type PaletteKind = "page" | "order" | "invoice" | "dealer";
+export type PaletteKind = "page" | "order" | "invoice" | "dealer" | "design" | "action";
+
+export interface DoorLine {
+  design: string | false;
+  design_id: number | false;
+  door_type: string | false;
+  color: string | false;
+  qty: number;
+}
+
+/** What the preview pane shows for the highlighted row. */
+export type PaletteDetail =
+  | { kind: "order"; client: string; dealer: string; stage: string; po: string; phone: string; address: string; installDate: string; doors: DoorLine[] }
+  | { kind: "invoice"; dealer: string; amount: number; due: number; status: string; date: string; clients: string }
+  | { kind: "dealer"; phone: string; email: string; city: string }
+  | { kind: "design"; code: string; name: string; doorType: string; imageUrl: string };
 
 export interface PaletteItem {
   kind: PaletteKind;
@@ -12,17 +27,36 @@ export interface PaletteItem {
   title: string;
   subtitle?: string;
   href: string;
+  detail?: PaletteDetail;
 }
 
 export interface SearchHits {
-  orders: Array<{ id: number; name: string; client_name: string | false; dealer: string | false; stage: string | false; customer_po: string | false }>;
-  invoices: Array<{ id: number; name: string; partner: string | false; amount_total: number; payment_state: string | false; state: string }>;
-  dealers: Array<{ id: number; name: string }>;
+  orders: Array<{
+    id: number; name: string; client_name: string | false; dealer: string | false; stage: string | false;
+    customer_po: string | false; client_phone?: string | false; client_address?: string | false;
+    installation_date?: string | false; doors?: DoorLine[];
+  }>;
+  invoices: Array<{
+    id: number; name: string; partner: string | false; amount_total: number; payment_state: string | false; state: string;
+    amount_residual?: number; invoice_date?: string | false; clients?: string;
+  }>;
+  dealers: Array<{ id: number; name: string; phone?: string | false; email?: string | false; city?: string | false }>;
+  designs?: Array<{ id: number; code: string; name: string | false; door_type: string | false }>;
 }
+
+/** The tabs over the results; "all" shows everything. */
+export const SCOPES: Array<{ key: "all" | PaletteKind; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "order", label: "Orders" },
+  { key: "invoice", label: "Invoices" },
+  { key: "dealer", label: "Dealers" },
+  { key: "design", label: "Designs" },
+  { key: "page", label: "Pages" },
+];
 
 /** Lower case, no accents: "Diseño" and "diseno" are the same search. */
 export function normalize(s: string): string {
-  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
 /** Menu pages that match, best first: the label starts with it, then a word does, then it's inside. */
@@ -46,9 +80,32 @@ export function matchPages(
   return scored.sort((a, b) => b.score - a.score).slice(0, limit).map((s) => s.item);
 }
 
-const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+export const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
-/** API hits as rows: orders, then invoices, then dealers. */
+const DOOR_TYPE: Record<string, string> = { SD: "Single door", DD: "Double door", sidelite: "With sidelites" };
+
+/** "SD" -> "Single door"; anything unknown passes through. */
+export function doorTypeLabel(t: string | false | undefined): string {
+  return t ? DOOR_TYPE[t] ?? t : "";
+}
+
+/** "2026-12-03" -> "Thu, Dec 3" (a date, no clock: no time zone to get wrong). */
+export function shortDate(d: string | false | undefined): string {
+  if (!d) return "";
+  const [y, m, day] = d.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !day) return "";
+  return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(y, m - 1, day)));
+}
+
+function invoiceStatus(i: { state: string; payment_state: string | false }): string {
+  if (i.state === "draft") return "Draft";
+  if (i.payment_state === "paid" || i.payment_state === "in_payment") return "Paid";
+  if (i.payment_state === "partial") return "Partly paid";
+  return "Open";
+}
+
+/** API hits as rows: orders, then invoices, dealers and designs. */
 export function hitsToItems(hits: Partial<SearchHits>): PaletteItem[] {
   const out: PaletteItem[] = [];
   for (const o of hits.orders ?? []) {
@@ -58,22 +115,74 @@ export function hitsToItems(hits: Partial<SearchHits>): PaletteItem[] {
       title: [o.name, o.client_name].filter(Boolean).join(" · "),
       subtitle: [o.dealer, o.stage, o.customer_po ? `PO ${o.customer_po}` : ""].filter(Boolean).join(" · "),
       href: `/orders/${o.id}`,
+      detail: {
+        kind: "order",
+        client: o.client_name || "",
+        dealer: o.dealer || "",
+        stage: o.stage || "",
+        po: o.customer_po || "",
+        phone: o.client_phone || "",
+        address: o.client_address || "",
+        installDate: shortDate(o.installation_date),
+        doors: o.doors ?? [],
+      },
     });
   }
   for (const i of hits.invoices ?? []) {
-    const status = i.state === "draft" ? "Draft" : i.payment_state === "paid" ? "Paid" : i.payment_state === "partial" ? "Partly paid" : "Open";
+    const status = invoiceStatus(i);
     out.push({
       kind: "invoice",
       key: `invoice:${i.id}`,
       title: `Invoice ${i.state === "draft" || !i.name || i.name === "/" ? "(draft)" : i.name}`,
       subtitle: [i.partner, money.format(i.amount_total || 0), status].filter(Boolean).join(" · "),
       href: `/billing/invoices/${i.id}`,
+      detail: {
+        kind: "invoice",
+        dealer: i.partner || "",
+        amount: i.amount_total || 0,
+        due: i.amount_residual ?? 0,
+        status,
+        date: shortDate(i.invoice_date),
+        clients: i.clients || "",
+      },
     });
   }
   for (const d of hits.dealers ?? []) {
-    out.push({ kind: "dealer", key: `dealer:${d.id}`, title: d.name, subtitle: "Dealer", href: `/catalog/dealers/${d.id}` });
+    out.push({
+      kind: "dealer",
+      key: `dealer:${d.id}`,
+      title: d.name,
+      subtitle: ["Dealer", d.city].filter(Boolean).join(" · "),
+      href: `/catalog/dealers/${d.id}`,
+      detail: { kind: "dealer", phone: d.phone || "", email: d.email || "", city: d.city || "" },
+    });
+  }
+  for (const g of hits.designs ?? []) {
+    out.push({
+      kind: "design",
+      key: `design:${g.id}`,
+      title: [g.code, g.name].filter(Boolean).join(" · "),
+      subtitle: doorTypeLabel(g.door_type) || "Design",
+      href: `/catalog/designs/${g.id}`,
+      detail: { kind: "design", code: g.code, name: g.name || "", doorType: doorTypeLabel(g.door_type), imageUrl: `/api/catalog/designs/${g.id}/image` },
+    });
   }
   return out;
+}
+
+/** How many rows of each kind, for the counts on the tabs. */
+export function countByKind(items: PaletteItem[]): Record<string, number> {
+  const c: Record<string, number> = { all: items.length };
+  for (const i of items) c[i.kind] = (c[i.kind] ?? 0) + 1;
+  return c;
+}
+
+/** Tab / Shift+Tab: next scope that has results (or "all"), wrapping around. */
+export function nextScope(current: string, counts: Record<string, number>, back = false): string {
+  const keys = SCOPES.map((s) => s.key).filter((k) => k === "all" || (counts[k] ?? 0) > 0);
+  const i = Math.max(0, keys.indexOf(current as (typeof keys)[number]));
+  const n = keys.length;
+  return keys[(i + (back ? n - 1 : 1)) % n];
 }
 
 /**

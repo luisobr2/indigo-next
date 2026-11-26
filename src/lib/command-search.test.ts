@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  countByKind,
+  doorTypeLabel,
   hitsToItems,
+  nextScope,
+  shortDate,
   isPaletteShortcut,
   matchPages,
   normalize,
@@ -84,4 +88,52 @@ test("Ctrl+K and Cmd+K open it; plain K or Ctrl+Shift+K don't", () => {
   assert.ok(isPaletteShortcut({ key: "K", ctrlKey: false, metaKey: true }));
   assert.ok(!isPaletteShortcut({ key: "k", ctrlKey: false, metaKey: false }));
   assert.ok(!isPaletteShortcut({ key: "k", ctrlKey: true, metaKey: false, shiftKey: true }));
+});
+
+test("each row carries what the preview pane shows", () => {
+  const items = hitsToItems({
+    orders: [{
+      id: 7, name: "IND/2026/00007", client_name: "Ada Quillon", dealer: "Dealer A", stage: "CNC / Router",
+      customer_po: "QUILLON 400001", client_phone: "305-555-0100", client_address: "1 Main St, Miami FL 33101",
+      installation_date: "2026-12-03",
+      doors: [{ design: "ID70", design_id: 70, door_type: "DD", color: "black", qty: 1 }],
+    }],
+    invoices: [{ id: 3, name: "1501", partner: "Dealer A", amount_total: 623.5, amount_residual: 123.5, payment_state: "partial", state: "posted", invoice_date: "2026-11-20", clients: "Ada Quillon" }],
+    dealers: [{ id: 9, name: "Dealer A", phone: "305", email: "a@dealer.test", city: "Doral" }],
+    designs: [{ id: 70, code: "ID70", name: "Wave", door_type: "DD" }],
+  });
+  assert.deepEqual(items.map((i) => i.kind), ["order", "invoice", "dealer", "design"]);
+  const order = items[0].detail!;
+  assert.equal(order.kind, "order");
+  if (order.kind === "order") {
+    assert.equal(order.installDate, "Thu, Dec 3");
+    assert.equal(order.doors[0].design, "ID70");
+  }
+  const inv = items[1].detail!;
+  assert.ok(inv.kind === "invoice" && inv.due === 123.5 && inv.status === "Partly paid");
+  assert.equal(items[2].subtitle, "Dealer · Doral");
+  assert.equal(items[3].href, "/catalog/designs/70");
+  assert.equal(items[3].subtitle, "Double door");
+  const d = items[3].detail!;
+  assert.ok(d.kind === "design" && d.imageUrl === "/api/catalog/designs/70/image");
+});
+
+test("labels and dates read like the rest of the panel", () => {
+  assert.equal(doorTypeLabel("SD"), "Single door");
+  assert.equal(doorTypeLabel("sidelite"), "With sidelites");
+  assert.equal(shortDate("2026-11-26"), "Thu, Nov 26");
+  assert.equal(shortDate(false), "");
+});
+
+test("tabs: counts per kind, and Tab skips the empty ones", () => {
+  const items = hitsToItems({
+    orders: [{ id: 1, name: "A", client_name: false, dealer: false, stage: false, customer_po: false }],
+    dealers: [{ id: 2, name: "B" }],
+  });
+  const counts = countByKind(items);
+  assert.deepEqual(counts, { all: 2, order: 1, dealer: 1 });
+  assert.equal(nextScope("all", counts), "order");
+  assert.equal(nextScope("order", counts), "dealer");
+  assert.equal(nextScope("dealer", counts), "all");
+  assert.equal(nextScope("all", counts, true), "dealer");
 });
