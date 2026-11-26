@@ -76,6 +76,34 @@ export function hitsToItems(hits: Partial<SearchHits>): PaletteItem[] {
   return out;
 }
 
+/**
+ * Phones are stored in half a dozen formats ("+1 305-555-0142",
+ * "(305) 555-0142", "1 (305)…"). Typing only the digits found 1 in 20 of them
+ * in production; an ilike pattern with a wildcard between digits finds them
+ * all. Null when the query has fewer than 4 digits or isn't mostly a number.
+ */
+export function phonePattern(query: string): string | null {
+  const digits = query.replace(/\D/g, "");
+  if (digits.length < 4 || digits.length < query.replace(/\s/g, "").length - 2) return null;
+  return digits.split("").join("%");
+}
+
+/**
+ * "544" or "00544" → the order IND/YYYY/00544 itself, so it comes first instead
+ * of drowning among the 100+ orders whose PO or phone also contains "544".
+ * Null unless the query is a bare order number.
+ */
+export function orderNumberSuffix(query: string): string | null {
+  const q = query.trim();
+  if (!/^\d{1,5}$/.test(q)) return null;
+  return "/" + q.padStart(5, "0");
+}
+
+/** Last places opened from the box, newest first, without repeats. */
+export function pushRecent(recent: PaletteItem[], item: PaletteItem, max = 6): PaletteItem[] {
+  return [item, ...recent.filter((r) => r.key !== item.key)].slice(0, max);
+}
+
 /** Ctrl+K on Windows/Linux, ⌘K on a Mac. */
 export function isPaletteShortcut(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey?: boolean; shiftKey?: boolean }): boolean {
   return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k";

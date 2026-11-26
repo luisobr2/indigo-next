@@ -1,6 +1,46 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hitsToItems, isPaletteShortcut, matchPages, normalize } from "./command-search.ts";
+import {
+  hitsToItems,
+  isPaletteShortcut,
+  matchPages,
+  normalize,
+  orderNumberSuffix,
+  phonePattern,
+  pushRecent,
+  type PaletteItem,
+} from "./command-search.ts";
+
+test("a phone typed as bare digits matches any stored format", () => {
+  const p = phonePattern("3055550142")!;
+  assert.equal(p, "3%0%5%5%5%5%0%1%4%2");
+  // the ilike pattern, read as a regex, matches the formats seen in production
+  const re = new RegExp(p.replace(/%/g, ".*"));
+  for (const stored of ["+1 305-555-0142", "(305) 555-0142", "1 (305) 555-0142", "+1 (305)555-0142"]) {
+    assert.match(stored, re, stored);
+  }
+  assert.equal(phonePattern("0142"), "0%1%4%2", "last four digits are enough");
+  assert.equal(phonePattern("305-555-0142"), "3%0%5%5%5%5%0%1%4%2");
+  assert.equal(phonePattern("123"), null, "too short to be a phone");
+  assert.equal(phonePattern("Garcia 1234"), null, "a name with a number is not a phone");
+});
+
+test("a bare number goes straight to that order", () => {
+  assert.equal(orderNumberSuffix("544"), "/00544");
+  assert.equal(orderNumberSuffix(" 00544 "), "/00544");
+  assert.equal(orderNumberSuffix("1381"), "/01381");
+  assert.equal(orderNumberSuffix("149281"), null, "six digits is a PO, not an order number");
+  assert.equal(orderNumberSuffix("VELEZ 1"), null);
+});
+
+test("recent places: newest first, no repeats, capped", () => {
+  const it = (n: number): PaletteItem => ({ kind: "order", key: `order:${n}`, title: `#${n}`, href: `/orders/${n}` });
+  let r = [it(1), it(2), it(3)];
+  r = pushRecent(r, it(2));
+  assert.deepEqual(r.map((x) => x.key), ["order:2", "order:1", "order:3"]);
+  r = pushRecent(r, it(9), 3);
+  assert.deepEqual(r.map((x) => x.key), ["order:9", "order:2", "order:1"]);
+});
 
 const PAGES = [
   { href: "/orders", label: "Orders" },
